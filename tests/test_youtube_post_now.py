@@ -102,7 +102,7 @@ class YouTubePostNowTests(unittest.TestCase):
 
             with patch.object(phone_youtube, "connect_sidetap"), \
                     patch.object(phone_youtube, "phone", fake), \
-                    patch.object(phone_youtube, "upload_focus", return_value=nullcontext()), \
+                    patch.object(phone_youtube, "optional_focus", return_value=nullcontext()), \
                     patch.object(phone_youtube, "layout", return_value=PhoneLayout(440, 956)), \
                     patch.object(phone_youtube, "ensure_youtube_channel"), \
                     patch.object(phone_youtube, "open_onedrive_file"), \
@@ -160,7 +160,7 @@ class YouTubePostNowTests(unittest.TestCase):
             with patch.object(phone_youtube, "connect_sidetap"), \
                     patch.object(phone_youtube, "phone", fake), \
                     patch.object(phone_youtube, "WDAError", LinkLost), \
-                    patch.object(phone_youtube, "upload_focus", return_value=nullcontext()), \
+                    patch.object(phone_youtube, "optional_focus", return_value=nullcontext()), \
                     patch.object(phone_youtube, "layout"), \
                     patch.object(phone_youtube, "ensure_youtube_channel"), \
                     patch.object(phone_youtube, "open_onedrive_file"), \
@@ -192,7 +192,7 @@ class YouTubePostNowTests(unittest.TestCase):
             thread.start()
             try:
                 with patch.object(server, "STATE", state), patch.object(server, "TEST_MODE", False), \
-                        patch("scripts.phone_youtube.run", side_effect=fake_run):
+                        patch("scripts.phone_youtube.run", side_effect=fake_run),                         patch.object(server, "youtube_quality_gate", return_value="full"):
                     url = f"http://127.0.0.1:{http.server_port}/api/releases/{release_id}/youtube-post"
                     post = lambda: Request(url, data=b"{}", method="POST")
                     with urlopen(post(), timeout=5) as response:

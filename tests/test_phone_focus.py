@@ -1,6 +1,6 @@
 import unittest
 
-from video_drop.phone_focus import FocusError, focus_state, upload_focus
+from video_drop.phone_focus import FocusError, focus_state, optional_focus, upload_focus
 
 
 class FakePhone:
@@ -52,6 +52,19 @@ class PhoneFocusTests(unittest.TestCase):
                 raise RuntimeError("upload failed")
         self.assertFalse(phone.dnd)
         self.assertFalse(phone.in_control)
+
+    def test_switched_off_check_leaves_focus_untouched(self):
+        phone = FakePhone()
+        with optional_focus(phone, False):
+            self.assertFalse(phone.dnd)
+        self.assertEqual(phone.taps, [])
+        self.assertFalse(phone.in_control)
+
+    def test_switched_on_check_holds_dnd(self):
+        phone = FakePhone()
+        with optional_focus(phone, True):
+            self.assertTrue(phone.dnd)
+        self.assertFalse(phone.dnd)
 
     def test_preserves_dnd_that_was_already_on(self):
         phone = FakePhone(dnd=True)

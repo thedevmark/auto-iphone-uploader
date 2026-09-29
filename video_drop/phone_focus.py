@@ -6,7 +6,7 @@ before media enters a platform composer.
 
 from __future__ import annotations
 
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 
 from .phone_ui import PhoneLayout
 
@@ -108,3 +108,8 @@ def upload_focus(phone):
     finally:
         if changed:
             restore_focus(phone)
+
+
+def optional_focus(phone, enabled: bool):
+    """Hold Do Not Disturb for an upload only when the operator keeps that check on."""
+    return upload_focus(phone) if enabled else nullcontext()

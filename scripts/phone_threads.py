@@ -20,7 +20,7 @@ sys.path.insert(0, str(ROOT))
 from video_drop.core import Store, digest  # noqa: E402
 from video_drop.accounts import load_targets, require_target  # noqa: E402
 from scripts import phone_youtube as share  # noqa: E402
-from video_drop.phone_focus import upload_focus  # noqa: E402
+from video_drop.phone_focus import optional_focus  # noqa: E402
 
 phone = share.phone
 
@@ -98,7 +98,7 @@ def run(release_id: int, db: Path, *, commit: bool = False) -> dict:
         global phone
         phone = share.phone
         phone.unlock()
-        with upload_focus(phone):
+        with optional_focus(phone, store.phone_checks()["doNotDisturb"]):
             for attempt in range(3):
                 try:
                     prepare(data)
