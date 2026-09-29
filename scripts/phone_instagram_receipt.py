@@ -51,10 +51,15 @@ def visible_rows(device) -> list[dict]:
 
 
 def open_scheduled_content(device) -> list[dict]:
-    rows = visible_rows(device)
-    if any(row.get("text") == "Scheduled content" for row in rows):
-        return rows
     layout = PhoneLayout.from_info(device.screen_info())
+    def title_visible(rows: list[dict]) -> bool:
+        return any(row.get("text") == "Scheduled content" and row.get("type") != "Button"
+                   and layout.relative_band(row, left=0.2, right=0.8, top=0.04, bottom=0.2)
+                   for row in rows)
+
+    rows = visible_rows(device)
+    if title_visible(rows):
+        return rows
     menu = [row for row in rows if row.get("type") == "Button"
             and row.get("text") in {"Menu", "Options", "More options"}
             and layout.relative_band(row, left=0.55, top=0.02, bottom=0.22)]
@@ -76,8 +81,7 @@ def open_scheduled_content(device) -> list[dict]:
         raise ValueError(f"Instagram Scheduled content menu item is missing; visible: {labels[:18]}")
     for _ in range(20):
         rows = visible_rows(device)
-        titles = [row for row in rows if row.get("text") == "Scheduled content"]
-        if len(titles) == 1:
+        if title_visible(rows):
             return rows
         time.sleep(0.5)
     raise ValueError("Instagram Scheduled content screen did not open")
