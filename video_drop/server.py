@@ -134,30 +134,52 @@ def queue_phone_inspection() -> dict:
         STATE.mkdir(parents=True, exist_ok=True)
         (STATE / "phone-inspection.json").write_text(json.dumps(state), encoding="utf-8")
 
-    def work() -> None:
-        global PHONE_RUNNING
-        try:
-            env = os.environ.copy()
-            env["VIDEO_DROP_STATE"] = str(STATE)
-            env["PYTHONIOENCODING"] = "utf-8"
-            completed = subprocess.run([sys.executable, str(ROOT / "scripts" / "phone_onboard.py")],
-                                       cwd=ROOT, env=env, capture_output=True, text=True, timeout=90)
-            output = json.loads((completed.stdout if completed.returncode == 0 else completed.stderr).strip().splitlines()[-1])
-            if completed.returncode:
-                result = {"status": "failed", "error": str(output.get("error", "Phone inspection failed"))[:240]}
-            else:
-                result = {"status": "ready", "screenPoints": output["screenPoints"],
-                          "installed": output["installed"], "youtube": output["youtube"],
-                          "youtubeProbeError": output.get("youtubeProbeError", "")}
-        except Exception as exc:
-            result = {"status": "failed", "error": str(exc)[:240]}
-        finally:
-            with PHONE_LOCK:
-                PHONE_RUNNING = False
-                (STATE / "phone-inspection.json").write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
-
-    PHONE_POOL.submit(work)
+    PHONE_POOL.submit(run_phone_inspection)
     return state
+
+
+def run_phone_inspection() -> dict:
+    """Run the read-only phone inventory now; callers hold the single phone worker."""
+    global PHONE_RUNNING
+    with PHONE_LOCK:
+        PHONE_RUNNING = True
+        STATE.mkdir(parents=True, exist_ok=True)
+        (STATE / "phone-inspection.json").write_text(json.dumps({"status": "inspecting"}), encoding="utf-8")
+    try:
+        env = os.environ.copy()
+        env["VIDEO_DROP_STATE"] = str(STATE)
+        env["PYTHONIOENCODING"] = "utf-8"
+        completed = subprocess.run([sys.executable, str(ROOT / "scripts" / "phone_onboard.py")],
+                                   cwd=ROOT, env=env, capture_output=True, text=True, timeout=90)
+        output = json.loads((completed.stdout if completed.returncode == 0 else completed.stderr).strip().splitlines()[-1])
+        if completed.returncode:
+            result = {"status": "failed", "error": str(output.get("error", "Phone inspection failed"))[:240]}
+        else:
+            result = {"status": "ready", "screenPoints": output["screenPoints"],
+                      "installed": output["installed"], "youtube": output["youtube"],
+                      "youtubeProbeError": output.get("youtubeProbeError", "")}
+    except Exception as exc:
+        result = {"status": "failed", "error": str(exc)[:240]}
+    finally:
+        with PHONE_LOCK:
+            PHONE_RUNNING = False
+            (STATE / "phone-inspection.json").write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
+    return result
+
+
+def youtube_quality_gate(checks: dict) -> str:
+    """Check YouTube's upload quality on the first upload and, if chosen, every upload."""
+    quality = phone_inspection().get("youtube", {}).get("uploadQuality", {})
+    if "status" in quality and not checks["youtubeQualityEveryUpload"]:
+        return quality["status"]
+    result = run_phone_inspection()
+    if result["status"] != "ready":
+        raise ValueError(f"YouTube quality check could not run; nothing was uploaded. {result.get('error', '')}".strip())
+    status = result["youtube"].get("uploadQuality", {}).get("status", "unverified")
+    if status == "limited":
+        raise ValueError("YouTube is set to upload at reduced quality; nothing was uploaded. "
+                         "In YouTube Settings set Upload quality to Full quality, then try again.")
+    return status
 
 
 def phone_action_status() -> dict:
@@ -210,6 +232,9 @@ def queue_phone_post(release_id: int, platform: str) -> dict:
                 outcome = run(release_id, STATE / "video-drop.sqlite", commit=True)
             else:
                 from scripts.phone_youtube import run
+                with Store(STATE / "video-drop.sqlite", load_targets(STATE)) as store:
+                    checks = store.phone_checks()
+                youtube_quality_gate(checks)
                 outcome = run(str(release_id), STATE / "video-drop.sqlite", commit=True)
             result = {"status": "needs_check", "platform": platform, "releaseId": release_id,
                       "message": outcome["message"]}
@@ -502,7 +527,9 @@ class Handler(BaseHTTPRequestHandler):
                     upcoming.append(slot.isoformat())
                     occupied.add(slot.astimezone(timezone.utc).isoformat())
                 self._json(200, {"watch": WATCHER.status(), "postingSlots": slots,
-                                 "timeZone": "America/New_York", "nextSlots": upcoming})
+                                 "timeZone": "America/New_York", "nextSlots": upcoming,
+                                 "phoneChecks": store.phone_checks(),
+                                 "youtubeQuality": phone_inspection().get("youtube", {}).get("uploadQuality", {})})
         elif path == "/api/phone":
             self._json(200, phone_inspection())
         elif path == "/api/phone-action":
@@ -562,13 +589,16 @@ class Handler(BaseHTTPRequestHandler):
             except (ValueError, OSError, subprocess.TimeoutExpired, json.JSONDecodeError) as exc:
                 self._json(400, {"error": str(exc)})
             return
-        if path in {"/api/watch/toggle", "/api/settings/slots"}:
+        if path in {"/api/watch/toggle", "/api/settings/slots", "/api/settings/phone-checks"}:
             try:
                 data = self._body()
                 if path == "/api/watch/toggle":
                     if not isinstance(data.get("enabled"), bool):
                         raise ValueError("Expected an on/off value")
                     self._json(200, {"watch": WATCHER.configure(enabled=data["enabled"])})
+                elif path == "/api/settings/phone-checks":
+                    with self._store() as store:
+                        self._json(200, {"phoneChecks": store.set_phone_checks(data.get("phoneChecks"))})
                 else:
                     with self._store() as store:
                         self._json(200, {"postingSlots": store.set_posting_slots(data.get("slots"))})
@@ -648,8 +678,10 @@ def main() -> None:
     args = parser.parse_args()
     server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
     inspection = phone_inspection()
-    if inspection["status"] in {"idle", "failed"} or (inspection["status"] == "ready" and
-            "uploadQuality" not in inspection.get("youtube", {})):
+    with Store(STATE / "video-drop.sqlite") as store:
+        inspect_on_open = store.phone_checks()["inspectPhoneOnOpen"]
+    if inspect_on_open and (inspection["status"] in {"idle", "failed"} or (inspection["status"] == "ready" and
+            "uploadQuality" not in inspection.get("youtube", {}))):
         queue_phone_inspection()
     recovery_stop = threading.Event()
     watch_stop = threading.Event()

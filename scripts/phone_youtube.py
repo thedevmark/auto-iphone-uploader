@@ -22,7 +22,7 @@ from PIL import Image
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from video_drop.phone_ui import PhoneLayout, filled_radio, share_app_position, youtube_identity, youtube_page_account
 from video_drop.youtube_nav import open_tabs
-from video_drop.phone_focus import FocusError, upload_focus
+from video_drop.phone_focus import FocusError, optional_focus
 from video_drop.core import Store
 from video_drop.phone_manifest import verify_youtube_manifest, youtube_input
 from video_drop.accounts import load_targets
@@ -476,7 +476,7 @@ def run(release: str, db: Path, *, commit: bool = False, resume_share: bool = Fa
         for attempt in range(3):
             try:
                 phone.unlock()
-                with upload_focus(phone):
+                with optional_focus(phone, store.phone_checks()["doNotDisturb"]):
                     if resume_share and attempt == 0:
                         assert_share_sheet(data, timeout=8)
                     else:

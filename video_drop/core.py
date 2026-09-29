@@ -15,6 +15,13 @@ DESTINATIONS = PLATFORMS
 TIMED_DESTINATIONS = frozenset(DESTINATIONS) - {"threads"}
 EDITABLE = ("draft", "reserved")
 DEFAULT_SLOTS = ("10:00", "19:00")
+# Phone checks the operator can switch off. Account and exact-file checks are
+# safety gates, not preferences, so they are deliberately absent here.
+PHONE_CHECK_DEFAULTS = {
+    "doNotDisturb": True,
+    "youtubeQualityEveryUpload": False,
+    "inspectPhoneOnOpen": True,
+}
 DELIVERY_MODES = ("schedule", "post_now")
 PLATFORM_HASHTAGS = {"youtube": "#shorts", "instagram": "#reels", "facebook": "#reels", "threads": "", "tiktok": "#fyp"}
 
@@ -215,6 +222,26 @@ class Store:
             self.db.execute("INSERT INTO setting(key,value) VALUES('posting_slots',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
                             (json.dumps(valid),))
         return valid
+
+    def phone_checks(self) -> dict:
+        row = self.db.execute("SELECT value FROM setting WHERE key='phone_checks'").fetchone()
+        saved = json.loads(row[0]) if row else {}
+        return {key: saved.get(key, default) if isinstance(saved.get(key), bool) else default
+                for key, default in PHONE_CHECK_DEFAULTS.items()}
+
+    def set_phone_checks(self, changes: dict) -> dict:
+        if not isinstance(changes, dict) or not changes:
+            raise ValueError("Expected phone check settings")
+        unknown = set(changes) - set(PHONE_CHECK_DEFAULTS)
+        if unknown:
+            raise ValueError(f"Unknown phone check: {sorted(unknown)[0]}")
+        if not all(isinstance(value, bool) for value in changes.values()):
+            raise ValueError("Phone checks must be on or off")
+        checks = {**self.phone_checks(), **changes}
+        with self.db:
+            self.db.execute("INSERT INTO setting(key,value) VALUES('phone_checks',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                            (json.dumps(checks),))
+        return checks
 
     def set_delivery_mode(self, release_id: int, mode: str) -> dict:
         if mode not in DELIVERY_MODES:

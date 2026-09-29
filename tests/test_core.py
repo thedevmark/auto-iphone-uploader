@@ -27,6 +27,17 @@ class VideoDropTests(unittest.TestCase):
         self.store.close()
         self.temp.cleanup()
 
+    def test_phone_checks_default_on_and_persist(self):
+        self.assertEqual(self.store.phone_checks(), {"doNotDisturb": True, "youtubeQualityEveryUpload": False,
+                                                     "inspectPhoneOnOpen": True})
+        self.store.set_phone_checks({"doNotDisturb": False})
+        with Store(self.root / "state.sqlite") as reopened:
+            self.assertFalse(reopened.phone_checks()["doNotDisturb"])
+            self.assertTrue(reopened.phone_checks()["inspectPhoneOnOpen"])
+        for bad in ({}, {"accountCheck": False}, {"doNotDisturb": "no"}):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                self.store.set_phone_checks(bad)
+
     def test_slot_sequence_across_evening_and_dst(self):
         now = datetime(2026, 9, 27, 20, 0, tzinfo=timezone.utc)  # 4 PM ET
         first = next_slot(now, set())
