@@ -89,9 +89,9 @@ Instagram and Facebook captions end in `#reels`; TikTok's caption ends in
 `#fyp`; Threads uses the shared hashtags without a platform suffix. YouTube's
 description prose and comma-separated tags stay editable. Facebook and Threads
 retain their own account identities. Any changed output must be reviewed and
-confirmed again. The Threads phone runner is designed for
-immediate posting once its exact caption is confirmed; it is not yet connected
-to the desktop Schedule action. Other destinations target the selected native
+confirmed again. The Threads tab can start an immediate native phone post once
+its exact caption is confirmed. A final tap remains unconfirmed until a matching
+Threads post is checked, and Video Drop never retries it automatically. Other destinations target the selected native
 slot once their phone runners and receipts are connected.
 
 ```powershell
@@ -100,9 +100,9 @@ python -m unittest discover -s tests -v
 
 The phone scripts and the cross-platform test suite need Pillow. Install
 `requirements-test.txt` for a reproducible local test environment; it also
-includes `tzdata` for Windows timezone support. Run the suite locally on
-Windows or Linux. Live iPhone behavior needs a connected device and platform
-accounts; unit tests do not verify a platform upload.
+includes `tzdata` for Windows timezone support. GitHub Actions runs the suite
+on Windows and Linux. Live iPhone behavior is checked separately because CI
+has no connected device or platform accounts.
 
 ## Homebase data snapshot
 

@@ -88,16 +88,12 @@ def prepare(data: dict) -> None:
     unique(rows, "Post this thread", kind="Button")
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("release_id", type=int)
-    parser.add_argument("--db", type=Path, default=ROOT / ".state" / "video-drop.sqlite")
-    parser.add_argument("--commit", action="store_true")
-    args = parser.parse_args()
-    if args.commit and os.environ.get("VIDEO_DROP_TEST_MODE") == "1":
+def run(release_id: int, db: Path, *, commit: bool = False) -> dict:
+    """Use the native Threads composer for one confirmed release."""
+    if commit and os.environ.get("VIDEO_DROP_TEST_MODE") == "1":
         raise share.PhoneUploadError("Posting is disabled in this test session")
-    with Store(args.db, load_targets(args.db.parent)) as store:
-        data = release_input(store, args.release_id)
+    with Store(db, load_targets(db.parent)) as store:
+        data = release_input(store, release_id)
         share.connect_sidetap()
         global phone
         phone = share.phone
@@ -111,20 +107,28 @@ def main() -> None:
                     if attempt == 2 or share.sidetap_admin.up() != 0:
                         raise share.PhoneUploadError("SideTap could not restore Threads preparation; nothing posted") from exc
                     time.sleep(1)
-            if not args.commit:
-                print(json.dumps({"kind": "ready", "platform": "threads", "releaseId": args.release_id}))
-                return
+            if not commit:
+                return {"kind": "ready", "platform": "threads", "releaseId": release_id}
             # Record uncertainty before the final tap. A WDA timeout after this
             # point can mean a successful post, so the script cannot replay it.
-            store.mark_unconfirmed(args.release_id, "threads", expected_revision=data["revisionHash"])
+            store.mark_unconfirmed(release_id, "threads", expected_revision=data["revisionHash"])
             rows = share.screen()
             unique(rows, data["caption"], kind="TextView")
             unique(rows, data["account"], kind="Link")
             unique(rows, "Remove video at attached item #1", kind="Button")
             post = unique(rows, "Post this thread", kind="Button")
             phone.tap(post["x"], post["y"])
-            print(json.dumps({"kind": "unconfirmed", "platform": "threads", "releaseId": args.release_id,
-                              "message": "Final tap sent; check native Threads receipt before any retry"}))
+            return {"kind": "unconfirmed", "platform": "threads", "releaseId": release_id,
+                    "message": "Final tap sent; check native Threads receipt before any retry"}
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("release_id", type=int)
+    parser.add_argument("--db", type=Path, default=ROOT / ".state" / "video-drop.sqlite")
+    parser.add_argument("--commit", action="store_true")
+    args = parser.parse_args()
+    print(json.dumps(run(args.release_id, args.db, commit=args.commit)))
 
 
 if __name__ == "__main__":
