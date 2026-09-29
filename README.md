@@ -32,7 +32,10 @@ before using native phone uploads.
 
 Double-click the shortcut, or run `pythonw launch_video_drop.py`. The launcher starts the local server
 in the background if needed and opens the editor. Closing the editor window
-does not stop the server; run the launcher again to reopen it.
+does not stop the server; run the launcher again to reopen it. If the source
+changes while the server is running, the launcher shows a clear stale-server
+message instead of opening the old version. Restart that server before opening
+the updated app; local draft data remains in `.state`.
 
 The core app uses only the Python standard library.
 For local transcription, install `requirements-analysis.txt` and put
