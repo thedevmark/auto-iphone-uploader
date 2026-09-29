@@ -1,4 +1,4 @@
-"""One-click Windows launcher for the local Video Drop editor."""
+"""One-click Windows launcher for Automated iPhone Social Media Uploads."""
 
 from __future__ import annotations
 
@@ -18,7 +18,11 @@ URL = "http://127.0.0.1:4748/"
 def server_is_ready() -> bool:
     try:
         with urllib.request.urlopen(URL, timeout=1) as response:
-            return response.status == 200 and b"<title>Video Drop</title>" in response.read(2048)
+            title = response.read(2048)
+            return response.status == 200 and any(name in title for name in (
+                b"<title>Automated iPhone Social Media Uploads</title>",
+                b"<title>Video Drop</title>",  # Existing local server during the rename.
+            ))
     except (OSError, urllib.error.URLError):
         return False
 
@@ -50,7 +54,7 @@ def main() -> None:
                 break
             time.sleep(0.25)
         else:
-            raise SystemExit(f"Video Drop did not start. See {state / 'server.log'}")
+            raise SystemExit(f"Automated iPhone Social Media Uploads did not start. See {state / 'server.log'}")
     webbrowser.open(URL)
 
 

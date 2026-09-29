@@ -74,7 +74,7 @@ def main() -> None:
         if instagram["status"] != "pending":
             raise ValueError("Instagram has already been attempted; check its native receipt")
         if not instagram["revision_hash"]:
-            raise ValueError("Instagram text is not confirmed in Video Drop")
+            raise ValueError("Instagram text is not confirmed in Automated iPhone Social Media Uploads")
         if instagram["revision_hash"] != revision:
             raise ValueError("Instagram text changed after confirmation")
         source = Path(release["source_path"])

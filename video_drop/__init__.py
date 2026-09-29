@@ -1,1 +1,1 @@
-"""Local Video Drop application."""
+"""Local Automated iPhone Social Media Uploads application."""

@@ -1,4 +1,4 @@
-# Homebase to Video Drop migration
+# Homebase to Automated iPhone Social Media Uploads migration
 
 Homebase stays live until every gate below is met. No removal or DB migration
 should infer publication from an `uploading`, `awaiting_phone`, or ready
@@ -25,7 +25,7 @@ composer state.
 3. A batch chooses the next free configured New York slot (10 AM and 7 PM by
    default, one to five per day) and enters it in each supported platform's
    native scheduler, including consecutive clips. Threads uses immediate
-   native posting by operator choice. Video Drop records each native schedule
+   native posting by operator choice. Automated iPhone Social Media Uploads records each native schedule
    or publication confirmation; it does not need to remain running until the
    scheduled publish time. Confirm scheduling in the actual TikTok
    iPhone app and account before treating TikTok as supported; its availability
