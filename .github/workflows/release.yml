@@ -1,0 +1,59 @@
+name: Release
+
+# Publish a GitHub Release (for example `gh release create v0.1.0 --generate-notes`)
+# and this workflow attaches a source zip built by GitHub, not on a personal
+# machine, plus its SHA-256 and a signed build-provenance attestation. Anyone
+# can check the zip came from this repository at that tag with
+# `gh attestation verify <zip> --repo thedevmark/auto-iphone-uploader`.
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    env:
+      TAG: ${{ github.event.release.tag_name }}
+      VT_API_KEY: ${{ secrets.VT_API_KEY }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          persist-credentials: false
+
+      - name: Build source zip from the tagged commit
+        run: |
+          name="auto-iphone-uploader-${TAG}"
+          git archive --format=zip --prefix="${name}/" -o "${name}.zip" HEAD
+          sha256sum "${name}.zip" > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+          echo "ZIP=${name}.zip" >> "$GITHUB_ENV"
+
+      - name: Sign build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: ${{ env.ZIP }}
+
+      - name: Attach zip and checksum to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$TAG" "$ZIP" SHA256SUMS.txt --clobber --repo "$GITHUB_REPOSITORY"
+
+      # Runs only once a VT_API_KEY repository secret exists. Adds a public
+      # VirusTotal report link for the zip to the release notes.
+      - name: Scan zip with VirusTotal
+        if: ${{ env.VT_API_KEY != '' }}
+        uses: crazy-max/ghaction-virustotal@936d8c5c00afe97d3d9a1af26d017cfdf26800a2 # v5.0.0
+        with:
+          vt_api_key: ${{ secrets.VT_API_KEY }}
+          github_token: ${{ github.token }}
+          update_release_body: true
+          files: ${{ env.ZIP }}
