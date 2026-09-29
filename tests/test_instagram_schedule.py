@@ -29,24 +29,28 @@ def scheduled_rows(caption: str = CAPTION, time: str = "Scheduled Sep 29 at 10:0
 class InstagramScheduleTests(unittest.TestCase):
     def test_device_time_zone_must_come_from_a_valid_go_ios_value(self):
         valid = subprocess.CompletedProcess([], 0, '{"TimeZone":"America/New_York"}', "")
-        with patch("video_drop.instagram_schedule.subprocess.run", return_value=valid):
-            self.assertEqual(read_device_time_zone(), "America/New_York")
+        with patch("video_drop.instagram_schedule.subprocess.run", return_value=valid) as run:
+            self.assertEqual(read_device_time_zone("phone-one"), "America/New_York")
+            self.assertEqual(run.call_args.args[0][-1], "--udid=phone-one")
         wrapped = subprocess.CompletedProcess([], 0, '{"Value":"America/New_York"}', "")
         with patch("video_drop.instagram_schedule.subprocess.run", return_value=wrapped):
-            self.assertEqual(read_device_time_zone(), "America/New_York")
+            self.assertEqual(read_device_time_zone("phone-one"), "America/New_York")
         invalid = subprocess.CompletedProcess([], 0, '{"TimeZone":"not-a-zone"}', "")
         global_values = subprocess.CompletedProcess([], 0,
             '{"Value":{"Other":"America/Los_Angeles","TimeZone":"America/New_York"}}', "")
         with patch("video_drop.instagram_schedule.subprocess.run", side_effect=[invalid, global_values]) as run:
-            self.assertEqual(read_device_time_zone(), "America/New_York")
-            self.assertEqual(run.call_args_list[1].args[0], ("ios", "lockdown", "get"))
+            self.assertEqual(read_device_time_zone("phone-one"), "America/New_York")
+            self.assertEqual(run.call_args_list[1].args[0],
+                             ("ios", "lockdown", "get", "--udid=phone-one"))
         unrelated = subprocess.CompletedProcess([], 0, '{"Other":"America/Los_Angeles"}', "")
         with patch("video_drop.instagram_schedule.subprocess.run", return_value=unrelated):
             with self.assertRaisesRegex(ValueError, "keep Instagram unconfirmed"):
-                read_device_time_zone()
+                read_device_time_zone("phone-one")
         with patch("video_drop.instagram_schedule.subprocess.run", return_value=invalid):
             with self.assertRaisesRegex(ValueError, "keep Instagram unconfirmed"):
-                read_device_time_zone()
+                read_device_time_zone("phone-one")
+        with self.assertRaisesRegex(ValueError, "Select one connected iPhone"):
+            read_device_time_zone("")
 
     def test_scheduled_thumbnail_matches_first_frame_but_rejects_another_clip(self):
         frame = Image.new("RGB", (320, 568), "#152020")

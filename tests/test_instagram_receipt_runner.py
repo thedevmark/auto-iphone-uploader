@@ -99,9 +99,22 @@ class InstagramReceiptRunnerTests(unittest.TestCase):
     def run_with_phone(self):
         with patch.object(receipt.preflight, "connect_sidetap"), \
                 patch.object(receipt.preflight, "phone", self.device), \
-                patch.object(receipt, "read_device_time_zone", return_value="America/New_York"), \
+                patch.object(receipt, "connected_usb_udid", return_value="phone-one"), \
+                patch.object(receipt, "read_device_time_zone", return_value="America/New_York") as zone, \
                 patch("video_drop.instagram_schedule.first_frame", return_value=self.frame):
-            return receipt.run(self.release_id, self.db)
+            result = receipt.run(self.release_id, self.db)
+            zone.assert_called_once_with("phone-one")
+            return result
+
+    def test_usb_target_must_be_unique_and_match_sidetap_pin(self):
+        self.assertEqual(receipt.single_usb_udid(["phone-one"], ""), "phone-one")
+        self.assertEqual(receipt.single_usb_udid(["phone-one"], "phone-one"), "phone-one")
+        with self.assertRaisesRegex(ValueError, "exactly one"):
+            receipt.single_usb_udid([], "")
+        with self.assertRaisesRegex(ValueError, "exactly one"):
+            receipt.single_usb_udid(["phone-one", "phone-two"], "")
+        with self.assertRaisesRegex(ValueError, "different iPhone"):
+            receipt.single_usb_udid(["phone-one"], "phone-two")
 
     def test_matching_native_screen_records_schedule_once(self):
         result = self.run_with_phone()

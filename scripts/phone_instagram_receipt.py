@@ -50,6 +50,19 @@ def visible_rows(device) -> list[dict]:
     return [row for row in device.compact(device.ocr(), limit=None) if layout.contains(row)]
 
 
+def single_usb_udid(connected: list[str], pinned: str) -> str:
+    if len(connected) != 1:
+        raise ValueError("Instagram receipt needs exactly one USB iPhone; disconnect extra phones")
+    if pinned and pinned != connected[0]:
+        raise ValueError("SideTap is pinned to a different iPhone than the connected USB phone")
+    return connected[0]
+
+
+def connected_usb_udid() -> str:
+    from phone_harness import config, device
+    return single_usb_udid(device.list_devices(), config.SIDETAP_UDID)
+
+
 def open_scheduled_content(device) -> list[dict]:
     layout = PhoneLayout.from_info(device.screen_info())
     def title_visible(rows: list[dict]) -> bool:
@@ -94,8 +107,9 @@ def run(release_id: int, db: Path) -> dict:
         expected = release_input(store, release_id)
         preflight.connect_sidetap()
         device = preflight.phone
+        udid = connected_usb_udid()
         device.unlock()
-        device_zone = read_device_time_zone()
+        device_zone = read_device_time_zone(udid)
         actual_account = preflight.selected_instagram_account(device)
         if actual_account != expected["account"].casefold():
             raise ValueError(f"Instagram has {actual_account}; expected {expected['account']}")

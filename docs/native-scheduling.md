@@ -37,5 +37,7 @@ It reads the selected profile, queries the iPhone time zone with go-ios, opens
 Scheduled content, and saves a screenshot under ignored local state. The store
 records `scheduled` only when that same screen matches the approved caption,
 planned time, and source first frame. This action cannot tap Share or Schedule.
+The runner requires exactly one USB iPhone and passes its UDID to go-ios; a
+different SideTap pin or a second connected phone stops the receipt check.
 The native menu path and time-zone query still need live validation on the
 connected iPhone before this is a proven receipt path.

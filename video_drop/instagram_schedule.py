@@ -37,8 +37,10 @@ def first_frame(source: Path) -> Image.Image:
         raise ValueError("Could not decode the source video's first frame") from exc
 
 
-def read_device_time_zone() -> str:
+def read_device_time_zone(udid: str) -> str:
     """Read the iPhone's current IANA zone from go-ios without changing settings."""
+    if not udid:
+        raise ValueError("Select one connected iPhone before reading its time zone")
     def zone_in(value, *, requested_key: bool) -> str | None:
         if isinstance(value, str):
             if not requested_key:
@@ -62,8 +64,8 @@ def read_device_time_zone() -> str:
 
     # go-ios exposes TimeZone in the global lockdown values. A full global read
     # covers versions that do not return the requested key on its own.
-    for args in (("ios", "lockdown", "get", "TimeZone"),
-                 ("ios", "lockdown", "get")):
+    for requested_key, args in ((True, ("ios", "lockdown", "get", "TimeZone", f"--udid={udid}")),
+                                (False, ("ios", "lockdown", "get", f"--udid={udid}"))):
         try:
             result = subprocess.run(args, capture_output=True, text=True, timeout=10, check=False)
         except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
@@ -72,7 +74,7 @@ def read_device_time_zone() -> str:
             continue
         for text in (result.stdout.strip(), *reversed(result.stdout.splitlines())):
             try:
-                zone = zone_in(json.loads(text), requested_key=len(args) == 4)
+                zone = zone_in(json.loads(text), requested_key=requested_key)
             except json.JSONDecodeError:
                 continue
             if zone:
