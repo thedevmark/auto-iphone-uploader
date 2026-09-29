@@ -57,7 +57,7 @@ composer state.
 - Separate local Git repository created. Standalone Python app, data store,
   local browser editor, queue, phone YouTube runner, and historical runbook are here.
 - The MIT-licensed source repository is public at
-  `github.com/thedevmark/automated-iphone-social-media-uploads`; the working
+  `github.com/thedevmark/auto-iphone-uploader`; the working
   repository and Homebase remain private. A tracked-file and initial-history
   secret scan passed on 2026-09-29. That scan does not prove every later commit
   or open branch is free of private material. Source publication is not native
