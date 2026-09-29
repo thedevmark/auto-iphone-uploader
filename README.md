@@ -16,12 +16,25 @@ The [4K60 Native Ingest engineering paper](https://github.com/thedevmark/enginee
 
 ## Run the local app
 
-On Windows, double-click the **Automated iPhone Social Media Uploads** desktop shortcut after installing
-it, or run `pythonw launch_video_drop.py`. The launcher starts the local server
+On Windows with Python 3.11+, clone this repository and run its local setup:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install_windows.ps1
+```
+
+This installs Pillow and timezone data into the selected Python environment
+and creates an **Automated iPhone Social Media Uploads** Desktop shortcut. It
+preserves an existing shortcut pointed at another checkout; use
+`-ReplaceShortcut` only when you want to change its target. It does not install
+phone drivers, sign into accounts, or touch the iPhone. Follow
+[SideTap's Windows setup](https://github.com/ucsandman/SideTap/blob/main/docs/setup-windows.md)
+before using native phone uploads.
+
+Double-click the shortcut, or run `pythonw launch_video_drop.py`. The launcher starts the local server
 in the background if needed and opens the editor. Closing the editor window
 does not stop the server; run the launcher again to reopen it.
 
-Python 3.11+ is required. The core app uses only the Python standard library.
+The core app uses only the Python standard library.
 For local transcription, install `requirements-analysis.txt` and put
 `ffmpeg` and `ffprobe` on PATH. Ollama must serve locally on port 11434 with
 the configured vision and text models already downloaded; by default these
@@ -106,8 +119,8 @@ python -m unittest discover -s tests -v
 ```
 
 The phone scripts and the cross-platform test suite need Pillow. Install
-`requirements-test.txt` for a reproducible local test environment; it also
-includes `tzdata` for Windows timezone support. GitHub Actions runs the suite
+`requirements.txt` for a reproducible local environment; it also includes
+`tzdata` for Windows timezone support. GitHub Actions runs the suite
 on Windows and Linux. Live iPhone behavior is checked separately because CI
 has no connected device or platform accounts.
 
