@@ -412,15 +412,29 @@ def inspect_native_schedule(data: dict, db: Path) -> dict:
                   if layout().relative_band(row, top=0.3, bottom=0.8)]
     if len(candidates) != 1:
         raise PhoneUploadError("YouTube Schedule control is missing or ambiguous")
+    before = tuple(sorted(row["text"] for row in screen() if row.get("text")))
     phone.tap(candidates[0]["x"], candidates[0]["y"])
     if phone.current_app().get("bundleId") != "com.google.ios.youtube":
         raise PhoneUploadError("YouTube left the foreground during schedule inspection")
-    rows = screen()
+    deadline = time.monotonic() + 12
+    previous = None
+    while time.monotonic() < deadline:
+        rows = screen()
+        visible = tuple(sorted(row["text"] for row in rows if row.get("text")))
+        if visible != before and visible == previous:
+            break
+        previous = visible
+        time.sleep(0.4)
+    else:
+        raise PhoneUploadError("YouTube Schedule did not open; the visibility screen is still showing")
+    screenshot = phone.screenshot()
+    if tuple(sorted(row["text"] for row in screen() if row.get("text"))) != visible:
+        raise PhoneUploadError("YouTube Schedule screen changed during capture; inspect it again")
     evidence_dir = db.parent / "schedule-inspection"
     evidence_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     stem = evidence_dir / f"youtube-{data['releaseId']}-{stamp}"
-    stem.with_suffix(".png").write_bytes(phone.screenshot())
+    stem.with_suffix(".png").write_bytes(screenshot)
     stem.with_suffix(".json").write_text(json.dumps({
         "releaseId": data["releaseId"], "account": data["expectedAccount"],
         "plannedSlot": data["scheduledAt"], "rows": rows,
