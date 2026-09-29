@@ -26,6 +26,7 @@ class ThreadsPostRouteTests(unittest.TestCase):
                 store.save_text(release_id, "instagram", "@creator", "", "Approved caption", "")
                 store.save_text(release_id, "threads", "@creator", "", "", "")
                 store.authorize(release_id, "threads")
+                store.set_delivery_mode(release_id, "post_now")
             with patch.object(server, "STATE", state), patch.object(server, "TEST_MODE", False), \
                     patch("scripts.phone_threads.run", side_effect=RuntimeError("USB link unavailable")):
                 server.queue_threads_post(release_id)
@@ -53,6 +54,7 @@ class ThreadsPostRouteTests(unittest.TestCase):
                 store.save_text(release_id, "instagram", "@creator", "", "Approved caption", "")
                 store.save_text(release_id, "threads", "@creator", "", "Approved caption", "")
                 store.authorize(release_id, "threads")
+                store.set_delivery_mode(release_id, "post_now")
 
             started, finish = threading.Event(), threading.Event()
 

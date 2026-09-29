@@ -209,6 +209,8 @@ def queue_phone_post(release_id: int, platform: str) -> dict:
         if PHONE_ACTION_RUNNING:
             raise ValueError("A phone action is already running")
         with Store(STATE / "video-drop.sqlite", load_targets(STATE)) as store:
+            if store.release(release_id)["delivery_mode"] != "post_now":
+                raise ValueError("This video is set to schedule; choose Post now to post it immediately")
             if platform == "threads":
                 from scripts.phone_threads import release_input
                 release_input(store, release_id)
@@ -612,12 +614,15 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 if TEST_MODE:
                     raise ValueError("Slot planning is disabled in this test session")
-                release_ids = self._body().get("releaseIds")
+                body = self._body()
+                release_ids, at = body.get("releaseIds"), body.get("at")
                 if (not isinstance(release_ids, list) or not release_ids
                         or any(type(release_id) is not int or release_id <= 0 for release_id in release_ids)):
                     raise ValueError("Choose finished videos to plan")
+                if at is not None and not isinstance(at, str):
+                    raise ValueError("Posting time must be an ISO date and time")
                 with self._store() as store:
-                    planned = store.reserve_batch(sorted(release_ids))
+                    planned = store.reserve_batch(sorted(release_ids), at=datetime.fromisoformat(at) if at else None)
                 self._json(200, {"releases": planned, "nativeScheduled": False})
             except (ValueError, OSError, json.JSONDecodeError) as exc:
                 self._json(400, {"error": str(exc)})
@@ -647,8 +652,6 @@ class Handler(BaseHTTPRequestHandler):
                     elif action == "delivery-mode":
                         result = store.set_delivery_mode(release_id, data.get("mode"))
                     elif action == "schedule":
-                        if platform == "threads":
-                            raise ValueError("Threads only posts now; it does not use a schedule slot")
                         if TEST_MODE:
                             raise ValueError("Scheduling is disabled in this test session")
                         raise ValueError("Native platform scheduling is not connected yet")

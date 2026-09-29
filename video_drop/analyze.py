@@ -142,7 +142,8 @@ def analyze(path: Path) -> dict:
         "from the game footage actually shown. Prefer named people, games, and the specific clip premise "
         "over generic filler such as gaming culture, media, or game development. Every tag must be grounded "
         "in the evidence. Keep captions concise. YouTube title max 100 chars, tags max 10. "
-        "Put one to three relevant hashtags in the YouTube description, grounded in the evidence. "
+        "Write youtube_description as one short, plain sentence about what happens in the clip, in a casual "
+        "creator voice, without hashtags; hashtags are added separately. "
         "Return JSON keys youtube_title, youtube_description, youtube_tags (array), "
         "instagram_caption, tiktok_caption, game. "
         "These are suggestions for human review, not publication.\nEVIDENCE:\n" +
