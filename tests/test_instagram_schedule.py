@@ -1,9 +1,12 @@
 import unittest
+import subprocess
+from unittest.mock import patch
 
 from PIL import Image, ImageDraw
 
 from video_drop.instagram_schedule import (matching_scheduled_cover,
-                                           matching_scheduled_reel, scheduled_list_label,
+                                           matching_scheduled_reel, read_device_time_zone,
+                                           scheduled_list_label,
                                            verified_scheduled_reel)
 from video_drop.phone_ui import PhoneLayout
 
@@ -24,6 +27,17 @@ def scheduled_rows(caption: str = CAPTION, time: str = "Scheduled Sep 29 at 10:0
 
 
 class InstagramScheduleTests(unittest.TestCase):
+    def test_device_time_zone_must_come_from_a_valid_go_ios_value(self):
+        valid = subprocess.CompletedProcess([], 0, '{"TimeZone":"America/New_York"}', "")
+        with patch("video_drop.instagram_schedule.subprocess.run", return_value=valid):
+            self.assertEqual(read_device_time_zone(), "America/New_York")
+        invalid = subprocess.CompletedProcess([], 0, '{"TimeZone":"not-a-zone"}', "")
+        with patch("video_drop.instagram_schedule.subprocess.run", side_effect=[invalid, valid]):
+            self.assertEqual(read_device_time_zone(), "America/New_York")
+        with patch("video_drop.instagram_schedule.subprocess.run", return_value=invalid):
+            with self.assertRaisesRegex(ValueError, "keep Instagram unconfirmed"):
+                read_device_time_zone()
+
     def test_scheduled_thumbnail_matches_first_frame_but_rejects_another_clip(self):
         frame = Image.new("RGB", (320, 568), "#152020")
         draw = ImageDraw.Draw(frame)

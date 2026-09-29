@@ -163,6 +163,11 @@ def phone_action_status() -> dict:
             release = store.release(result["releaseId"])
         platform = result["platform"]
         destination = next(d for d in release["destinations"] if d["platform"] == platform)
+        if platform == "instagram" and destination["status"] == "scheduled":
+            return {**result, "status": "scheduled", "message": "Matching Reel found in Instagram Scheduled content"}
+        if platform == "instagram":
+            return {**result, "status": "needs_check",
+                    "message": "Instagram schedule check stopped; reopen the native Scheduled content list"}
         return {**result, "status": "needs_check" if destination["status"] == "unconfirmed" else "interrupted",
                 "message": f"Check {platform.title()} for a matching post before trying again" if destination["status"] == "unconfirmed"
                            else "Phone preparation stopped before the final tap; reconnect SideTap and try again"}
@@ -225,6 +230,46 @@ def queue_phone_post(release_id: int, platform: str) -> dict:
 
 def queue_threads_post(release_id: int) -> dict:
     return queue_phone_post(release_id, "threads")
+
+
+def queue_instagram_verification(release_id: int) -> dict:
+    """Read a native scheduled Reel without submitting or replaying its upload."""
+    global PHONE_ACTION_RUNNING
+    if TEST_MODE:
+        raise ValueError("Native receipt checks are disabled in this test session")
+    with PHONE_ACTION_LOCK:
+        if PHONE_ACTION_RUNNING:
+            raise ValueError("A phone action is already running")
+        with Store(STATE / "video-drop.sqlite", load_targets(STATE)) as store:
+            from scripts.phone_instagram_receipt import release_input
+            release_input(store, release_id)
+        result = {"status": "running", "platform": "instagram", "releaseId": release_id,
+                  "message": "Checking Instagram Scheduled content on the iPhone"}
+        (STATE / "phone-action.json").write_text(json.dumps(result), encoding="utf-8")
+        PHONE_ACTION_RUNNING = True
+
+    def work() -> None:
+        global PHONE_ACTION_RUNNING
+        try:
+            from scripts.phone_instagram_receipt import run
+            run(release_id, STATE / "video-drop.sqlite")
+            with Store(STATE / "video-drop.sqlite", load_targets(STATE)) as store:
+                destination = next(d for d in store.release(release_id)["destinations"]
+                                   if d["platform"] == "instagram")
+                if destination["status"] != "scheduled":
+                    raise ValueError("Instagram schedule check returned without a matching native receipt")
+            result = {"status": "scheduled", "platform": "instagram", "releaseId": release_id,
+                      "message": "Matching Reel found in Instagram Scheduled content"}
+        except Exception as exc:
+            result = {"status": "needs_check", "platform": "instagram", "releaseId": release_id,
+                      "message": str(exc)[:240]}
+        finally:
+            (STATE / "phone-action.json").write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
+            with PHONE_ACTION_LOCK:
+                PHONE_ACTION_RUNNING = False
+
+    PHONE_POOL.submit(work)
+    return result
 
 
 def initial_video_folder() -> Path:
@@ -558,6 +603,13 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/phone/inspect":
             self._json(200, queue_phone_inspection())
+            return
+        if match := re.fullmatch(r"/api/releases/(\d+)/instagram-verify", path):
+            try:
+                self._body()
+                self._json(202, queue_instagram_verification(int(match[1])))
+            except (ValueError, RuntimeError, OSError, json.JSONDecodeError) as exc:
+                self._json(400, {"error": str(exc)})
             return
         if path == "/api/queue/plan":
             try:

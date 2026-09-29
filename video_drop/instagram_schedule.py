@@ -7,6 +7,7 @@ source's first frame. The phone runner still verifies account identity.
 from __future__ import annotations
 
 import re
+import json
 import subprocess
 from datetime import datetime
 from io import BytesIO
@@ -34,6 +35,45 @@ def first_frame(source: Path) -> Image.Image:
         raise ValueError("ffmpeg is required to verify the Instagram cover") from exc
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as exc:
         raise ValueError("Could not decode the source video's first frame") from exc
+
+
+def read_device_time_zone() -> str:
+    """Read the iPhone's current IANA zone from go-ios without changing settings."""
+    def zone_in(value) -> str | None:
+        if isinstance(value, str):
+            try:
+                ZoneInfo(value)
+                return value
+            except (ValueError, KeyError):
+                return None
+        if isinstance(value, dict):
+            for item in value.values():
+                found = zone_in(item)
+                if found:
+                    return found
+        if isinstance(value, list):
+            for item in value:
+                found = zone_in(item)
+                if found:
+                    return found
+        return None
+
+    for args in (("ios", "lockdown", "get", "TimeZone"),
+                 ("ios", "lockdown", "get", "TimeZone", "--domain=com.apple.international")):
+        try:
+            result = subprocess.run(args, capture_output=True, text=True, timeout=10, check=False)
+        except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+            continue
+        if result.returncode:
+            continue
+        for text in (result.stdout.strip(), *reversed(result.stdout.splitlines())):
+            try:
+                zone = zone_in(json.loads(text))
+            except json.JSONDecodeError:
+                continue
+            if zone:
+                return zone
+    raise ValueError("Could not read the iPhone time zone through go-ios; keep Instagram unconfirmed")
 
 
 def scheduled_list_label(scheduled_at: str, device_time_zone: str) -> str:

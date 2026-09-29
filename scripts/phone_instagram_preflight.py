@@ -37,16 +37,17 @@ def connect_sidetap() -> None:
     phone = helpers
 
 
-def selected_instagram_account() -> str:
-    phone.open_app("com.burbn.instagram", wait_seconds=2)
-    if phone.current_app().get("bundleId") != "com.burbn.instagram":
+def selected_instagram_account(phone_client=None) -> str:
+    device = phone_client or phone
+    device.open_app("com.burbn.instagram", wait_seconds=2)
+    if device.current_app().get("bundleId") != "com.burbn.instagram":
         raise ValueError("Instagram is not foreground")
-    rows = phone.compact(phone.ocr())
+    rows = device.compact(device.ocr())
     profile = [row for row in rows if row["text"] == "Profile" and row.get("type") == "Button"]
     if len(profile) == 1:
-        phone.tap(profile[0]["x"], profile[0]["y"])
-        rows = phone.compact(phone.ocr())
-    layout = PhoneLayout.from_info(phone.screen_info())
+        device.tap(profile[0]["x"], profile[0]["y"])
+        rows = device.compact(device.ocr())
+    layout = PhoneLayout.from_info(device.screen_info())
     handles = [row["text"] for row in rows if row.get("type") == "Button"
                and layout.relative_band(row, left=0.3, right=0.7, top=0.06, bottom=0.12)
                and re.fullmatch(r"[A-Za-z0-9._]+", row["text"])]

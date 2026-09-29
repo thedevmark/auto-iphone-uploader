@@ -30,3 +30,12 @@ the saved source and evidence screenshot before it changes an Instagram
 destination to `scheduled`. The phone runner must still verify the active
 account and iPhone time zone and capture the native screen; neither a typed
 account name nor a local slot alone is a receipt.
+
+For an unconfirmed Instagram submission, the local editor's **Check Instagram
+schedule** action runs `scripts/phone_instagram_receipt.py` through SideTap.
+It reads the selected profile, queries the iPhone time zone with go-ios, opens
+Scheduled content, and saves a screenshot under ignored local state. The store
+records `scheduled` only when that same screen matches the approved caption,
+planned time, and source first frame. This action cannot tap Share or Schedule.
+The native menu path and time-zone query still need live validation on the
+connected iPhone before this is a proven receipt path.
