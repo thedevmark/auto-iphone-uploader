@@ -39,21 +39,23 @@ def first_frame(source: Path) -> Image.Image:
 
 def read_device_time_zone() -> str:
     """Read the iPhone's current IANA zone from go-ios without changing settings."""
-    def zone_in(value) -> str | None:
+    def zone_in(value, *, requested_key: bool) -> str | None:
         if isinstance(value, str):
+            if not requested_key:
+                return None
             try:
                 ZoneInfo(value)
                 return value
             except (ValueError, KeyError):
                 return None
         if isinstance(value, dict):
-            for item in value.values():
-                found = zone_in(item)
-                if found:
-                    return found
-        if isinstance(value, list):
-            for item in value:
-                found = zone_in(item)
+            if "TimeZone" in value:
+                return zone_in(value["TimeZone"], requested_key=True)
+            # go-ios may wrap either the requested key or all global values.
+            for key in ("Value", "value"):
+                if key not in value:
+                    continue
+                found = zone_in(value[key], requested_key=requested_key)
                 if found:
                     return found
         return None
@@ -70,7 +72,7 @@ def read_device_time_zone() -> str:
             continue
         for text in (result.stdout.strip(), *reversed(result.stdout.splitlines())):
             try:
-                zone = zone_in(json.loads(text))
+                zone = zone_in(json.loads(text), requested_key=len(args) == 4)
             except json.JSONDecodeError:
                 continue
             if zone:
