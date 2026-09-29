@@ -1,0 +1,5 @@
+{"app": "youtube", "screen": "audience", "locale": "en", "bundle": "com.google.ios.youtube",
+ "signature": {"require": [{"label": "@label:select_audience"}, {"label": "@label:kids_no"}]},
+ "elements": {"kids_no": {"label": "@label:kids_no"},
+              "back": {"label": "@label:back", "type": "Button"}},
+ "actions": {"back": {"tap": "back", "expect": "details"}}}

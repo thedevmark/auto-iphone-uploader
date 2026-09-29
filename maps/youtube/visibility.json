@@ -1,0 +1,8 @@
+{"app": "youtube", "screen": "visibility", "locale": "en", "bundle": "com.google.ios.youtube",
+ "signature": {"require": [{"label": "@label:set_visibility"}]},
+ "elements": {"public": {"label": "@label:public", "type": "StaticText"},
+              "unlisted": {"label": "@label:unlisted", "type": "StaticText"},
+              "private": {"label": "@label:private", "type": "StaticText"},
+              "schedule": {"label": "@label:schedule"},
+              "back": {"label": "@label:back", "type": "Button"}},
+ "actions": {"back": {"tap": "back", "expect": "details"}}}
