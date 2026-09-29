@@ -232,7 +232,7 @@ class PickerRouteTests(unittest.TestCase):
                     with self.assertRaises(HTTPError) as rejected:
                         urlopen(threads_schedule, timeout=5)
                     self.assertEqual(rejected.exception.code, 400)
-                    self.assertIn("Threads only posts now", rejected.exception.read().decode())
+                    self.assertIn("Native platform scheduling is not connected", rejected.exception.read().decode())
                     rejected.exception.close()
                     receipt = Request(f"http://127.0.0.1:{http.server_port}/api/releases/{release_id}/receipt",
                                       data=b'{"platform":"youtube","url":"https://youtube.com/shorts/unverified"}',

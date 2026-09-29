@@ -12,7 +12,7 @@ from .accounts import PLATFORMS
 
 NY = ZoneInfo("America/New_York")
 DESTINATIONS = PLATFORMS
-TIMED_DESTINATIONS = frozenset(DESTINATIONS) - {"threads"}
+TIMED_DESTINATIONS = frozenset(DESTINATIONS)
 EDITABLE = ("draft", "reserved")
 DEFAULT_SLOTS = ("10:00", "19:00")
 # Phone checks the operator can switch off. Account and exact-file checks are
@@ -95,6 +95,19 @@ def next_slot(now: datetime, occupied: set[str], slots: tuple[str, ...] = DEFAUL
             if slot_utc > now.astimezone(timezone.utc) + timedelta(minutes=1) and slot_utc.isoformat() not in occupied:
                 return slot
     raise ValueError("no_video_slot_available")
+
+
+def chosen_slot(at: datetime, now: datetime, occupied: set[str], slots: tuple[str, ...]) -> datetime:
+    """Validate one operator-chosen posting time against the configured daily times."""
+    local = at.astimezone(NY)
+    if local.strftime("%H:%M") not in validate_slots(slots) or local.second or local.microsecond:
+        raise ValueError(f"{local:%I:%M %p} is not one of the posting times")
+    slot_utc = local.astimezone(timezone.utc)
+    if slot_utc <= now.astimezone(timezone.utc) + timedelta(minutes=1):
+        raise ValueError("Choose a posting time in the future")
+    if slot_utc.isoformat() in occupied:
+        raise ValueError("Another video already has that posting time")
+    return local
 
 
 def digest(path: Path) -> str:
@@ -398,7 +411,9 @@ class Store:
             for platform, current in by_platform.items():
                 platform_hashtags = common + ([PLATFORM_HASHTAGS[platform]] if PLATFORM_HASHTAGS[platform] else [])
                 hashtag_text = " ".join(platform_hashtags)
-                description = " ".join(part for part in ((prose if platform == "youtube" else title), hashtag_text) if part)
+                # YouTube leads with its hashtags, then one plain line about the clip.
+                description = ("\n".join(part for part in (hashtag_text, prose) if part) if platform == "youtube"
+                               else " ".join(part for part in (title, hashtag_text) if part))
                 new_title = title
                 new_tags = youtube_tags if platform == "youtube" else current["tags"]
                 if (current["title"], current["description"], current["tags"]) == (new_title, description, new_tags):
@@ -431,16 +446,22 @@ class Store:
             self._event(release_id, platform, "text_authorized", {"revision_hash": revision})
         return self.release(release_id)
 
-    def reserve_slot(self, release_id: int, now: datetime | None = None) -> dict:
-        return self.reserve_batch([release_id], now)[0]
+    def reserve_slot(self, release_id: int, now: datetime | None = None, at: datetime | None = None) -> dict:
+        return self.reserve_batch([release_id], now, at=at)[0]
 
-    def reserve_batch(self, release_ids: list[int], now: datetime | None = None) -> list[dict]:
-        """Atomically hold successive local times for reviewed clips in queue order."""
+    def reserve_batch(self, release_ids: list[int], now: datetime | None = None, *,
+                      at: datetime | None = None) -> list[dict]:
+        """Atomically hold successive local times for reviewed clips in queue order.
+
+        `at` picks one specific configured posting time for a single clip instead of the next free one.
+        """
         now = now or utc_now()
         if now.tzinfo is None:
             raise ValueError("now must include a timezone")
         if not release_ids or len(set(release_ids)) != len(release_ids):
             raise ValueError("Choose distinct videos to plan")
+        if at is not None and (len(release_ids) != 1 or at.tzinfo is None):
+            raise ValueError("A chosen posting time needs one video and a timezone")
 
         def slot_is_future(value: str | None) -> bool:
             if not value:
@@ -466,7 +487,7 @@ class Store:
                 raise ValueError("Release cannot reserve a slot")
             if not any(d["revision_hash"] and d["platform"] in TIMED_DESTINATIONS
                        for d in item["destinations"]):
-                raise ValueError("Authorize at least one scheduled destination; Threads posts now")
+                raise ValueError("Authorize the text for at least one destination first")
 
         for release_id in release_ids:
             release = self.release(release_id)
@@ -486,7 +507,7 @@ class Store:
                     continue
                 if fresh["scheduled_at"]:
                     occupied.discard(fresh["scheduled_at"])
-                slot = next_slot(now, occupied, slots)
+                slot = next_slot(now, occupied, slots) if at is None else chosen_slot(at, now, occupied, slots)
                 slot_utc = slot.astimezone(timezone.utc).isoformat()
                 occupied.add(slot_utc)
                 status = "needs_check" if fresh["status"] == "needs_check" else "reserved"
@@ -504,8 +525,7 @@ class Store:
         release = self.release(release_id)
         def can_start(item: dict) -> bool:
             return (item["status"] in {"reserved", "scheduled", "uploading", "partial", "needs_check"}
-                    or (item["status"] == "draft" and
-                        (platform == "threads" or item["delivery_mode"] == "post_now")))
+                    or (item["status"] == "draft" and item["delivery_mode"] == "post_now"))
         if not can_start(release):
             raise ValueError("No platform action is in progress")
         if platform in TIMED_DESTINATIONS and release["delivery_mode"] == "schedule" and not release["scheduled_at"]:

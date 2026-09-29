@@ -27,6 +27,26 @@ class VideoDropTests(unittest.TestCase):
         self.store.close()
         self.temp.cleanup()
 
+    def test_chosen_posting_time_must_be_a_free_future_configured_slot(self):
+        release_id = self.store.import_file(self.video)["id"]
+        self.store.save_text(release_id, "youtube", "@deutschmarkonline", "Title", "Description", "tag")
+        self.store.authorize(release_id, "youtube")
+        now = datetime(2026, 9, 29, 19, 0, tzinfo=timezone.utc)
+        tomorrow_ten = datetime(2026, 9, 30, 10, 0, tzinfo=NY)
+        for bad, reason in ((datetime(2026, 9, 30, 11, 0, tzinfo=NY), "not one of the posting times"),
+                            (datetime(2026, 9, 29, 10, 0, tzinfo=NY), "future"),
+                            (datetime(2026, 9, 30, 10, 0), "timezone")):
+            with self.subTest(reason=reason), self.assertRaisesRegex(ValueError, reason):
+                self.store.reserve_slot(release_id, now, at=bad)
+        planned = self.store.reserve_slot(release_id, now, at=tomorrow_ten)
+        self.assertEqual(planned["scheduled_at"], "2026-09-30T14:00:00+00:00")
+        (self.root / "other.mp4").write_bytes(b"other video")
+        other = self.store.import_file(self.root / "other.mp4")["id"]
+        self.store.save_text(other, "youtube", "@deutschmarkonline", "Other", "Description", "tag")
+        self.store.authorize(other, "youtube")
+        with self.assertRaisesRegex(ValueError, "already has that posting time"):
+            self.store.reserve_slot(other, now, at=tomorrow_ten)
+
     def test_phone_checks_default_on_and_persist(self):
         self.assertEqual(self.store.phone_checks(), {"doNotDisturb": True, "youtubeQualityEveryUpload": False,
                                                      "inspectPhoneOnOpen": True})
@@ -389,7 +409,7 @@ class VideoDropTests(unittest.TestCase):
         destinations = {d["platform"]: d for d in updated["destinations"]}
         self.assertTrue(all(d["title"] == "Valheim kick" for d in destinations.values()))
         self.assertEqual(destinations["youtube"]["title"], "Valheim kick")
-        self.assertEqual(destinations["youtube"]["description"], "My edited detail #Valheim #Kick #shorts")
+        self.assertEqual(destinations["youtube"]["description"], "#Valheim #Kick #shorts\nMy edited detail")
         self.assertEqual(destinations["youtube"]["tags"], "Valheim")
         self.assertEqual(destinations["instagram"]["description"], "Valheim kick #Valheim #Kick #reels")
         self.assertEqual(destinations["facebook"]["description"], "Valheim kick #Valheim #Kick #reels")

@@ -38,6 +38,7 @@ class ThreadsSafetyTests(unittest.TestCase):
                 store.save_text(release_id, "instagram", "@creator", "", "Approved", "")
                 store.save_text(release_id, "threads", "@creator", "", "", "")
                 store.authorize(release_id, "threads")
+                store.set_delivery_mode(release_id, "post_now")
                 store.mark_unconfirmed(release_id, "threads")
                 self.assertIsNone(store.release(release_id)["scheduled_at"])
                 with self.assertRaisesRegex(Exception, "already attempted"):
@@ -45,7 +46,7 @@ class ThreadsSafetyTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "already attempted"):
                     store.mark_unconfirmed(release_id, "threads")
 
-    def test_threads_never_takes_slot_and_other_destinations_can_plan_afterward(self):
+    def test_scheduled_threads_takes_a_slot_before_any_phone_attempt(self):
         with tempfile.TemporaryDirectory() as folder:
             source = Path(folder) / "clip.mp4"
             source.write_bytes(b"finished source")
@@ -54,16 +55,14 @@ class ThreadsSafetyTests(unittest.TestCase):
                 store.save_text(release_id, "instagram", "@deutschmarkonline", "", "Caption", "")
                 store.save_text(release_id, "threads", "@deutschmarkonline", "", "", "")
                 store.authorize(release_id, "threads")
-                with self.assertRaisesRegex(ValueError, "Threads posts now"):
-                    store.reserve_slot(release_id)
-                store.save_text(release_id, "youtube", "@deutschmarkonline", "Title", "Description", "tag")
-                store.authorize(release_id, "youtube")
-                store.mark_unconfirmed(release_id, "threads")
-                self.assertIsNone(store.release(release_id)["scheduled_at"])
+                self.assertEqual(store.release(release_id)["delivery_mode"], "schedule")
+                with self.assertRaisesRegex(ValueError, "No platform action"):
+                    store.mark_unconfirmed(release_id, "threads")
                 planned = store.reserve_slot(release_id)
                 self.assertIsNotNone(planned["scheduled_at"])
-                self.assertEqual(planned["status"], "needs_check")
-                self.assertEqual(next(d for d in planned["destinations"] if d["platform"] == "threads")["status"], "unconfirmed")
+                claimed = store.mark_unconfirmed(release_id, "threads")
+                self.assertEqual(next(d for d in claimed["destinations"] if d["platform"] == "threads")["status"],
+                                 "unconfirmed")
 
     def test_parallel_threads_claims_allow_one_final_tap(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -74,6 +73,7 @@ class ThreadsSafetyTests(unittest.TestCase):
                 release_id = store.import_file(source)["id"]
                 store.save_text(release_id, "instagram", "@deutschmarkonline", "", "Caption", "")
                 store.save_text(release_id, "threads", "@deutschmarkonline", "", "", "")
+                store.set_delivery_mode(release_id, "post_now")
                 revision = next(d for d in store.authorize(release_id, "threads")["destinations"]
                                 if d["platform"] == "threads")["revision_hash"]
 
