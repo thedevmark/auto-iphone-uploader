@@ -20,3 +20,10 @@ selected scheduler's actual lead time and horizon. If a platform cannot accept
 the chosen slot, keep that destination unscheduled and report the provider's
 constraint. Never treat a final-tap timeout as a failed submission that is safe
 to retry.
+
+`video_drop.instagram_schedule.matching_scheduled_reel` can compare SideTap's
+native Scheduled content rows against the exact reviewed caption and the
+intended time in the verified iPhone time zone. It rejects a wrong or duplicate
+entry. This text check alone does not verify the account or video thumbnail and
+does not mark a release scheduled; the phone runner must complete those checks
+before using the store's observed-schedule transition.
