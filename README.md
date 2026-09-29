@@ -1,4 +1,4 @@
-# Video Drop
+# Automated iPhone Social Media Uploads
 
 Licensed under MIT; see [LICENSE](LICENSE). The connected iPhone, platform
 accounts, SideTap installation, and local media are external to this repository.
@@ -16,7 +16,7 @@ The [4K60 Native Ingest engineering paper](https://github.com/thedevmark/enginee
 
 ## Run the local app
 
-On Windows, double-click the **Video Drop** desktop shortcut after installing
+On Windows, double-click the **Automated iPhone Social Media Uploads** desktop shortcut after installing
 it, or run `pythonw launch_video_drop.py`. The launcher starts the local server
 in the background if needed and opens the editor. Closing the editor window
 does not stop the server; run the launcher again to reopen it.
@@ -33,7 +33,7 @@ model completed a full local Valheim pass in about 30 seconds on the operator's
 can be changed with
 `VIDEO_DROP_VISION_MODEL` and `VIDEO_DROP_TEXT_MODEL`. Failed capabilities
 produce a partial analysis rather than an authorized post. If the local model
-server is stopped while drafts are analyzed, Video Drop waits for both models
+server is stopped while drafts are analyzed, Automated iPhone Social Media Uploads waits for both models
 to appear in Ollama and retries those drafts when the service returns. A
 transient local-model failure is retried with a delay, up to three attempts.
 Typed text remains in the editor during the retry.
@@ -49,7 +49,7 @@ existing files are skipped; new `.mp4`, `.mov`, `.m4v`, and `.webm` exports ente
 the review queue only after their size and modification time stay unchanged for
 30 seconds, the writer releases its Windows file handle, and ffprobe plus a
 full ffmpeg video/audio decode succeed. An incomplete file is retried; a temp
-extension and Premiere's numbered `.m4v` intermediate are ignored. Video Drop reads the original in place and does not copy
+extension and Premiere's numbered `.m4v` intermediate are ignored. Automated iPhone Social Media Uploads reads the original in place and does not copy
 it. The local database is
 `.state/video-drop.sqlite`, which is ignored by Git. Scripts can use
 `POST /api/import-path` with an exact local path for the same in-place import.
@@ -91,7 +91,7 @@ description prose and comma-separated tags stay editable. Facebook and Threads
 retain their own account identities. Any changed output must be reviewed and
 confirmed again. The Threads tab can start an immediate native phone post once
 its exact caption is confirmed. A final tap remains unconfirmed until a matching
-Threads post is checked, and Video Drop never retries it automatically. Other destinations target the selected native
+Threads post is checked, and Automated iPhone Social Media Uploads never retries it automatically. Other destinations target the selected native
 slot once their phone runners and receipts are connected.
 
 An operator who has checked a matching item in a native app's Scheduled
@@ -134,7 +134,7 @@ already imported Homebase history. Both source databases remain untouched;
 the new copy is a cutover candidate, not an automatic switch.
 
 The SideTap YouTube preparation runner is in `scripts/phone_youtube.py`.
-Pass a Video Drop release ID; it reads the confirmed text and original file
+Pass a Automated iPhone Social Media Uploads release ID; it reads the confirmed text and original file
 identity from the local database, checks the OneDrive share sheet and YouTube
 channel, and fills the composer. An older manifest path also works only when
 every field matches that confirmed release. The runner stops before Upload

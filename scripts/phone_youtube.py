@@ -396,7 +396,7 @@ def prepare_youtube(data: dict) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("release", help="Video Drop release ID or an exact legacy manifest path")
+    parser.add_argument("release", help="Automated iPhone Social Media Uploads release ID or an exact legacy manifest path")
     parser.add_argument("--db", type=Path, default=Path(os.environ.get("VIDEO_DROP_STATE", Path(__file__).resolve().parent.parent / ".state")) / "video-drop.sqlite")
     parser.add_argument("--commit", action="store_true")
     parser.add_argument("--resume-share", action="store_true")
