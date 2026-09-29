@@ -1,8 +1,9 @@
 """Deterministic OneDrive -> YouTube Short upload through SideTap/WDA.
 
-The run stops at YouTube's Upload Short button. --commit is rejected until the
-native scheduler and receipt check exist. No model, browser session, or paid
-API is used by this script. An unexpected screen fails closed.
+Scheduled runs stop at YouTube's Upload Short button until the native scheduler
+is verified. A confirmed Post now run may tap Upload Short once; its result
+remains unconfirmed until a native receipt is checked. No model, browser
+session, or paid API is used by this script. An unexpected screen fails closed.
 """
 
 from __future__ import annotations
@@ -370,6 +371,7 @@ def prepare_youtube(data: dict) -> None:
     tap("Show more")
     tap("Add description")
     phone.type_text(data["description"])
+    assert_visible(data["description"])
     leave_text_editor("Add details")
     tap("Paid promotion & brands", exact=False)
     assert_visible("Paid promotion & brands")
@@ -394,52 +396,75 @@ def prepare_youtube(data: dict) -> None:
     stage("ready_to_upload")
 
 
+def run(release: str, db: Path, *, commit: bool = False, resume_share: bool = False) -> dict:
+    if commit and os.environ.get("VIDEO_DROP_TEST_MODE") == "1":
+        raise PhoneUploadError("Posting is disabled in this test session")
+    with Store(db, load_targets(db.parent)) as store:
+        if release.isdecimal():
+            data = youtube_input(store, int(release))
+        else:
+            manifest = json.loads(Path(release).read_text(encoding="utf-8"))
+            data = verify_youtube_manifest(store, manifest)
+        if commit and data["deliveryMode"] != "post_now":
+            raise PhoneUploadError("YouTube scheduling is not connected; choose Post now for an immediate upload")
+        if data["visibility"] not in ("private", "unlisted", "public"):
+            raise PhoneUploadError("Invalid YouTube visibility")
+        if not isinstance(data["tags"], list) or not all(isinstance(tag, str) and tag for tag in data["tags"]):
+            raise PhoneUploadError("Invalid YouTube tags")
+
+        # Only preparation is retryable. Once the final tap is possible, keep
+        # the one-shot state in the database and never rebuild the composer.
+        connect_sidetap()
+        for attempt in range(3):
+            try:
+                phone.unlock()
+                with upload_focus(phone):
+                    if resume_share and attempt == 0:
+                        assert_share_sheet(data, timeout=8)
+                    else:
+                        layout(refresh=True)
+                        ensure_youtube_channel(data["expectedAccount"])
+                        open_onedrive_file(data)
+                    prepare_youtube(data)
+                    if not commit:
+                        return {"kind": "ready", "releaseId": data["releaseId"],
+                                "account": data["expectedAccount"]}
+                    # Recheck identity and source revision just before marking
+                    # the attempt. A timeout after the tap is never replayed.
+                    labels = [row["text"] for row in screen() if row.get("text")]
+                    if youtube_identity(labels) != data["expectedAccount"].casefold():
+                        raise PhoneUploadError("YouTube channel changed before Upload Short")
+                    upload = matches("Upload Short")
+                    if len(upload) != 1:
+                        raise PhoneUploadError("Upload Short button is missing or ambiguous")
+                    store.mark_unconfirmed(data["releaseId"], "youtube",
+                                           expected_revision=data["revisionHash"])
+                    phone.tap(upload[0]["x"], upload[0]["y"])
+                    return {"kind": "unconfirmed", "releaseId": data["releaseId"],
+                            "account": data["expectedAccount"],
+                            "message": "Final tap sent; check the native YouTube receipt before any retry"}
+            except WDAError as exc:
+                destination = next(d for d in store.release(data["releaseId"])["destinations"]
+                                   if d["platform"] == "youtube")
+                if destination["status"] == "unconfirmed":
+                    raise PhoneUploadError("YouTube final tap is uncertain; check the channel before any retry") from exc
+                if attempt == 2:
+                    raise PhoneUploadError(f"Phone link failed after 3 preparation attempts: {exc}") from exc
+                stage("recover_phone_link")
+                if sidetap_admin.up() != 0:
+                    raise PhoneUploadError("SideTap could not restore the phone link; no upload was submitted") from exc
+                time.sleep(1)
+    raise PhoneUploadError("YouTube preparation did not finish")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("release", help="Automated iPhone Social Media Uploads release ID or an exact legacy manifest path")
+    parser.add_argument("release", help="Release ID or an exact legacy manifest path")
     parser.add_argument("--db", type=Path, default=Path(os.environ.get("VIDEO_DROP_STATE", Path(__file__).resolve().parent.parent / ".state")) / "video-drop.sqlite")
     parser.add_argument("--commit", action="store_true")
     parser.add_argument("--resume-share", action="store_true")
     args = parser.parse_args()
-    if args.commit:
-        raise PhoneUploadError("Native YouTube scheduling is not connected; immediate Upload Short is disabled")
-    with Store(args.db, load_targets(args.db.parent)) as store:
-        if args.release.isdecimal():
-            data = youtube_input(store, int(args.release))
-        else:
-            manifest = json.loads(Path(args.release).read_text(encoding="utf-8"))
-            data = verify_youtube_manifest(store, manifest)
-    if data["visibility"] not in ("private", "unlisted", "public"):
-        raise PhoneUploadError("Invalid YouTube visibility")
-    if not isinstance(data["tags"], list) or not all(isinstance(tag, str) and tag for tag in data["tags"]):
-        raise PhoneUploadError("Invalid YouTube tags")
-
-    # All work before Upload Short is safe to repeat: it can leave an
-    # unfinished composer, but cannot publish a duplicate. Recover a dropped
-    # WDA/tunnel link and rebuild the composer from the verified OneDrive file.
-    # Never replay Upload Short: a timed-out tap may already have submitted.
-    connect_sidetap()
-    for attempt in range(3):
-        try:
-            phone.unlock()
-            with upload_focus(phone):
-                if args.resume_share and attempt == 0:
-                    assert_share_sheet(data, timeout=8)
-                else:
-                    layout(refresh=True)
-                    ensure_youtube_channel(data["expectedAccount"])
-                    open_onedrive_file(data)
-                prepare_youtube(data)
-            break
-        except WDAError as exc:
-            if attempt == 2:
-                raise PhoneUploadError(f"Phone link failed after 3 preparation attempts: {exc}") from exc
-            stage("recover_phone_link")
-            print(f"Phone link dropped: {exc}", file=sys.stderr, flush=True)
-            if sidetap_admin.up() != 0:
-                raise PhoneUploadError("SideTap could not restore the phone link; no upload was submitted") from exc
-            time.sleep(1)
-    print(json.dumps({"kind": "ready", "releaseId": data["releaseId"], "account": data["expectedAccount"]}))
+    print(json.dumps(run(args.release, args.db, commit=args.commit, resume_share=args.resume_share)))
     return 0
 
 

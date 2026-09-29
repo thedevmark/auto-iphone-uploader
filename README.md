@@ -79,8 +79,10 @@ moves to the next free time; an expired time with a possible phone submission
 requires a native receipt check before any retry. The desktop Schedule action is
 disabled until the native-app batch can submit and verify each platform's
 schedule. Each new video defaults to Schedule; Post now is an explicit saved
-choice that takes no time slot. Neither choice starts a phone action until its
-native runner and receipt check are connected. Multiple drafts can be imported
+choice that takes no time slot. Threads and YouTube have one-shot native Post now
+actions; YouTube requires choosing Post now first. Both stay unconfirmed after
+the final tap until their native receipts are checked. Other destinations remain
+disabled until their phone runners and receipts are connected. Multiple drafts can be imported
 and analyzed while the editor shows one selected video at a time. Editing text
 after authorization clears its authorization. The editor accepts one title and
 one shared set of hashtags for the selected clip. Applying them builds the
@@ -91,8 +93,7 @@ description prose and comma-separated tags stay editable. Facebook and Threads
 retain their own account identities. Any changed output must be reviewed and
 confirmed again. The Threads tab can start an immediate native phone post once
 its exact caption is confirmed. A final tap remains unconfirmed until a matching
-Threads post is checked, and Automated iPhone Social Media Uploads never retries it automatically. Other destinations target the selected native
-slot once their phone runners and receipts are connected.
+post is checked, and Automated iPhone Social Media Uploads never retries it automatically.
 
 An operator who has checked a matching item in a native app's Scheduled
 content list can record that observed schedule with
@@ -137,9 +138,12 @@ The SideTap YouTube preparation runner is in `scripts/phone_youtube.py`.
 Pass a Automated iPhone Social Media Uploads release ID; it reads the confirmed text and original file
 identity from the local database, checks the OneDrive share sheet and YouTube
 channel, and fills the composer. An older manifest path also works only when
-every field matches that confirmed release. The runner stops before Upload
-Short. Native scheduling and final submission remain disabled until the app
-can verify a matching platform receipt.
+every field matches that confirmed release. Preparation stops before Upload
+Short. A confirmed Post now release can use the one-shot Upload Short action;
+the app records an unconfirmed attempt before that tap and requires a native
+receipt check. Native scheduling remains disabled until the app can enter and
+read back a matching platform schedule. The YouTube Post now path has unit and
+HTTP coverage but has not yet passed a live connected-phone run.
 
 For a connected phone, `python scripts/phone_onboard.py` records screen size,
 installed social apps, and the currently selected/available YouTube channels

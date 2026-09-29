@@ -161,47 +161,59 @@ def phone_action_status() -> dict:
     if result.get("status") == "running" and not PHONE_ACTION_RUNNING:
         with Store(STATE / "video-drop.sqlite", load_targets(STATE)) as store:
             release = store.release(result["releaseId"])
-        threads = next(d for d in release["destinations"] if d["platform"] == "threads")
-        return {**result, "status": "needs_check" if threads["status"] == "unconfirmed" else "interrupted",
-                "message": "Check Threads for a matching post before trying again" if threads["status"] == "unconfirmed"
+        platform = result["platform"]
+        destination = next(d for d in release["destinations"] if d["platform"] == platform)
+        return {**result, "status": "needs_check" if destination["status"] == "unconfirmed" else "interrupted",
+                "message": f"Check {platform.title()} for a matching post before trying again" if destination["status"] == "unconfirmed"
                            else "Phone preparation stopped before the final tap; reconnect SideTap and try again"}
     return result
 
 
-def queue_threads_post(release_id: int) -> dict:
+def queue_phone_post(release_id: int, platform: str) -> dict:
     """Run one native phone action in this process so a server exit cannot leave a child posting."""
     global PHONE_ACTION_RUNNING
     if TEST_MODE:
         raise ValueError("Posting is disabled in this test session")
-    from scripts.phone_threads import release_input
+    if platform not in {"threads", "youtube"}:
+        raise ValueError("This native phone posting path is not connected")
     with PHONE_ACTION_LOCK:
         if PHONE_ACTION_RUNNING:
             raise ValueError("A phone action is already running")
         with Store(STATE / "video-drop.sqlite", load_targets(STATE)) as store:
-            release_input(store, release_id)
-        result = {"status": "running", "platform": "threads", "releaseId": release_id,
-                  "message": "Preparing the confirmed video in Threads"}
+            if platform == "threads":
+                from scripts.phone_threads import release_input
+                release_input(store, release_id)
+            else:
+                from video_drop.phone_manifest import youtube_input
+                if youtube_input(store, release_id)["deliveryMode"] != "post_now":
+                    raise ValueError("YouTube scheduling is not connected; choose Post now")
+        result = {"status": "running", "platform": platform, "releaseId": release_id,
+                  "message": f"Preparing the confirmed video in {platform.title()}"}
         STATE.mkdir(parents=True, exist_ok=True)
         (STATE / "phone-action.json").write_text(json.dumps(result), encoding="utf-8")
         PHONE_ACTION_RUNNING = True
 
     def work() -> None:
         global PHONE_ACTION_RUNNING
-        result = {"status": "failed", "platform": "threads", "releaseId": release_id,
+        result = {"status": "failed", "platform": platform, "releaseId": release_id,
                   "message": "Phone action stopped before a result was recorded"}
         try:
-            from scripts.phone_threads import run
-            outcome = run(release_id, STATE / "video-drop.sqlite", commit=True)
-            result = {"status": "needs_check", "platform": "threads", "releaseId": release_id,
+            if platform == "threads":
+                from scripts.phone_threads import run
+                outcome = run(release_id, STATE / "video-drop.sqlite", commit=True)
+            else:
+                from scripts.phone_youtube import run
+                outcome = run(str(release_id), STATE / "video-drop.sqlite", commit=True)
+            result = {"status": "needs_check", "platform": platform, "releaseId": release_id,
                       "message": outcome["message"]}
         except Exception as exc:
             with Store(STATE / "video-drop.sqlite", load_targets(STATE)) as store:
                 release = store.release(release_id)
-            threads = next(d for d in release["destinations"] if d["platform"] == "threads")
-            uncertain = threads["status"] == "unconfirmed"
-            result = {"status": "needs_check" if uncertain else "failed", "platform": "threads",
+            destination = next(d for d in release["destinations"] if d["platform"] == platform)
+            uncertain = destination["status"] == "unconfirmed"
+            result = {"status": "needs_check" if uncertain else "failed", "platform": platform,
                       "releaseId": release_id,
-                      "message": "Check Threads for a matching post before any retry" if uncertain else str(exc)[:240]}
+                      "message": f"Check {platform.title()} for a matching post before any retry" if uncertain else str(exc)[:240]}
         finally:
             (STATE / "phone-action.json").write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
             with PHONE_ACTION_LOCK:
@@ -209,6 +221,10 @@ def queue_threads_post(release_id: int) -> dict:
 
     PHONE_POOL.submit(work)
     return result
+
+
+def queue_threads_post(release_id: int) -> dict:
+    return queue_phone_post(release_id, "threads")
 
 
 def initial_video_folder() -> Path:
@@ -543,10 +559,10 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/phone/inspect":
             self._json(200, queue_phone_inspection())
             return
-        if match := re.fullmatch(r"/api/releases/(\d+)/threads-post", path):
+        if match := re.fullmatch(r"/api/releases/(\d+)/(threads|youtube)-post", path):
             try:
                 self._body()
-                self._json(202, queue_threads_post(int(match[1])))
+                self._json(202, queue_phone_post(int(match[1]), match[2]))
             except (ValueError, RuntimeError, OSError, json.JSONDecodeError) as exc:
                 self._json(400, {"error": str(exc)})
             return
