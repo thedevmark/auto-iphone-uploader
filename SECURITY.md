@@ -26,9 +26,11 @@ bundle, modify, or download SideTap.
 
 - `phone_onboard.py` is read-only: it records screen size, which social apps
   are installed, and which YouTube channels are signed in.
-- The YouTube, Threads, and Instagram runners open that app, check the
-  signed-in account matches the one you set, and fill in the text you
-  approved in the editor.
+- The YouTube and Threads runners open OneDrive to find the exact video,
+  open that app, check the signed-in account matches the one you set, and
+  fill in the text you approved in the editor.
+- The Instagram check is read-only: it confirms the signed-in account and
+  posts nothing.
 - A post is only submitted when you chose **Post now** for that video and
   confirmed its exact text. A final tap that times out is never retried
   automatically.
