@@ -23,6 +23,8 @@ class RuntimeIdentityTests(unittest.TestCase):
             before = source_fingerprint(root)
             (root / "video_drop" / "core.py").write_text("two")
             self.assertNotEqual(before, source_fingerprint(root))
+            (root / "requirements.txt").unlink()
+            self.assertEqual(len(source_fingerprint(root)), 64)
 
     def test_launcher_accepts_only_the_same_running_checkout_and_source(self):
         http = ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
