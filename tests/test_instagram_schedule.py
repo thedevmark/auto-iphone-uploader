@@ -1,10 +1,11 @@
 import unittest
 import subprocess
+from pathlib import Path
 from unittest.mock import patch
 
 from PIL import Image, ImageDraw
 
-from video_drop.instagram_schedule import (matching_scheduled_cover,
+from video_drop.instagram_schedule import (matching_scheduled_cover, opening_frames,
                                            matching_scheduled_reel, read_device_time_zone,
                                            scheduled_list_label,
                                            verified_scheduled_reel)
@@ -72,6 +73,16 @@ class InstagramScheduleTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "does not match"):
             verified_scheduled_reel(scheduled_rows(), screenshot, wrong,
                                     CAPTION, SLOT, "America/New_York", LAYOUT)
+        near_start = verified_scheduled_reel(scheduled_rows(), screenshot, [wrong, frame],
+                                             CAPTION, SLOT, "America/New_York", LAYOUT)
+        self.assertEqual(near_start["openingFrameIndex"], 1)
+
+    def test_cover_sampling_stops_before_one_second(self):
+        frame = Image.new("RGB", (10, 10), "white")
+        with patch("video_drop.instagram_schedule.first_frame", return_value=frame), \
+                patch("video_drop.instagram_schedule.frame_at", return_value=frame) as seek:
+            self.assertEqual(len(opening_frames(Path("clip.mp4"))), 4)
+            self.assertEqual([call.args[1] for call in seek.call_args_list], [0.25, 0.5, 0.75])
 
     def test_uniform_first_frame_is_not_sufficient_cover_evidence(self):
         screenshot = Image.new("RGB", (1320, 2868), "black")

@@ -532,7 +532,7 @@ class Store:
                 or not evidence_image.is_file() or evidence_image.stat().st_size == 0):
             raise ValueError("Scheduled-content evidence is empty")
         from PIL import Image
-        from .instagram_schedule import first_frame, verified_scheduled_reel
+        from .instagram_schedule import opening_frames, verified_scheduled_reel
         from .phone_ui import PhoneLayout
         self.db.execute("BEGIN IMMEDIATE")
         try:
@@ -553,7 +553,7 @@ class Store:
             with Image.open(evidence_image) as screenshot:
                 if (abs(screenshot.width / screenshot.height - layout.width / layout.height) > 0.01):
                     raise ValueError("Scheduled-content screenshot does not match the iPhone screen")
-                match = verified_scheduled_reel(native_rows, screenshot, first_frame(source),
+                match = verified_scheduled_reel(native_rows, screenshot, opening_frames(source),
                                                 destination["description"], release["scheduled_at"],
                                                 device_time_zone, layout)
             now = utc_now().isoformat()

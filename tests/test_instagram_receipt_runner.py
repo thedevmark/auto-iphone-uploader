@@ -101,7 +101,7 @@ class InstagramReceiptRunnerTests(unittest.TestCase):
                 patch.object(receipt.preflight, "phone", self.device), \
                 patch.object(receipt, "connected_usb_udid", return_value="phone-one"), \
                 patch.object(receipt, "read_device_time_zone", return_value="America/New_York") as zone, \
-                patch("video_drop.instagram_schedule.first_frame", return_value=self.frame):
+                patch("video_drop.instagram_schedule.opening_frames", return_value=[self.frame]):
             result = receipt.run(self.release_id, self.db)
             zone.assert_called_once_with("phone-one")
             return result

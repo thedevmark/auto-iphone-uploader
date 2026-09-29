@@ -24,7 +24,7 @@ to retry.
 `video_drop.instagram_schedule.verified_scheduled_reel` compares SideTap's
 native Scheduled content rows against the exact reviewed caption and intended
 time in the verified iPhone time zone. It also requires the row's thumbnail to
-match the source video's center-cropped first frame; unfamiliar covers fail
+match a center-cropped frame in the source video's first 0.75 seconds; unfamiliar covers fail
 closed. The store's observed-schedule transition now repeats this check against
 the saved source and evidence screenshot before it changes an Instagram
 destination to `scheduled`. The phone runner must still verify the active
@@ -36,7 +36,8 @@ schedule** action runs `scripts/phone_instagram_receipt.py` through SideTap.
 It reads the selected profile, queries the iPhone time zone with go-ios, opens
 Scheduled content, and saves a screenshot under ignored local state. The store
 records `scheduled` only when that same screen matches the approved caption,
-planned time, and source first frame. This action cannot tap Share or Schedule.
+planned time, and a source frame from the opening 0.75 seconds. This action
+cannot tap Share or Schedule.
 The runner requires exactly one USB iPhone and passes its UDID to go-ios; a
 different SideTap pin or a second connected phone stops the receipt check.
 The native menu path and time-zone query still need live validation on the

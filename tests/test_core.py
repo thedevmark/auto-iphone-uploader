@@ -295,7 +295,7 @@ class VideoDropTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "account or time"):
             self.store.record_observed_schedule(release_id, "instagram", account="@wrongaccount",
                                                 **{key: value for key, value in kwargs.items() if key != "account"})
-        with patch("video_drop.instagram_schedule.first_frame", return_value=frame):
+        with patch("video_drop.instagram_schedule.opening_frames", return_value=[frame]):
             with self.assertRaisesRegex(ValueError, "caption is missing"):
                 self.store.record_observed_schedule(release_id, "instagram",
                                                     **{**kwargs, "native_rows": rows[:2] + rows[3:]})

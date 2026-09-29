@@ -1,7 +1,7 @@
 """Read back an Instagram Reel from the native Scheduled content list.
 
-These checks consume SideTap's accessibility rows and screenshot, plus the
-source's first frame. The phone runner still verifies account identity.
+These checks consume SideTap's accessibility rows and screenshot, plus frames
+from the source video's first 0.75 seconds. The phone runner verifies identity.
 """
 
 from __future__ import annotations
@@ -22,11 +22,13 @@ from .phone_ui import PhoneLayout
 MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 
 
-def first_frame(source: Path) -> Image.Image:
-    """Decode the original video's first frame without creating a media copy."""
+def frame_at(source: Path, seconds: float = 0) -> Image.Image:
+    """Decode one frame from the original video without making a media copy."""
     try:
+        seek = ["-ss", str(seconds)] if seconds else []
         result = subprocess.run(
             ["ffmpeg", "-v", "error", "-nostdin", "-i", str(source),
+             *seek,
              "-frames:v", "1", "-f", "image2pipe", "-vcodec", "mjpeg", "-"],
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True, timeout=45,
         )
@@ -34,7 +36,23 @@ def first_frame(source: Path) -> Image.Image:
     except FileNotFoundError as exc:
         raise ValueError("ffmpeg is required to verify the Instagram cover") from exc
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as exc:
-        raise ValueError("Could not decode the source video's first frame") from exc
+        raise ValueError("Could not decode the source video's opening frames") from exc
+
+
+def first_frame(source: Path) -> Image.Image:
+    return frame_at(source)
+
+
+def opening_frames(source: Path) -> list[Image.Image]:
+    """Accept a cover from the first three quarters of a second only."""
+    frames = [first_frame(source)]
+    for seconds in (0.25, 0.5, 0.75):
+        try:
+            frames.append(frame_at(source, seconds))
+        except ValueError:
+            # Very short clips may have no frame at a later timestamp.
+            continue
+    return frames
 
 
 def read_device_time_zone(udid: str) -> str:
@@ -131,9 +149,9 @@ def matching_scheduled_reel(rows: list[dict], caption: str, scheduled_at: str,
             "captionRows": matches[0], "timeRow": scheduled_row}
 
 
-def matching_scheduled_cover(screenshot: Image.Image, first_frame: Image.Image,
+def matching_scheduled_cover(screenshot: Image.Image, opening: Image.Image | list[Image.Image],
                              match: dict, layout: PhoneLayout) -> dict:
-    """Check the observed Reel thumbnail against the source's center-cropped first frame.
+    """Check the Reel thumbnail against the source's first 0.75 seconds.
 
     The scheduled-content row measured on iPhone puts a square cover left of
     its caption. Geometry scales with the phone viewport; an altered layout or
@@ -146,15 +164,19 @@ def matching_scheduled_cover(screenshot: Image.Image, first_frame: Image.Image,
     size = 0.166 * layout.width
     left = 0.027 * layout.width
     sx, sy = screenshot.width / layout.width, screenshot.height / layout.height
-    frame = first_frame.convert("RGB")
-    side = min(frame.size)
-    x, y = (frame.width - side) // 2, (frame.height - side) // 2
-    cover = frame.crop((x, y, x + side, y + side)).resize((128, 128)).crop((8, 8, 120, 120))
-    if min(ImageStat.Stat(cover).stddev) < 20:
-        raise ValueError("First frame has too little visual detail to verify the cover")
+    covers = []
+    for index, original in enumerate(opening if isinstance(opening, list) else [opening]):
+        frame = original.convert("RGB")
+        side = min(frame.size)
+        x, y = (frame.width - side) // 2, (frame.height - side) // 2
+        cover = frame.crop((x, y, x + side, y + side)).resize((128, 128)).crop((8, 8, 120, 120))
+        if min(ImageStat.Stat(cover).stddev) >= 20:
+            covers.append((index, cover))
+    if not covers:
+        raise ValueError("Opening frames have too little visual detail to verify the cover")
     # Accessibility centers vary between a one-line and wrapped caption.
     # Search only the measured thumbnail band to tolerate that offset.
-    best: tuple[float, tuple[int, int, int, int]] | None = None
+    best: tuple[float, tuple[int, int, int, int], int] | None = None
     screenshot = screenshot.convert("RGB")
     for half_point in range(-34, -11):
         top = caption_y + half_point / 2
@@ -163,20 +185,21 @@ def matching_scheduled_cover(screenshot: Image.Image, first_frame: Image.Image,
         box = tuple(round(value) for value in (left * sx, top * sy,
                                                (left + size) * sx, (top + size) * sy))
         thumbnail = screenshot.crop(box).resize((128, 128)).crop((8, 8, 120, 120))
-        score = sum(ImageStat.Stat(ImageChops.difference(thumbnail, cover)).mean) / 3
-        if best is None or score < best[0]:
-            best = score, box
+        for frame_index, cover in covers:
+            score = sum(ImageStat.Stat(ImageChops.difference(thumbnail, cover)).mean) / 3
+            if best is None or score < best[0]:
+                best = score, box, frame_index
     if best is None:
         raise ValueError("Scheduled Reel thumbnail is outside the screen")
-    score, box = best
+    score, box, frame_index = best
     if score > 22:
-        raise ValueError(f"Instagram scheduled cover does not match the first frame (difference {score:.1f})")
-    return {"difference": round(score, 1), "thumbnailBox": box}
+        raise ValueError(f"Instagram scheduled cover does not match the opening video (difference {score:.1f})")
+    return {"difference": round(score, 1), "thumbnailBox": box, "openingFrameIndex": frame_index}
 
 
-def verified_scheduled_reel(rows: list[dict], screenshot: Image.Image, first_frame: Image.Image,
+def verified_scheduled_reel(rows: list[dict], screenshot: Image.Image, opening: Image.Image | list[Image.Image],
                             caption: str, scheduled_at: str, device_time_zone: str,
                             layout: PhoneLayout) -> dict:
     """Require both the approved copy/time and the source cover on one native screen."""
     match = matching_scheduled_reel(rows, caption, scheduled_at, device_time_zone, layout)
-    return {**match, **matching_scheduled_cover(screenshot, first_frame, match, layout)}
+    return {**match, **matching_scheduled_cover(screenshot, opening, match, layout)}
