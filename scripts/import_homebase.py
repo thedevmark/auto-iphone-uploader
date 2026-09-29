@@ -16,11 +16,29 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from video_drop.core import Store  # noqa: E402
+from video_drop.core import Store, digest  # noqa: E402
 
 
 def rows(db: sqlite3.Connection, table: str) -> list[dict]:
     return [dict(row) for row in db.execute(f'SELECT * FROM "{table}"')]
+
+
+def media_issues(releases: list[dict]) -> tuple[list[int], list[int]]:
+    """Check original bytes, not just paths, before preserving Homebase records."""
+    missing, changed = [], []
+    for release in releases:
+        source = Path(release["sourcePath"])
+        try:
+            info = source.stat()
+            if not source.is_file():
+                missing.append(release["id"])
+            elif info.st_size != release["fileSize"] or digest(source) != release["contentHash"]:
+                changed.append(release["id"])
+        except FileNotFoundError:
+            missing.append(release["id"])
+        except OSError:
+            changed.append(release["id"])
+    return missing, changed
 
 
 def inspect(source: sqlite3.Connection) -> dict:
@@ -29,10 +47,11 @@ def inspect(source: sqlite3.Connection) -> dict:
     revisions = rows(source, "PublicTextRevision")
     observations = rows(source, "VideoPublicationObservation")
     duplicates = [(key, count) for key, count in Counter((x["releaseId"], x["platform"]) for x in uploads).items() if count > 1]
+    missing_media, changed_media = media_issues(releases)
     return {
         "releases": releases, "uploads": uploads, "revisions": {r["id"]: r for r in revisions},
         "observations": observations, "duplicate_destinations": duplicates,
-        "missing_media": [r["id"] for r in releases if not Path(r["sourcePath"]).is_file()],
+        "missing_media": missing_media, "changed_media": changed_media,
         "status_counts": dict(Counter(r["status"] for r in releases)),
     }
 
@@ -40,8 +59,9 @@ def inspect(source: sqlite3.Connection) -> dict:
 def apply(source: dict, destination: Store, *, into_copy: bool = False) -> None:
     if source["duplicate_destinations"]:
         raise ValueError("Homebase has multiple destinations for one release/platform")
-    if source.get("missing_media"):
-        raise ValueError("Homebase has releases with missing source media")
+    missing_media, changed_media = media_issues(source["releases"])
+    if missing_media or changed_media:
+        raise ValueError(f"Homebase source media is missing or changed: missing={missing_media}, changed={changed_media}")
     if not into_copy and destination.db.execute("SELECT 1 FROM release LIMIT 1").fetchone():
         raise ValueError("Destination is not empty; use a new database for a safe import")
     if into_copy:
@@ -190,6 +210,7 @@ def main() -> None:
         "observations": len(report["observations"]),
         "duplicate_destinations": report["duplicate_destinations"],
         "missing_media_release_ids": report["missing_media"],
+        "changed_media_release_ids": report["changed_media"],
         "status_counts": report["status_counts"], "applied": args.apply,
         "merged_copy": args.merge_copy,
     }, indent=2))

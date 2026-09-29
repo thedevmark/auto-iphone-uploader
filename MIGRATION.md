@@ -78,6 +78,11 @@ composer state.
 - A separate test database watched four newly rendered synthetic clips. All
   four were imported in order with distinct hashes and completed local analysis
   on their first attempt, without touching the operator's media or releases.
+- The Homebase importer now checks every original file's size and SHA-256
+  before writing an archive snapshot or merged copy. On 2026-09-29, all seven
+  live Homebase media records matched their files and the existing migration
+  preview matched seven releases and 30 uploads without a delta. This proves
+  snapshot integrity at that moment, not the later native cutover.
 - New-release account targets now come from ignored local `accounts.json`,
   rather than account handles committed in source. Onboarding distinguishes
   an observed selected account from a match to the intended target. The other
