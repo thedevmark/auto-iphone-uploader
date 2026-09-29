@@ -34,6 +34,13 @@ class MatcherTests(unittest.TestCase):
         with self.assertRaisesRegex(MatchError, "No match"):
             find(snap, Locator(label="Done"), LABELS)
 
+    def test_nested_duplicate_with_identical_frame_is_one_target(self):
+        accounts = el("Button", "Accounts", left=43, top=68, width=44, height=32)
+        snap = Snapshot(440, 956, (accounts, accounts, el("Button", "Accounts", left=43, top=300)))
+        with self.assertRaisesRegex(MatchError, "2 matches"):
+            find(snap, Locator(label="Accounts"), LABELS)
+        self.assertEqual(find(Snapshot(440, 956, (accounts, accounts)), Locator(label="Accounts"), LABELS).y, 84)
+
     def test_fallback_is_tried_after_primary_fails(self):
         snap = Snapshot(440, 956, (el("Button", "Continue", left=100),))
         loc = Locator(label="Next", fallback=(Locator(label="Continue"),))

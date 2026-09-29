@@ -57,6 +57,8 @@ def _band(anchor: Element, side: str, within: float) -> tuple[float, float, floa
 
 
 def _single(found: list[Element], locator: Locator) -> Target:
+    # iOS nests wrappers that repeat one control with an identical frame; that is one target, not a choice.
+    found = list(dict.fromkeys(found))
     if len(found) > 1:
         raise AmbiguousMatch(f"{len(found)} matches for {locator}")
     if not found:
