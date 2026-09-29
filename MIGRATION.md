@@ -185,3 +185,25 @@ composer state.
   server/web history. The current source-folder default now uses environment
   and home-directory locations. History still needs a privacy cleanup and
   review before changing the GitHub repository from private to public.
+
+## Homebase data snapshot
+
+The importer opens Homebase's SQLite database read-only. Without `--apply` it
+prints counts and migration hazards. With `--apply` it creates a **new**
+destination database and refuses to overwrite one. Existing statuses and all
+legacy release, upload, public-text revision, and observation fields are
+retained as JSON for the later cutover; legacy authorization is not reused for
+new posts.
+
+```powershell
+python scripts/import_homebase.py --source <path-to-Homebase-database> --dest .state\homebase-snapshot.sqlite
+python scripts/import_homebase.py --source <path-to-Homebase-database> --dest .state\homebase-snapshot.sqlite --apply
+python scripts/import_homebase.py --source <path-to-Homebase-database> --dest .state\homebase-snapshot.sqlite --compare
+python scripts/import_homebase.py --source <path-to-Homebase-database> --existing .state\video-drop.sqlite --dest .state\merged-preview.sqlite --merge-copy
+```
+
+`--merge-copy` uses SQLite's online backup to stage a standalone database copy,
+then adds Homebase history and verifies the result before creating the requested
+file. Failed merges leave no candidate file. It rejects duplicate media and an
+already imported Homebase history. Both source databases remain untouched;
+the new copy is a cutover candidate, not an automatic switch.
