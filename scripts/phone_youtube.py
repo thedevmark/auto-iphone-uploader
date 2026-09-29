@@ -27,6 +27,7 @@ from video_drop.core import Store
 from video_drop.phone_manifest import verify_youtube_manifest, youtube_input
 from video_drop.accounts import load_targets
 from video_drop.sidetap_root import sidetap_root
+from video_drop.phone_link import recover, release_frozen_app
 
 
 def _sidetap_root() -> Path:
@@ -68,6 +69,12 @@ def layout(*, refresh: bool = False) -> PhoneLayout:
     if _layout is None or refresh:
         _layout = PhoneLayout.from_info(phone.screen_info())
     return _layout
+
+
+def recover_link() -> bool:
+    """Release a frozen app and wait for WDA; restart it only as a last resort."""
+    from phone_harness import device
+    return recover(sidetap_admin, release=lambda: release_frozen_app(device.ios_path()))
 
 
 def tap_reference(x: float, y: float) -> None:
@@ -511,7 +518,7 @@ def run(release: str, db: Path, *, commit: bool = False, resume_share: bool = Fa
                 if attempt == 2:
                     raise PhoneUploadError(f"Phone link failed after 3 preparation attempts: {exc}") from exc
                 stage("recover_phone_link")
-                if sidetap_admin.up() != 0:
+                if not recover_link():
                     raise PhoneUploadError("SideTap could not restore the phone link; no upload was submitted") from exc
                 time.sleep(1)
     raise PhoneUploadError("YouTube preparation did not finish")

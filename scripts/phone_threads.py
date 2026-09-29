@@ -104,7 +104,7 @@ def run(release_id: int, db: Path, *, commit: bool = False) -> dict:
                     prepare(data)
                     break
                 except share.WDAError as exc:
-                    if attempt == 2 or share.sidetap_admin.up() != 0:
+                    if attempt == 2 or not share.recover_link():
                         raise share.PhoneUploadError("SideTap could not restore Threads preparation; nothing posted") from exc
                     time.sleep(1)
             if not commit:
