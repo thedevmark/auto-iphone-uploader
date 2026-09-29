@@ -28,6 +28,7 @@ class ThreadsPostRouteTests(unittest.TestCase):
                 store.authorize(release_id, "threads")
                 store.set_delivery_mode(release_id, "post_now")
             with patch.object(server, "STATE", state), patch.object(server, "TEST_MODE", False), \
+                    patch.object(server, "phone_free_bytes", return_value=10 ** 12), \
                     patch("scripts.phone_threads.run", side_effect=RuntimeError("USB link unavailable")):
                 server.queue_threads_post(release_id)
                 for _ in range(50):
@@ -71,6 +72,7 @@ class ThreadsPostRouteTests(unittest.TestCase):
             thread.start()
             try:
                 with patch.object(server, "STATE", state), patch.object(server, "TEST_MODE", False), \
+                    patch.object(server, "phone_free_bytes", return_value=10 ** 12), \
                         patch("scripts.phone_threads.run", side_effect=fake_run):
                     url = f"http://127.0.0.1:{http.server_port}/api/releases/{release_id}/threads-post"
 
@@ -107,6 +109,31 @@ class ThreadsPostRouteTests(unittest.TestCase):
                 http.shutdown()
                 http.server_close()
                 thread.join(timeout=5)
+
+
+class PhoneSpaceGateTests(unittest.TestCase):
+    def test_post_now_stops_before_any_claim_when_the_iphone_is_full(self):
+        with tempfile.TemporaryDirectory() as folder:
+            state = Path(folder)
+            (state / "accounts.json").write_text('{"threads":"@creator"}', encoding="utf-8")
+            source = state / "clip.mp4"
+            source.write_bytes(b"finished video")
+            db = state / "video-drop.sqlite"
+            with Store(db, {"threads": "@creator"}) as store:
+                release_id = store.import_file(source)["id"]
+                store.save_text(release_id, "instagram", "@creator", "", "Approved caption", "")
+                store.save_text(release_id, "threads", "@creator", "", "", "")
+                store.authorize(release_id, "threads")
+                store.set_delivery_mode(release_id, "post_now")
+            with patch.object(server, "STATE", state), patch.object(server, "TEST_MODE", False), \
+                    patch.object(server, "phone_free_bytes", return_value=10), \
+                    patch("scripts.phone_threads.run") as run:
+                with self.assertRaisesRegex(ValueError, "needs .* GB free"):
+                    server.queue_threads_post(release_id)
+                run.assert_not_called()
+            with Store(db, {"threads": "@creator"}) as store:
+                threads = next(d for d in store.release(release_id)["destinations"] if d["platform"] == "threads")
+                self.assertEqual(threads["status"], "pending")
 
 
 if __name__ == "__main__":

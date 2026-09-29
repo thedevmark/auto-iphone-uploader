@@ -21,8 +21,10 @@ from .analyze import OLLAMA, TEXT_MODEL, VISION_MODEL, analyze
 from .accounts import load_targets
 from .watch import WatchFolder, complete_video, eligible
 from .runtime_identity import source_fingerprint
+from .phone_space import ensure_room, free_bytes
 
 ROOT = Path(__file__).resolve().parent.parent
+phone_free_bytes = free_bytes
 STATIC_FILES = {
     "/logo.svg": ("logo.svg", "image/svg+xml"),
     "/logo.ico": ("logo.ico", "image/x-icon"),
@@ -209,8 +211,10 @@ def queue_phone_post(release_id: int, platform: str) -> dict:
         if PHONE_ACTION_RUNNING:
             raise ValueError("A phone action is already running")
         with Store(STATE / "video-drop.sqlite", load_targets(STATE)) as store:
-            if store.release(release_id)["delivery_mode"] != "post_now":
+            release = store.release(release_id)
+            if release["delivery_mode"] != "post_now":
                 raise ValueError("This video is set to schedule; choose Post now to post it immediately")
+            ensure_room(release["file_size"], phone_free_bytes())
             if platform == "threads":
                 from scripts.phone_threads import release_input
                 release_input(store, release_id)

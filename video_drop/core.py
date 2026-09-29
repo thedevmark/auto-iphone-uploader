@@ -21,6 +21,9 @@ PHONE_CHECK_DEFAULTS = {
     "doNotDisturb": True,
     "youtubeQualityEveryUpload": False,
     "inspectPhoneOnOpen": True,
+    # After every destination has a native receipt: remove the Files download and move the
+    # Photos copy to Recently Deleted. Recently Deleted is never emptied automatically.
+    "removeAfterPost": True,
 }
 DELIVERY_MODES = ("schedule", "post_now")
 PLATFORM_HASHTAGS = {"youtube": "#shorts", "instagram": "#reels", "facebook": "#reels", "threads": "", "tiktok": "#fyp"}

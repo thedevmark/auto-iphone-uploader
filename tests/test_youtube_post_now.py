@@ -192,6 +192,7 @@ class YouTubePostNowTests(unittest.TestCase):
             thread.start()
             try:
                 with patch.object(server, "STATE", state), patch.object(server, "TEST_MODE", False), \
+                    patch.object(server, "phone_free_bytes", return_value=10 ** 12), \
                         patch("scripts.phone_youtube.run", side_effect=fake_run),                         patch.object(server, "youtube_quality_gate", return_value="full"):
                     url = f"http://127.0.0.1:{http.server_port}/api/releases/{release_id}/youtube-post"
                     post = lambda: Request(url, data=b"{}", method="POST")
