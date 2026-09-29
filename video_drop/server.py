@@ -23,6 +23,11 @@ from .watch import WatchFolder, complete_video, eligible
 from .runtime_identity import source_fingerprint
 
 ROOT = Path(__file__).resolve().parent.parent
+STATIC_FILES = {
+    "/logo.svg": ("logo.svg", "image/svg+xml"),
+    "/logo.ico": ("logo.ico", "image/x-icon"),
+    "/fonts/inter-variable.woff2": ("fonts/inter-variable.woff2", "font/woff2"),
+}
 RUNTIME_FINGERPRINT = source_fingerprint(ROOT)
 STATE = Path(os.environ.get("VIDEO_DROP_STATE", ROOT / ".state")).resolve()
 TEST_MODE = os.environ.get("VIDEO_DROP_TEST_MODE") == "1"
@@ -419,10 +424,11 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
             self.wfile.write(body)
-        elif path == "/logo.svg":
-            body = (ROOT / "web" / "logo.svg").read_bytes()
+        elif path in STATIC_FILES:
+            name, content_type = STATIC_FILES[path]
+            body = (ROOT / "web" / name).read_bytes()
             self.send_response(200)
-            self.send_header("Content-Type", "image/svg+xml")
+            self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
