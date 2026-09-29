@@ -91,7 +91,10 @@ slot does not mean a platform accepted it. An expired, unattempted reservation
 moves to the next free time; an expired time with a possible phone submission
 requires a native receipt check before any retry. The desktop Schedule action is
 disabled until the native-app batch can submit and verify each platform's
-schedule. Each new video defaults to Schedule; Post now is an explicit saved
+schedule. The local `POST /api/queue/plan` route accepts
+`{"releaseIds":[1,2]}` for confirmed clips and returns their reserved times
+with `nativeScheduled: false`; it does not send either clip to the phone.
+Each new video defaults to Schedule; Post now is an explicit saved
 choice that takes no time slot. Threads and YouTube have one-shot native Post now
 actions; YouTube requires choosing Post now first. Both stay unconfirmed after
 the final tap until their native receipts are checked. Other destinations remain

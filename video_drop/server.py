@@ -559,6 +559,20 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/phone/inspect":
             self._json(200, queue_phone_inspection())
             return
+        if path == "/api/queue/plan":
+            try:
+                if TEST_MODE:
+                    raise ValueError("Slot planning is disabled in this test session")
+                release_ids = self._body().get("releaseIds")
+                if (not isinstance(release_ids, list) or not release_ids
+                        or any(type(release_id) is not int or release_id <= 0 for release_id in release_ids)):
+                    raise ValueError("Choose finished videos to plan")
+                with self._store() as store:
+                    planned = store.reserve_batch(sorted(release_ids))
+                self._json(200, {"releases": planned, "nativeScheduled": False})
+            except (ValueError, OSError, json.JSONDecodeError) as exc:
+                self._json(400, {"error": str(exc)})
+            return
         if match := re.fullmatch(r"/api/releases/(\d+)/(threads|youtube)-post", path):
             try:
                 self._body()
