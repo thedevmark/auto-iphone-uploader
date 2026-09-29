@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 
 from PIL import Image
 
-from video_drop.phone_ui import PhoneLayout, filled_radio, share_app_position, youtube_identity, youtube_page_account
+from video_drop.phone_ui import size_shown, PhoneLayout, filled_radio, share_app_position, youtube_identity, youtube_page_account
 from video_drop.phone_onboarding import build_profile
 from video_drop.youtube_nav import exit_target, open_tabs
 from scripts.phone_onboard import upload_quality_from_labels
@@ -108,6 +108,18 @@ class PhoneUiTests(unittest.TestCase):
             self.assertFalse(filled_radio(image, layout, 35, 352))
             image.putpixel((105, 1056), (ring,) * 3)
             self.assertTrue(filled_radio(image, layout, 35, 352))
+
+
+class SizeShownTests(unittest.TestCase):
+    def test_accepts_each_way_the_phone_rounds_the_size(self):
+        self.assertTrue(size_shown(1_101_781_282, ["timdillonday6.mp4", "1 GB"]))
+        self.assertTrue(size_shown(1_101_781_282, ["Video · 1.1 GB"]))
+        self.assertTrue(size_shown(271_151_905, ["271.2 MB"]))
+        self.assertTrue(size_shown(271_151_905, ["258.6 MB"]))
+
+    def test_rejects_a_different_size(self):
+        self.assertFalse(size_shown(271_151_905, ["238.5 MB"]))
+        self.assertFalse(size_shown(1_101_781_282, ["11 GB", "2 GB"]))
 
 
 if __name__ == "__main__":
