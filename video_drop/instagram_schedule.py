@@ -58,8 +58,10 @@ def read_device_time_zone() -> str:
                     return found
         return None
 
+    # go-ios exposes TimeZone in the global lockdown values. A full global read
+    # covers versions that do not return the requested key on its own.
     for args in (("ios", "lockdown", "get", "TimeZone"),
-                 ("ios", "lockdown", "get", "TimeZone", "--domain=com.apple.international")):
+                 ("ios", "lockdown", "get")):
         try:
             result = subprocess.run(args, capture_output=True, text=True, timeout=10, check=False)
         except (FileNotFoundError, subprocess.TimeoutExpired, OSError):

@@ -32,8 +32,9 @@ class InstagramScheduleTests(unittest.TestCase):
         with patch("video_drop.instagram_schedule.subprocess.run", return_value=valid):
             self.assertEqual(read_device_time_zone(), "America/New_York")
         invalid = subprocess.CompletedProcess([], 0, '{"TimeZone":"not-a-zone"}', "")
-        with patch("video_drop.instagram_schedule.subprocess.run", side_effect=[invalid, valid]):
+        with patch("video_drop.instagram_schedule.subprocess.run", side_effect=[invalid, valid]) as run:
             self.assertEqual(read_device_time_zone(), "America/New_York")
+            self.assertEqual(run.call_args_list[1].args[0], ("ios", "lockdown", "get"))
         with patch("video_drop.instagram_schedule.subprocess.run", return_value=invalid):
             with self.assertRaisesRegex(ValueError, "keep Instagram unconfirmed"):
                 read_device_time_zone()
