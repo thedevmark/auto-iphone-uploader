@@ -119,8 +119,8 @@ python -m unittest discover -s tests -v
 ```
 
 The phone scripts and the cross-platform test suite need Pillow. Install
-`requirements-test.txt` for a reproducible local test environment; it also
-includes `tzdata` for Windows timezone support. GitHub Actions runs the suite
+`requirements.txt` for a reproducible local environment; it also includes
+`tzdata` for Windows timezone support. GitHub Actions runs the suite
 on Windows and Linux. Live iPhone behavior is checked separately because CI
 has no connected device or platform accounts.
 

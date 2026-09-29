@@ -22,7 +22,7 @@ if ($CheckOnly) {
     return
 }
 
-& $pythonExe -m pip install -r (Join-Path $projectRoot 'requirements-test.txt')
+& $pythonExe -m pip install -r (Join-Path $projectRoot 'requirements.txt')
 if ($LASTEXITCODE -ne 0) {
     throw 'Python dependency installation failed. Resolve the pip error above and run this script again.'
 }
