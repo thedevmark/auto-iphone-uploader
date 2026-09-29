@@ -31,6 +31,8 @@ ANALYSIS_PENDING: set[int] = set()
 PHONE_POOL = ThreadPoolExecutor(max_workers=1, thread_name_prefix="video-drop-phone")
 PHONE_LOCK = threading.Lock()
 PHONE_RUNNING = False
+PHONE_ACTION_LOCK = threading.Lock()
+PHONE_ACTION_RUNNING = False
 SIDETAP_STATUS_LOCK = threading.Lock()
 SIDETAP_STATUS_CACHE: tuple[float, dict] | None = None
 MODEL_RECOVERY_INTERVAL = 30
@@ -149,6 +151,64 @@ def queue_phone_inspection() -> dict:
 
     PHONE_POOL.submit(work)
     return state
+
+
+def phone_action_status() -> dict:
+    path = STATE / "phone-action.json"
+    if not path.is_file():
+        return {"status": "idle"}
+    result = json.loads(path.read_text(encoding="utf-8"))
+    if result.get("status") == "running" and not PHONE_ACTION_RUNNING:
+        with Store(STATE / "video-drop.sqlite", load_targets(STATE)) as store:
+            release = store.release(result["releaseId"])
+        threads = next(d for d in release["destinations"] if d["platform"] == "threads")
+        return {**result, "status": "needs_check" if threads["status"] == "unconfirmed" else "interrupted",
+                "message": "Check Threads for a matching post before trying again" if threads["status"] == "unconfirmed"
+                           else "Phone preparation stopped before the final tap; reconnect SideTap and try again"}
+    return result
+
+
+def queue_threads_post(release_id: int) -> dict:
+    """Run one native phone action in this process so a server exit cannot leave a child posting."""
+    global PHONE_ACTION_RUNNING
+    if TEST_MODE:
+        raise ValueError("Posting is disabled in this test session")
+    from scripts.phone_threads import release_input
+    with PHONE_ACTION_LOCK:
+        if PHONE_ACTION_RUNNING:
+            raise ValueError("A phone action is already running")
+        with Store(STATE / "video-drop.sqlite", load_targets(STATE)) as store:
+            release_input(store, release_id)
+        result = {"status": "running", "platform": "threads", "releaseId": release_id,
+                  "message": "Preparing the confirmed video in Threads"}
+        STATE.mkdir(parents=True, exist_ok=True)
+        (STATE / "phone-action.json").write_text(json.dumps(result), encoding="utf-8")
+        PHONE_ACTION_RUNNING = True
+
+    def work() -> None:
+        global PHONE_ACTION_RUNNING
+        result = {"status": "failed", "platform": "threads", "releaseId": release_id,
+                  "message": "Phone action stopped before a result was recorded"}
+        try:
+            from scripts.phone_threads import run
+            outcome = run(release_id, STATE / "video-drop.sqlite", commit=True)
+            result = {"status": "needs_check", "platform": "threads", "releaseId": release_id,
+                      "message": outcome["message"]}
+        except Exception as exc:
+            with Store(STATE / "video-drop.sqlite", load_targets(STATE)) as store:
+                release = store.release(release_id)
+            threads = next(d for d in release["destinations"] if d["platform"] == "threads")
+            uncertain = threads["status"] == "unconfirmed"
+            result = {"status": "needs_check" if uncertain else "failed", "platform": "threads",
+                      "releaseId": release_id,
+                      "message": "Check Threads for a matching post before any retry" if uncertain else str(exc)[:240]}
+        finally:
+            (STATE / "phone-action.json").write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
+            with PHONE_ACTION_LOCK:
+                PHONE_ACTION_RUNNING = False
+
+    PHONE_POOL.submit(work)
+    return result
 
 
 def initial_video_folder() -> Path:
@@ -410,6 +470,8 @@ class Handler(BaseHTTPRequestHandler):
                                  "timeZone": "America/New_York", "nextSlots": upcoming})
         elif path == "/api/phone":
             self._json(200, phone_inspection())
+        elif path == "/api/phone-action":
+            self._json(200, phone_action_status())
         elif path == "/api/source-files":
             self._json(200, local_video_files())
         elif path == "/api/sidetap":
@@ -480,6 +542,13 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/phone/inspect":
             self._json(200, queue_phone_inspection())
+            return
+        if match := re.fullmatch(r"/api/releases/(\d+)/threads-post", path):
+            try:
+                self._body()
+                self._json(202, queue_threads_post(int(match[1])))
+            except (ValueError, RuntimeError, OSError, json.JSONDecodeError) as exc:
+                self._json(400, {"error": str(exc)})
             return
         match = re.fullmatch(r"/api/releases/(\d+)/(text|shared-title|shared-copy|authorize|delivery-mode|schedule|unconfirmed|receipt|discard|analyze)", path)
         try:

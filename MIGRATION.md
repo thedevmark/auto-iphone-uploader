@@ -48,10 +48,14 @@ composer state.
 
 - Separate local Git repository created. Standalone Python app, data store,
   local browser editor, queue, phone YouTube runner, and historical runbook are here.
-- The public source starts from a clean root commit. The older development
-  history remains in a separate private repository because it contains a local
-  Windows path. Public source availability does not complete the Homebase
-  migration or verify native scheduling and receipts.
+- A clean MIT-licensed source snapshot is public at
+  `github.com/thedevmark/automated-iphone-social-media-uploads`; the working repository and Homebase remain
+  private. The public snapshot passed a tracked-file and one-commit history
+  secret scan on 2026-09-29. This is a source release, not a claim that native
+  scheduling or the Homebase cutover is complete. The tracked tree has no detected local user path, email address, or
+  credential assignment; an earlier blob of the phone runbook does contain a
+  local user path. Prepare a clean public root commit and audit that exact tree
+  before changing repository visibility.
 - Core tests cover duplicate media, multiple queued drafts with one selected editor, consecutive slots,
   exact-text invalidation, and uncertain receipt state. An HTTP smoke check
   confirmed the app serves its page and API.
@@ -144,7 +148,9 @@ composer state.
 - Each release now stores Schedule as its default delivery choice, or an
   explicit Post now choice. Post now takes no slot; the store permits one
   guarded final attempt from a draft and then requires a receipt check. The
-  choice does not yet launch a native app. The YouTube preparation runner now
+  Threads can launch its native Post now runner from the editor after exact-text
+  confirmation; its final tap becomes unconfirmed until a matching native post
+  is checked. The YouTube preparation runner now
   takes a release ID and checks the original file and confirmed text against
   the database before opening OneDrive. A legacy manifest must match that
   release exactly. Phone submission remains disabled pending native schedule
@@ -161,6 +167,8 @@ composer state.
   The tunnel then ended while switching from Instagram toward YouTube; doctor
   later reported no phone over USB. No clip was posted or scheduled. Native
   screen inspection must resume only after a fresh green doctor check.
-- The older private development history contains a personal Windows path and
-  machine-specific OneDrive defaults. Only the audited clean source snapshot
-  is published; those older commits are not part of its history.
+- A targeted scan of 167 tracked Git blobs found an older personal Windows
+  path in the phone runbook and older machine-specific OneDrive defaults in
+  server/web history. The current source-folder default now uses environment
+  and home-directory locations. History still needs a privacy cleanup and
+  review before changing the GitHub repository from private to public.

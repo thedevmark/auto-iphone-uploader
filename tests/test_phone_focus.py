@@ -4,8 +4,9 @@ from video_drop.phone_focus import FocusError, focus_state, upload_focus
 
 
 class FakePhone:
-    def __init__(self, dnd=False):
+    def __init__(self, dnd=False, detailed_dnd_menu=False):
         self.dnd = dnd
+        self.detailed_dnd_menu = detailed_dnd_menu
         self.in_control = False
         self.in_menu = False
         self.taps = []
@@ -19,12 +20,13 @@ class FakePhone:
 
     def ocr(self):
         if self.in_menu:
-            labels = ["Focus", "Do Not Disturb"]
+            labels = ["Focus", "Do Not Disturb, Silence all notifications" if self.detailed_dnd_menu else "Do Not Disturb"]
         elif self.in_control:
             labels = ["Do Not Disturb" if self.dnd else "Focus"]
         else:
             labels = ["Video composer"]
-        return [{"text": label, "x": 200, "y": 200 + i * 80, "type": "Button"}
+        return [{"text": label, "x": 200, "y": 200 + i * 80,
+                 "type": "Icon" if label == "Focus" and self.in_control else "Button"}
                 for i, label in enumerate(labels)]
 
     def compact(self, rows):
@@ -58,9 +60,18 @@ class PhoneFocusTests(unittest.TestCase):
         self.assertTrue(phone.dnd)
         self.assertEqual(phone.taps, [])
 
+    def test_detailed_dnd_menu_label_enables_and_restores(self):
+        phone = FakePhone(detailed_dnd_menu=True)
+        with upload_focus(phone):
+            self.assertTrue(phone.dnd)
+        self.assertFalse(phone.dnd)
+
     def test_ambiguous_focus_fails_closed(self):
         with self.assertRaises(FocusError):
             focus_state([{"text": "Focus"}, {"text": "Do Not Disturb"}])
+
+    def test_iphone_active_label_is_dnd(self):
+        self.assertEqual(focus_state([{"text": "Do Not Disturb, On", "type": "Button"}]), "dnd")
 
 
 if __name__ == "__main__":
