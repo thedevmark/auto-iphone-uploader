@@ -2,13 +2,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scripts.import_homebase import apply, compare, merge_copy
+from scripts.import_homebase import apply, compare, media_issues, merge_copy
 from video_drop.core import Store, digest
 
 
 def source_snapshot(path: Path) -> dict:
+    path.write_bytes(b"homebase clip")
     release = {"id": 7, "sourcePath": str(path), "sourceName": path.name,
-               "contentHash": "a" * 64, "fileSize": 123, "status": "draft",
+               "contentHash": digest(path), "fileSize": path.stat().st_size, "status": "draft",
                "scheduledFor": None, "createdAt": "2026-09-01T00:00:00Z",
                "updatedAt": "2026-09-01T00:00:00Z"}
     upload = {"id": 30, "releaseId": 7, "platform": "youtube", "accountKey": "@creator",
@@ -74,7 +75,9 @@ class MigrationDeltaTests(unittest.TestCase):
             with Store(existing_path) as existing:
                 existing.import_file(source_video)
             homebase = source_snapshot(root / "homebase.mp4")
+            (root / "homebase.mp4").write_bytes(b"standalone clip")
             homebase["releases"][0]["contentHash"] = digest(source_video)
+            homebase["releases"][0]["fileSize"] = source_video.stat().st_size
             candidate = root / "conflict.sqlite"
             with self.assertRaisesRegex(ValueError, "Media already exists"):
                 merge_copy(homebase, existing_path, candidate)
@@ -82,6 +85,17 @@ class MigrationDeltaTests(unittest.TestCase):
             self.assertEqual(list(root.glob(".video-drop-merge-*")), [])
             with Store(existing_path) as unchanged:
                 self.assertEqual(unchanged.db.execute("SELECT count(*) FROM release").fetchone()[0], 1)
+
+    def test_import_rejects_media_changed_after_snapshot(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = source_snapshot(root / "clip.mp4")
+            self.assertEqual(media_issues(source["releases"]), ([], []))
+            (root / "clip.mp4").write_bytes(b"different clip")
+            with Store(root / "snapshot.sqlite") as destination:
+                with self.assertRaisesRegex(ValueError, "missing or changed"):
+                    apply(source, destination)
+                self.assertEqual(destination.db.execute("SELECT count(*) FROM release").fetchone()[0], 0)
 
 
 if __name__ == "__main__":
