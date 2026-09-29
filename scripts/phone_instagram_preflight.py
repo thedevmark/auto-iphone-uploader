@@ -18,8 +18,9 @@ from video_drop.media_color import edits_color_mode  # noqa: E402
 from video_drop.phone_ui import PhoneLayout  # noqa: E402
 from video_drop.core import Store, digest  # noqa: E402
 from video_drop.accounts import load_targets, require_target  # noqa: E402
+from video_drop.sidetap_root import sidetap_root  # noqa: E402
 
-SIDETAP = Path(os.environ.get("SIDETAP_ROOT", "").strip() or Path.home() / "AppData" / "Local" / "SideTap")
+SIDETAP = sidetap_root()
 phone = None
 
 

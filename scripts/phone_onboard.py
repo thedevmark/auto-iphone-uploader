@@ -12,7 +12,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-SIDETAP = Path(os.environ.get("SIDETAP_ROOT", "").strip() or Path.home() / "AppData" / "Local" / "SideTap")
+from video_drop.sidetap_root import sidetap_root  # noqa: E402
+SIDETAP = sidetap_root()
 device = None
 phone = None
 from video_drop.phone_onboarding import build_profile  # noqa: E402

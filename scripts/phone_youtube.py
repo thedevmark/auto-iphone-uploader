@@ -26,11 +26,11 @@ from video_drop.phone_focus import FocusError, optional_focus
 from video_drop.core import Store
 from video_drop.phone_manifest import verify_youtube_manifest, youtube_input
 from video_drop.accounts import load_targets
+from video_drop.sidetap_root import sidetap_root
 
 
 def _sidetap_root() -> Path:
-    configured = os.environ.get("SIDETAP_ROOT", "").strip()
-    return Path(configured) if configured else Path.home() / "AppData" / "Local" / "SideTap"
+    return sidetap_root()
 
 
 SIDETAP_SRC = _sidetap_root() / "src"
