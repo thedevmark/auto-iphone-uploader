@@ -1,13 +1,16 @@
 """Read back an Instagram Reel from the native Scheduled content list.
 
-These checks consume SideTap's accessibility rows. They cannot prove the video
-thumbnail or account identity; the phone runner must verify those separately.
+These checks consume SideTap's accessibility rows and screenshot, plus the
+source's first frame. The phone runner still verifies account identity.
 """
 
 from __future__ import annotations
 
 import re
+import subprocess
 from datetime import datetime
+from io import BytesIO
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from PIL import Image, ImageChops, ImageStat
@@ -16,6 +19,21 @@ from .phone_ui import PhoneLayout
 
 
 MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+
+
+def first_frame(source: Path) -> Image.Image:
+    """Decode the original video's first frame without creating a media copy."""
+    try:
+        result = subprocess.run(
+            ["ffmpeg", "-v", "error", "-nostdin", "-i", str(source),
+             "-frames:v", "1", "-f", "image2pipe", "-vcodec", "mjpeg", "-"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True, timeout=45,
+        )
+        return Image.open(BytesIO(result.stdout)).convert("RGB")
+    except FileNotFoundError as exc:
+        raise ValueError("ffmpeg is required to verify the Instagram cover") from exc
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as exc:
+        raise ValueError("Could not decode the source video's first frame") from exc
 
 
 def scheduled_list_label(scheduled_at: str, device_time_zone: str) -> str:

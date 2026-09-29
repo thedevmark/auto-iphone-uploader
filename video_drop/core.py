@@ -518,31 +518,44 @@ class Store:
         raise ValueError("Provider receipt verification is not connected yet")
 
     def record_observed_schedule(self, release_id: int, platform: str, *, account: str,
-                                 caption: str, scheduled_at: str, evidence_image: Path) -> dict:
-        """Record a matching native scheduled-content screen inspected by the operator.
+                                 native_rows: list[dict], device_time_zone: str,
+                                 screen_info: dict, evidence_image: Path) -> dict:
+        """Record an Instagram schedule only after its native row and cover match.
 
-        This is an observed schedule, not an automatic provider receipt or a
-        public-post confirmation. Keep the evidence under the ignored state dir.
+        The phone runner supplies the active account and verified iPhone time
+        zone. Keep its screenshot under the ignored local state directory.
         """
-        if platform not in TIMED_DESTINATIONS:
-            raise ValueError("This destination does not support a scheduled receipt")
+        if platform != "instagram":
+            raise ValueError("Native schedule verification is not connected for this destination")
         evidence_image = evidence_image.resolve(strict=True)
-        if not evidence_image.is_file() or evidence_image.stat().st_size == 0:
+        if (not evidence_image.is_relative_to(self.path.parent.resolve())
+                or not evidence_image.is_file() or evidence_image.stat().st_size == 0):
             raise ValueError("Scheduled-content evidence is empty")
+        from PIL import Image
+        from .instagram_schedule import first_frame, verified_scheduled_reel
+        from .phone_ui import PhoneLayout
         self.db.execute("BEGIN IMMEDIATE")
         try:
             release = self.release(release_id)
             destination = next(d for d in release["destinations"] if d["platform"] == platform)
             if destination["status"] != "unconfirmed" or release["delivery_mode"] != "schedule":
                 raise ValueError("No uncertain native schedule to verify")
-            if (destination["account"].casefold() != account.casefold()
-                    or destination["description"] != caption
-                    or release["scheduled_at"] != scheduled_at):
-                raise ValueError("Native scheduled-content details do not match this release")
+            if destination["account"].casefold() != account.casefold() or not release["scheduled_at"]:
+                raise ValueError("Native scheduled-content account or time does not match this release")
             revision = self._revision_hash(platform, destination["account"], destination["title"],
                                            destination["description"], destination["tags"], destination["visibility"])
             if destination["revision_hash"] != revision:
                 raise ValueError("Approved text revision changed")
+            source = Path(release["source_path"])
+            if not source.is_file() or digest(source) != release["sha256"]:
+                raise ValueError("Source video changed or is missing")
+            layout = PhoneLayout.from_info(screen_info)
+            with Image.open(evidence_image) as screenshot:
+                if (abs(screenshot.width / screenshot.height - layout.width / layout.height) > 0.01):
+                    raise ValueError("Scheduled-content screenshot does not match the iPhone screen")
+                match = verified_scheduled_reel(native_rows, screenshot, first_frame(source),
+                                                destination["description"], release["scheduled_at"],
+                                                device_time_zone, layout)
             now = utc_now().isoformat()
             self.db.execute("UPDATE destination SET status='scheduled',updated_at=? WHERE id=?", (now, destination["id"]))
             remaining = [d for d in release["destinations"] if d["id"] != destination["id"]
@@ -550,8 +563,10 @@ class Store:
             self.db.execute("UPDATE release SET status=?,updated_at=? WHERE id=?",
                             ("partial" if remaining else "scheduled", now, release_id))
             self._event(release_id, platform, "native_schedule_observed", {
-                "account": account, "caption": caption, "scheduled_at": scheduled_at,
-                "evidence_sha256": digest(evidence_image), "verification": "human_inspected_native_list",
+                "account": account, "caption": destination["description"],
+                "scheduled_at": release["scheduled_at"], "cover_difference": match["difference"],
+                "evidence_sha256": digest(evidence_image),
+                "verification": "native_caption_time_first_frame",
             })
             self.db.commit()
         except Exception:
