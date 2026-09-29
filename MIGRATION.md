@@ -46,16 +46,22 @@ composer state.
 
 ## Current progress
 
+| Gate | Current evidence | State |
+| --- | --- | --- |
+| Open-source source release | GitHub repository is public; the standalone app and MIT license are on `main`. | Published source |
+| Queue and posting times | Local tests cover the default 10 AM / 7 PM New York slots, configurable one to five times daily, and atomic batch reservations. | Local planning only |
+| Native schedules | YouTube has a no-submit Schedule inspection path. Instagram receipt checking is in a draft PR. No platform has an end-to-end native schedule and matching receipt from this standalone app. | Not released |
+| Post now | YouTube and Threads have guarded, one-shot native actions. Their standalone live receipts are not proven. | Not released as unattended publishing |
+| Homebase cutover | A merged database copy has been staged without switching the live app. Homebase caller replacement, live delivery proof, and rollback remain. | Homebase stays live |
+
 - Separate local Git repository created. Standalone Python app, data store,
   local browser editor, queue, phone YouTube runner, and historical runbook are here.
-- A clean MIT-licensed source snapshot is public at
-  `github.com/thedevmark/automated-iphone-social-media-uploads`; the working repository and Homebase remain
-  private. The public snapshot passed a tracked-file and one-commit history
-  secret scan on 2026-09-29. This is a source release, not a claim that native
-  scheduling or the Homebase cutover is complete. The tracked tree has no detected local user path, email address, or
-  credential assignment; an earlier blob of the phone runbook does contain a
-  local user path. Prepare a clean public root commit and audit that exact tree
-  before changing repository visibility.
+- The MIT-licensed source repository is public at
+  `github.com/thedevmark/automated-iphone-social-media-uploads`; the working
+  repository and Homebase remain private. A tracked-file and initial-history
+  secret scan passed on 2026-09-29. That scan does not prove every later commit
+  or open branch is free of private material. Source publication is not native
+  scheduling or a Homebase cutover.
 - Core tests cover duplicate media, multiple queued drafts with one selected editor, consecutive slots,
   exact-text invalidation, and uncertain receipt state. An HTTP smoke check
   confirmed the app serves its page and API.
@@ -126,8 +132,9 @@ composer state.
   advanced through processing. The runner now waits for the observed editor
   state and only retries Next while the crop screen remains visible. The phone
   disconnected before the details and schedule screens could be inspected.
-  No upload or schedule was submitted. The runner's old immediate-upload
-  `--commit` branch is disabled until a native schedule path is verified.
+  No upload or schedule was submitted. The guarded `--commit` path now exists
+  only for an explicitly confirmed Post now release; scheduled releases cannot
+  use it.
 - A subsequent no-submit phone run reached YouTube details after checking the
   channel and exact OneDrive file. The nested visibility screen showed Private
   selected, but the details screen still read Public after returning, so the
