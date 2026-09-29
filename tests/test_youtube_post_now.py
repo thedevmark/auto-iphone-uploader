@@ -4,6 +4,7 @@ import threading
 import time
 import unittest
 from contextlib import nullcontext
+from datetime import datetime, timezone
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 from unittest.mock import patch
@@ -13,6 +14,7 @@ from urllib.request import Request, urlopen
 from scripts import phone_youtube
 from video_drop import server
 from video_drop.core import Store
+from video_drop.phone_ui import PhoneLayout
 
 
 def confirmed_youtube(state: Path, *, post_now: bool) -> tuple[Path, int]:
@@ -30,6 +32,74 @@ def confirmed_youtube(state: Path, *, post_now: bool) -> tuple[Path, int]:
 
 
 class YouTubePostNowTests(unittest.TestCase):
+    def test_schedule_inspection_requires_a_planned_slot_before_phone_use(self):
+        with tempfile.TemporaryDirectory() as folder:
+            db, release_id = confirmed_youtube(Path(folder), post_now=False)
+            with patch.object(phone_youtube, "connect_sidetap", side_effect=AssertionError("phone opened")):
+                with self.assertRaisesRegex(phone_youtube.PhoneUploadError, "Reserve a future slot"):
+                    phone_youtube.run(str(release_id), db, inspect_schedule=True)
+            with self.assertRaisesRegex(phone_youtube.PhoneUploadError, "cannot submit"):
+                phone_youtube.run(str(release_id), db, commit=True, inspect_schedule=True)
+
+    def test_schedule_inspection_captures_native_controls_without_submitting(self):
+        with tempfile.TemporaryDirectory() as folder:
+            state = Path(folder)
+            db, release_id = confirmed_youtube(state, post_now=False)
+            with Store(db, {"youtube": "@creator"}) as store:
+                store.reserve_slot(release_id, datetime.now(timezone.utc))
+
+            class FakePhone:
+                def __init__(self):
+                    self.taps = []
+                    self.swipes = []
+
+                def unlock(self):
+                    pass
+
+                def tap(self, x, y):
+                    self.taps.append((x, y))
+
+                def swipe(self, *args):
+                    self.swipes.append(args)
+
+                def current_app(self):
+                    return {"bundleId": "com.google.ios.youtube"}
+
+                def screenshot(self):
+                    return b"private screenshot fixture"
+
+            fake = FakePhone()
+            visibility_checks = 0
+
+            def visible(label, *, exact=True):
+                nonlocal visibility_checks
+                if label == "Visibility":
+                    visibility_checks += 1
+                    return [] if visibility_checks == 1 else [{"text": "Visibility", "x": 215, "y": 320}]
+                return [{"text": "Schedule", "x": 190, "y": 430}]
+
+            with patch.object(phone_youtube, "connect_sidetap"), \
+                    patch.object(phone_youtube, "phone", fake), \
+                    patch.object(phone_youtube, "upload_focus", return_value=nullcontext()), \
+                    patch.object(phone_youtube, "layout", return_value=PhoneLayout(440, 956)), \
+                    patch.object(phone_youtube, "ensure_youtube_channel"), \
+                    patch.object(phone_youtube, "open_onedrive_file"), \
+                    patch.object(phone_youtube, "prepare_youtube"), \
+                    patch.object(phone_youtube, "tap"), \
+                    patch.object(phone_youtube, "assert_visible"), \
+                    patch.object(phone_youtube, "matches", side_effect=visible), \
+                    patch.object(phone_youtube, "screen", return_value=[{"text": "Schedule", "x": 190, "y": 430}]):
+                result = phone_youtube.run(str(release_id), db, inspect_schedule=True)
+            self.assertEqual(result["kind"], "schedule_inspection")
+            self.assertEqual(fake.taps, [(190, 430)])
+            self.assertEqual(len(fake.swipes), 1)
+            self.assertTrue(Path(result["screenshot"]).is_file())
+            self.assertTrue(Path(result["rows"]).is_file())
+            with Store(db, {"youtube": "@creator"}) as store:
+                release = store.release(release_id)
+                self.assertEqual(release["status"], "reserved")
+                self.assertEqual(next(d for d in release["destinations"] if d["platform"] == "youtube")["status"], "pending")
+
     def test_scheduled_release_cannot_tap_immediate_upload(self):
         with tempfile.TemporaryDirectory() as folder:
             state = Path(folder)

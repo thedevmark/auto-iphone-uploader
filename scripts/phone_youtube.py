@@ -13,6 +13,7 @@ import json
 import os
 import sys
 import time
+from datetime import datetime, timezone
 from io import BytesIO
 from pathlib import Path
 
@@ -396,7 +397,44 @@ def prepare_youtube(data: dict) -> None:
     stage("ready_to_upload")
 
 
-def run(release: str, db: Path, *, commit: bool = False, resume_share: bool = False) -> dict:
+def inspect_native_schedule(data: dict, db: Path) -> dict:
+    """Read the YouTube Schedule controls without choosing a time or submitting."""
+    stage("youtube_schedule_inspection")
+    # Preparation ends at the lower metadata fields; return to Visibility.
+    for _ in range(5):
+        if matches("Visibility", exact=False):
+            break
+        phone.swipe(*layout().reference_point(220, 300),
+                    *layout().reference_point(220, 780), 0.55)
+    tap("Visibility", exact=False)
+    assert_visible("Set visibility")
+    candidates = [row for row in matches("Schedule")
+                  if layout().relative_band(row, top=0.3, bottom=0.8)]
+    if len(candidates) != 1:
+        raise PhoneUploadError("YouTube Schedule control is missing or ambiguous")
+    phone.tap(candidates[0]["x"], candidates[0]["y"])
+    if phone.current_app().get("bundleId") != "com.google.ios.youtube":
+        raise PhoneUploadError("YouTube left the foreground during schedule inspection")
+    rows = screen()
+    evidence_dir = db.parent / "schedule-inspection"
+    evidence_dir.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    stem = evidence_dir / f"youtube-{data['releaseId']}-{stamp}"
+    stem.with_suffix(".png").write_bytes(phone.screenshot())
+    stem.with_suffix(".json").write_text(json.dumps({
+        "releaseId": data["releaseId"], "account": data["expectedAccount"],
+        "plannedSlot": data["scheduledAt"], "rows": rows,
+    }, ensure_ascii=False, indent=2), encoding="utf-8")
+    return {"kind": "schedule_inspection", "releaseId": data["releaseId"],
+            "account": data["expectedAccount"], "plannedSlot": data["scheduledAt"],
+            "screenshot": str(stem.with_suffix(".png")), "rows": str(stem.with_suffix(".json")),
+            "message": "Native Schedule controls captured; no upload or schedule was submitted"}
+
+
+def run(release: str, db: Path, *, commit: bool = False, resume_share: bool = False,
+        inspect_schedule: bool = False) -> dict:
+    if commit and inspect_schedule:
+        raise PhoneUploadError("Schedule inspection cannot submit an upload")
     if commit and os.environ.get("VIDEO_DROP_TEST_MODE") == "1":
         raise PhoneUploadError("Posting is disabled in this test session")
     with Store(db, load_targets(db.parent)) as store:
@@ -407,6 +445,12 @@ def run(release: str, db: Path, *, commit: bool = False, resume_share: bool = Fa
             data = verify_youtube_manifest(store, manifest)
         if commit and data["deliveryMode"] != "post_now":
             raise PhoneUploadError("YouTube scheduling is not connected; choose Post now for an immediate upload")
+        if inspect_schedule:
+            if data["deliveryMode"] != "schedule" or not data["scheduledAt"]:
+                raise PhoneUploadError("Reserve a future slot before inspecting YouTube Schedule")
+            slot = datetime.fromisoformat(data["scheduledAt"])
+            if slot.tzinfo is None or slot <= datetime.now(timezone.utc):
+                raise PhoneUploadError("The planned YouTube slot has passed; reserve a future slot")
         if data["visibility"] not in ("private", "unlisted", "public"):
             raise PhoneUploadError("Invalid YouTube visibility")
         if not isinstance(data["tags"], list) or not all(isinstance(tag, str) and tag for tag in data["tags"]):
@@ -426,6 +470,8 @@ def run(release: str, db: Path, *, commit: bool = False, resume_share: bool = Fa
                         ensure_youtube_channel(data["expectedAccount"])
                         open_onedrive_file(data)
                     prepare_youtube(data)
+                    if inspect_schedule:
+                        return inspect_native_schedule(data, db)
                     if not commit:
                         return {"kind": "ready", "releaseId": data["releaseId"],
                                 "account": data["expectedAccount"]}
@@ -463,8 +509,11 @@ def main() -> int:
     parser.add_argument("--db", type=Path, default=Path(os.environ.get("VIDEO_DROP_STATE", Path(__file__).resolve().parent.parent / ".state")) / "video-drop.sqlite")
     parser.add_argument("--commit", action="store_true")
     parser.add_argument("--resume-share", action="store_true")
+    parser.add_argument("--inspect-schedule", action="store_true",
+                        help="Capture the native Schedule screen; never submit")
     args = parser.parse_args()
-    print(json.dumps(run(args.release, args.db, commit=args.commit, resume_share=args.resume_share)))
+    print(json.dumps(run(args.release, args.db, commit=args.commit,
+                         resume_share=args.resume_share, inspect_schedule=args.inspect_schedule)))
     return 0
 
 
