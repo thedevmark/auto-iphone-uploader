@@ -2,6 +2,14 @@
 
 <img src="web/logo.svg" width="64" height="64" alt="iPhone with an upload arrow">
 
+[![Tests](https://github.com/thedevmark/auto-iphone-uploader/actions/workflows/tests.yml/badge.svg)](https://github.com/thedevmark/auto-iphone-uploader/actions/workflows/tests.yml)
+[![CodeQL](https://github.com/thedevmark/auto-iphone-uploader/actions/workflows/codeql.yml/badge.svg)](https://github.com/thedevmark/auto-iphone-uploader/actions/workflows/codeql.yml)
+
+**Before you install:** this app controls social apps on your iPhone.
+[SECURITY.md](SECURITY.md) lists exactly what it does and never does on your
+phone and computer, and how to verify a release zip was built from this
+repository by GitHub (signed provenance, SHA-256, and a VirusTotal scan).
+
 Licensed under MIT; see [LICENSE](LICENSE). The connected iPhone, platform
 accounts, SideTap installation, and local media are external to this repository.
 
