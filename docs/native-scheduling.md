@@ -21,6 +21,13 @@ the chosen slot, keep that destination unscheduled and report the provider's
 constraint. Never treat a final-tap timeout as a failed submission that is safe
 to retry.
 
+For a confirmed YouTube release with a reserved future slot, run
+`python scripts/phone_youtube.py <release-id> --inspect-schedule`. It prepares
+the exact OneDrive video in the intended channel, opens YouTube's native
+Schedule control, and saves the resulting screen and accessibility rows under
+ignored local state. It never chooses a time or taps Upload Short. This is a
+mapping step until the native date/time controls and receipt are verified.
+
 `video_drop.instagram_schedule.verified_scheduled_reel` compares SideTap's
 native Scheduled content rows against the exact reviewed caption and intended
 time in the verified iPhone time zone. It also requires the row's thumbnail to
