@@ -7,6 +7,7 @@ from contextlib import nullcontext
 from datetime import datetime, timezone
 from http.server import ThreadingHTTPServer
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
@@ -32,6 +33,21 @@ def confirmed_youtube(state: Path, *, post_now: bool) -> tuple[Path, int]:
 
 
 class YouTubePostNowTests(unittest.TestCase):
+    def test_schedule_inspection_rejects_stale_visibility_screen(self):
+        row = {"text": "Schedule", "x": 190, "y": 430}
+        device = SimpleNamespace(tap=lambda x, y: None,
+                                 current_app=lambda: {"bundleId": "com.google.ios.youtube"})
+        with patch.object(phone_youtube, "phone", device), \
+                patch.object(phone_youtube, "layout", return_value=PhoneLayout(440, 956)), \
+                patch.object(phone_youtube, "matches", return_value=[row]), \
+                patch.object(phone_youtube, "tap"), \
+                patch.object(phone_youtube, "assert_visible"), \
+                patch.object(phone_youtube, "screen", return_value=[row]), \
+                patch.object(phone_youtube.time, "monotonic", side_effect=[0, 1, 13]), \
+                patch.object(phone_youtube.time, "sleep"):
+            with self.assertRaisesRegex(phone_youtube.PhoneUploadError, "did not open"):
+                phone_youtube.inspect_native_schedule({"releaseId": 1}, Path("unused.sqlite"))
+
     def test_schedule_inspection_requires_a_planned_slot_before_phone_use(self):
         with tempfile.TemporaryDirectory() as folder:
             db, release_id = confirmed_youtube(Path(folder), post_now=False)
@@ -78,6 +94,12 @@ class YouTubePostNowTests(unittest.TestCase):
                     return [] if visibility_checks == 1 else [{"text": "Visibility", "x": 215, "y": 320}]
                 return [{"text": "Schedule", "x": 190, "y": 430}]
 
+            def schedule_screen():
+                if fake.taps:
+                    return [{"text": "Choose a date", "x": 190, "y": 430}]
+                return [{"text": "Set visibility", "x": 190, "y": 130},
+                        {"text": "Schedule", "x": 190, "y": 430}]
+
             with patch.object(phone_youtube, "connect_sidetap"), \
                     patch.object(phone_youtube, "phone", fake), \
                     patch.object(phone_youtube, "upload_focus", return_value=nullcontext()), \
@@ -88,7 +110,7 @@ class YouTubePostNowTests(unittest.TestCase):
                     patch.object(phone_youtube, "tap"), \
                     patch.object(phone_youtube, "assert_visible"), \
                     patch.object(phone_youtube, "matches", side_effect=visible), \
-                    patch.object(phone_youtube, "screen", return_value=[{"text": "Schedule", "x": 190, "y": 430}]):
+                    patch.object(phone_youtube, "screen", side_effect=schedule_screen):
                 result = phone_youtube.run(str(release_id), db, inspect_schedule=True)
             self.assertEqual(result["kind"], "schedule_inspection")
             self.assertEqual(fake.taps, [(190, 430)])
