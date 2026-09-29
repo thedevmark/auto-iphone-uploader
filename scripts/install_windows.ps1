@@ -50,7 +50,7 @@ $shortcut = $shell.CreateShortcut($shortcutPath)
 $shortcut.TargetPath = $launcher
 $shortcut.Arguments = $arguments
 $shortcut.WorkingDirectory = $projectRoot
-$shortcut.IconLocation = "$launcher,0"
+$shortcut.IconLocation = (Join-Path $projectRoot 'web\logo.ico') + ',0'
 $shortcut.Description = 'Open the local video review and phone upload app'
 $shortcut.Save()
 

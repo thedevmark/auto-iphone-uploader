@@ -1,10 +1,15 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none" aria-label="Auto iPhone Uploader">
   <style>
-    :root{--ink:#171719;--cutout:#fff}
-    @media (prefers-color-scheme:dark){:root{--ink:#f1f0ee;--cutout:#111113}}
+    :root{--ink:#171719}
+    @media (prefers-color-scheme:dark){:root{--ink:#f1f0ee}}
   </style>
-  <rect x="10" y="4" width="34" height="56" rx="8" stroke="var(--ink)" stroke-width="3.5"/>
-  <path d="M23 10h8M23 54h8" stroke="var(--ink)" stroke-width="3" stroke-linecap="round"/>
-  <path d="m39 39 9-9 9 9M48 30v22M38 53v3h20v-3" stroke="var(--cutout)" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+  <mask id="arrowGap" maskUnits="userSpaceOnUse" x="0" y="0" width="64" height="64">
+    <rect width="64" height="64" fill="#fff"/>
+    <path d="m39 39 9-9 9 9M48 30v22M38 53v3h20v-3" stroke="#000" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+  </mask>
+  <g mask="url(#arrowGap)">
+    <rect x="10" y="4" width="34" height="56" rx="8" stroke="var(--ink)" stroke-width="3.5"/>
+    <path d="M23 10h8M23 54h8" stroke="var(--ink)" stroke-width="3" stroke-linecap="round"/>
+  </g>
   <path d="m39 39 9-9 9 9M48 30v22M38 53v3h20v-3" stroke="var(--ink)" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>
