@@ -1,6 +1,6 @@
 # Native scheduling evidence and live gates
 
-Automated iPhone Social Media Uploads must enter each approved slot in the platform's own scheduler and
+Auto iPhone Uploader must enter each approved slot in the platform's own scheduler and
 read back a matching scheduled item. A local reservation is only a plan. The
 Valheim clip remains a no-submit test, including the final Schedule button.
 Every platform action uses its iPhone app through SideTap. Platform websites

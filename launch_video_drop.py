@@ -1,4 +1,4 @@
-"""One-click Windows launcher for Automated iPhone Social Media Uploads."""
+"""One-click Windows launcher for Auto iPhone Uploader."""
 
 from __future__ import annotations
 
@@ -71,7 +71,7 @@ def main() -> None:
                 break
             time.sleep(0.25)
         else:
-            raise RuntimeError(f"Automated iPhone Social Media Uploads did not start. See {state / 'server.log'}")
+            raise RuntimeError(f"Auto iPhone Uploader did not start. See {state / 'server.log'}")
     assert_current_server(identity)
     webbrowser.open(URL)
 
@@ -82,5 +82,5 @@ if __name__ == "__main__":
     except (RuntimeError, OSError) as exc:
         if sys.platform == "win32":
             import ctypes
-            ctypes.windll.user32.MessageBoxW(None, str(exc), "Automated iPhone Social Media Uploads", 0x10)
+            ctypes.windll.user32.MessageBoxW(None, str(exc), "Auto iPhone Uploader", 0x10)
         raise SystemExit(1) from None

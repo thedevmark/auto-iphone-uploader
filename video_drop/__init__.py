@@ -1,1 +1,1 @@
-"""Local Automated iPhone Social Media Uploads application."""
+"""Local Auto iPhone Uploader application."""

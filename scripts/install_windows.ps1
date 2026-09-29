@@ -34,7 +34,7 @@ if (-not $desktop -or -not (Test-Path -LiteralPath $desktop)) {
     throw 'Windows could not locate the Desktop folder for the shortcut.'
 }
 
-$shortcutPath = Join-Path $desktop 'Automated iPhone Social Media Uploads.lnk'
+$shortcutPath = Join-Path $desktop 'Auto iPhone Uploader.lnk'
 $shell = New-Object -ComObject WScript.Shell
 $arguments = '"' + (Join-Path $projectRoot 'launch_video_drop.py') + '"'
 if ((Test-Path -LiteralPath $shortcutPath) -and -not $ReplaceShortcut) {

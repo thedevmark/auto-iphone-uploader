@@ -629,7 +629,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Local Automated iPhone Social Media Uploads server")
+    parser = argparse.ArgumentParser(description="Local Auto iPhone Uploader server")
     parser.add_argument("--port", type=int, default=4748)
     args = parser.parse_args()
     server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
@@ -650,7 +650,7 @@ def main() -> None:
     watch_thread = threading.Thread(target=WATCHER.run, args=(watch_stop,),
                                     name="video-drop-watch-folder", daemon=True)
     watch_thread.start()
-    print(f"Automated iPhone Social Media Uploads: http://127.0.0.1:{args.port}  state: {STATE}", flush=True)
+    print(f"Auto iPhone Uploader: http://127.0.0.1:{args.port}  state: {STATE}", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

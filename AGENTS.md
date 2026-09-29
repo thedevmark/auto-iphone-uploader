@@ -1,4 +1,4 @@
-# Automated iPhone Social Media Uploads
+# Auto iPhone Uploader
 
 Standalone, local-first finished-video release workflow. Homebase remains the
 live owner until this repository passes the migration checks in `MIGRATION.md`.

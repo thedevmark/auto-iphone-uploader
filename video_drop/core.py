@@ -178,7 +178,7 @@ class Store:
         now = utc_now().isoformat()
         with self.db:
             if self.db.execute("SELECT 1 FROM release WHERE sha256=?", (sha,)).fetchone():
-                raise ValueError("This exact video is already in Automated iPhone Social Media Uploads")
+                raise ValueError("This exact video is already in Auto iPhone Uploader")
             cursor = self.db.execute(
                 "INSERT INTO release(source_path,source_name,sha256,file_size,analysis_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?)",
                 (str(source), source.name, sha, size, json.dumps({"status": "pending"}), now, now),

@@ -14,7 +14,7 @@ def youtube_input(store: Store, release_id: int) -> dict:
     if destination["status"] != "pending":
         raise ValueError("YouTube was already attempted; check the channel before any retry")
     if not destination["revision_hash"]:
-        raise ValueError("Confirm YouTube details in Automated iPhone Social Media Uploads before phone preparation")
+        raise ValueError("Confirm YouTube details in Auto iPhone Uploader before phone preparation")
     require_target(store.account_targets, "youtube", destination["account"])
     revision = store._revision_hash("youtube", destination["account"], destination["title"],
                                     destination["description"], destination["tags"], destination["visibility"])

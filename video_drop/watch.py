@@ -89,7 +89,7 @@ class WatchFolder:
             fix = "Reconnect the drive or choose the export folder again."
         elif config["enabled"] and (not shutil.which("ffmpeg") or not shutil.which("ffprobe")):
             problem = "ffmpeg and ffprobe are required"
-            fix = "Install FFmpeg with ffprobe, add both to PATH, then restart Automated iPhone Social Media Uploads."
+            fix = "Install FFmpeg with ffprobe, add both to PATH, then restart Auto iPhone Uploader."
         return {**config, "problem": problem, "fix": fix}
 
     def configure(self, folder: Path | None = None, enabled: bool | None = None) -> dict:
@@ -164,7 +164,7 @@ class WatchFolder:
                         store.db.execute("INSERT INTO watch_file(path,size,mtime_ns,state,updated_at) VALUES(?,?,?,?,?) ON CONFLICT(path) DO UPDATE SET size=excluded.size,mtime_ns=excluded.mtime_ns,state=excluded.state,updated_at=excluded.updated_at",
                                          (path, info.st_size, info.st_mtime_ns, "imported", utc_now().isoformat()))
             except ValueError as exc:
-                if "already in Automated iPhone Social Media Uploads" not in str(exc):
+                if "already in Auto iPhone Uploader" not in str(exc):
                     self.retry_after[path] = now + SETTLE_SECONDS
                     continue
                 with Store(self.state / "video-drop.sqlite") as store, store.db:

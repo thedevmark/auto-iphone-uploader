@@ -40,7 +40,7 @@ def release_input(store: Store, release_id: int) -> dict:
         raise share.PhoneUploadError("Threads is already attempted; check the account before any retry")
     require_target(store.account_targets, "threads", destination["account"])
     if not destination["revision_hash"]:
-        raise share.PhoneUploadError("Threads text was not approved in Automated iPhone Social Media Uploads")
+        raise share.PhoneUploadError("Threads text was not approved in Auto iPhone Uploader")
     revision = store._revision_hash("threads", destination["account"], destination["title"],
                                     destination["description"], destination["tags"], destination["visibility"])
     if revision != destination["revision_hash"]:
