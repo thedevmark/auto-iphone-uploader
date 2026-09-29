@@ -53,10 +53,10 @@ Or compare its hash with `SHA256SUMS.txt`:
 Get-FileHash auto-iphone-uploader-v0.1.0.zip -Algorithm SHA256
 ```
 
-Release notes link a VirusTotal scan of the same zip. The source is plain
+Once a VirusTotal key is configured, release notes also link a scan of the
+same zip. The source is plain
 Python and HTML with no compiled binaries, so you can also read it before
-running it. CodeQL scans every change, and the OpenSSF Scorecard badge in
-the README grades this repository's security practices.
+running it. CodeQL scans every change for security issues.
 
 ## Report a vulnerability
 

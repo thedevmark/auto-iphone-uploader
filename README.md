@@ -4,7 +4,6 @@
 
 [![Tests](https://github.com/thedevmark/auto-iphone-uploader/actions/workflows/tests.yml/badge.svg)](https://github.com/thedevmark/auto-iphone-uploader/actions/workflows/tests.yml)
 [![CodeQL](https://github.com/thedevmark/auto-iphone-uploader/actions/workflows/codeql.yml/badge.svg)](https://github.com/thedevmark/auto-iphone-uploader/actions/workflows/codeql.yml)
-[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/thedevmark/auto-iphone-uploader/badge)](https://scorecard.dev/viewer/?uri=github.com/thedevmark/auto-iphone-uploader)
 
 **Before you install:** this app controls social apps on your iPhone.
 [SECURITY.md](SECURITY.md) lists exactly what it does and never does on your
