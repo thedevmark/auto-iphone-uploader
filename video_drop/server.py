@@ -20,8 +20,10 @@ from .core import Store, digest, next_slot, utc_now
 from .analyze import OLLAMA, TEXT_MODEL, VISION_MODEL, analyze
 from .accounts import load_targets
 from .watch import WatchFolder, complete_video, eligible
+from .runtime_identity import source_fingerprint
 
 ROOT = Path(__file__).resolve().parent.parent
+RUNTIME_FINGERPRINT = source_fingerprint(ROOT)
 STATE = Path(os.environ.get("VIDEO_DROP_STATE", ROOT / ".state")).resolve()
 TEST_MODE = os.environ.get("VIDEO_DROP_TEST_MODE") == "1"
 MAX_JSON = 1024 * 1024
@@ -462,6 +464,9 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
             self.wfile.write(body)
+        elif path == "/api/runtime":
+            self._json(200, {"root": str(ROOT.resolve()), "stateDir": str(STATE),
+                             "sourceFingerprint": RUNTIME_FINGERPRINT})
         elif match := re.fullmatch(r"/api/releases/(\d+)/video", path):
             try:
                 with self._store() as store:
