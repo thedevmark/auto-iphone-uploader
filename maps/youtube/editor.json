@@ -1,4 +1,4 @@
-{"app": "youtube", "screen": "editor", "locale": "en",
+{"app": "youtube", "screen": "editor", "locale": "en", "bundle": "com.google.ios.youtube",
  "signature": {"require": [{"label": "@label:swipe_up_to_edit"}]},
  "elements": {"next": {"label": "@label:next", "type": "Button"}},
  "actions": {"next": {"tap": "next", "expect": "details"}}}

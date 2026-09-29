@@ -42,7 +42,7 @@ def locate(screen: Image.Image, icon: Image.Image, band: tuple[float, float, flo
         raise IconError(f"Icon not found (best match {scores[best]:.2f})")
     h, w = needle.shape
     suppressed = scores.copy()
-    suppressed[max(0, best[0] - h):best[0] + h, max(0, best[1] - w):best[1] + w] = -1
+    suppressed[max(0, best[0] - h + 1):best[0] + h, max(0, best[1] - w + 1):best[1] + w] = -1
     if suppressed.max() >= scores[best] - AMBIGUITY_MARGIN:
         raise IconError("Icon match is ambiguous inside the search band")
     return float(left + best[1] + w / 2), float(top + best[0] + h / 2)

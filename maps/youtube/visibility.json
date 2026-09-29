@@ -1,4 +1,4 @@
-{"app": "youtube", "screen": "visibility", "locale": "en",
+{"app": "youtube", "screen": "visibility", "locale": "en", "bundle": "com.google.ios.youtube",
  "signature": {"require": [{"label": "@label:set_visibility"}]},
  "elements": {"public": {"label": "@label:public", "type": "StaticText"},
               "unlisted": {"label": "@label:unlisted", "type": "StaticText"},

@@ -1,4 +1,4 @@
-{"app": "youtube", "screen": "trim", "locale": "en",
+{"app": "youtube", "screen": "trim", "locale": "en", "bundle": "com.google.ios.youtube",
  "signature": {"require": [{"label": "@label:crop_your_video"}], "forbid": [{"label": "@label:processing"}]},
  "elements": {"next": {"label": "@label:next", "type": "Button"}},
  "actions": {"next": {"tap": "next", "expect": "editor"}}}

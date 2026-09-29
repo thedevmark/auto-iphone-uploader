@@ -43,17 +43,27 @@ class Snapshot:
     app_version: str = ""
 
 
+def _number(value) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _text(value) -> str:
+    return "" if value is None else str(value)
+
+
 def elements_from_tree(node: dict, out: list | None = None) -> tuple[Element, ...]:
     out = [] if out is None else out
     if isinstance(node, dict):
         rect = node.get("rect") or {}
+        box = [_number(rect.get(key)) for key in ("x", "y", "width", "height")]
         visible = str(node.get("isVisible", "1")) in ("1", "true", "True")
-        if visible and rect.get("width", 0) > 0 and rect.get("height", 0) > 0:
-            kind = str(node.get("type", ""))
+        if visible and None not in box and box[2] > 0 and box[3] > 0:
+            kind = _text(node.get("type"))
             out.append(Element(kind[len(TYPE_PREFIX):] if kind.startswith(TYPE_PREFIX) else kind,
-                               str(node.get("label") or ""), str(node.get("name") or ""),
-                               str(node.get("value") or ""), float(rect["x"]), float(rect["y"]),
-                               float(rect["width"]), float(rect["height"])))
+                               _text(node.get("label")), _text(node.get("name")), _text(node.get("value")), *box))
         for child in node.get("children") or []:
             elements_from_tree(child, out)
     return tuple(out)

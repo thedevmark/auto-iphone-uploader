@@ -1,4 +1,4 @@
-{"app": "youtube", "screen": "details", "locale": "en",
+{"app": "youtube", "screen": "details", "locale": "en", "bundle": "com.google.ios.youtube",
  "signature": {"require": [{"id": "id.elements.components.metadata_editor.title"},
                            {"id": "id.elements.components.identity_chip_component"}]},
  "elements": {"title": {"id": "id.elements.components.metadata_editor.title"},

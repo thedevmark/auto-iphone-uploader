@@ -17,6 +17,10 @@ class MatchError(RuntimeError):
     pass
 
 
+class AmbiguousMatch(MatchError):
+    """Several targets matched; a fallback must never narrow this into a guess."""
+
+
 @dataclass(frozen=True)
 class Target:
     x: float
@@ -53,8 +57,10 @@ def _band(anchor: Element, side: str, within: float) -> tuple[float, float, floa
 
 
 def _single(found: list[Element], locator: Locator) -> Target:
-    if len(found) != 1:
-        raise MatchError(f"{'No match' if not found else f'{len(found)} matches'} for {locator}")
+    if len(found) > 1:
+        raise AmbiguousMatch(f"{len(found)} matches for {locator}")
+    if not found:
+        raise MatchError(f"No match for {locator}")
     return Target(found[0].x, found[0].y, found[0])
 
 
@@ -86,6 +92,8 @@ def find(snapshot: Snapshot, locator: Locator, labels: Labels, icon_dir: Path | 
     for option in (locator, *locator.fallback):
         try:
             return _find_once(snapshot, option, labels, icon_dir)
+        except AmbiguousMatch:
+            raise
         except MatchError as exc:
             errors.append(str(exc))
     raise MatchError("; ".join(errors))
@@ -97,7 +105,8 @@ def present(snapshot: Snapshot, locator: Locator, labels: Labels) -> bool:
 
 def identify(snapshot: Snapshot, maps: list[ScreenMap], labels: Labels) -> ScreenMap:
     matched = [screen for screen in maps
-               if all(present(snapshot, marker, labels) for marker in screen.require)
+               if not (screen.bundle and snapshot.app and screen.bundle != snapshot.app)
+               and all(present(snapshot, marker, labels) for marker in screen.require)
                and not any(present(snapshot, marker, labels) for marker in screen.forbid)]
     if len(matched) == 1:
         return matched[0]

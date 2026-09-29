@@ -35,8 +35,8 @@ class Runner:
                 if found.screen == screen:
                     return found
                 last = MatchError(f"Expected {screen!r}; phone shows {found.app}/{found.screen}")
-            except MatchError as exc:
-                last = exc
+            except Exception as exc:  # a dropped phone link is one more failed poll, not an answer
+                last = exc if isinstance(exc, MatchError) else MatchError(f"Phone read failed: {exc}")
             if self.clock() >= deadline:
                 raise last
             self.sleep(self.poll)
@@ -52,7 +52,7 @@ class Runner:
         self.phone.tap(target.x, target.y)
         try:
             return self.wait_for(step.expect)
-        except MatchError as exc:
+        except Exception as exc:
             if step.irreversible:
                 raise MatchError(f"{action!r} tap sent but unconfirmed; check for a native receipt before any retry: {exc}") from exc
             raise
