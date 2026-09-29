@@ -148,13 +148,14 @@ composer state.
 - Each release now stores Schedule as its default delivery choice, or an
   explicit Post now choice. Post now takes no slot; the store permits one
   guarded final attempt from a draft and then requires a receipt check. The
-  Threads can launch its native Post now runner from the editor after exact-text
-  confirmation; its final tap becomes unconfirmed until a matching native post
-  is checked. The YouTube preparation runner now
+  Threads and YouTube can launch native Post now runners from the editor after
+  exact-text confirmation; their final taps become unconfirmed until matching
+  native posts are checked. YouTube Post now has no connected-phone proof yet.
+  The YouTube preparation runner
   takes a release ID and checks the original file and confirmed text against
   the database before opening OneDrive. A legacy manifest must match that
-  release exactly. Phone submission remains disabled pending native schedule
-  and receipt proof.
+  release exactly. Native scheduling and automatic receipt resolution remain
+  disabled pending phone proof.
 - YouTube, Instagram, and Threads phone preparation now require the saved
   release account to match the ignored local `accounts.json` target. Threads
   no longer has an operator handle embedded in executable code; the scripts
