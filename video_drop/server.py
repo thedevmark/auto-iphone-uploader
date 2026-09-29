@@ -419,6 +419,14 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
             self.wfile.write(body)
+        elif path == "/logo.svg":
+            body = (ROOT / "web" / "logo.svg").read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "image/svg+xml")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
         elif path == "/api/runtime":
             self._json(200, {"root": str(ROOT.resolve()), "stateDir": str(STATE),
                              "sourceFingerprint": RUNTIME_FINGERPRINT})

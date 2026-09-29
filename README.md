@@ -1,5 +1,7 @@
 # Auto iPhone Uploader
 
+<img src="web/logo.svg" width="64" height="64" alt="iPhone with an upload arrow">
+
 Licensed under MIT; see [LICENSE](LICENSE). The connected iPhone, platform
 accounts, SideTap installation, and local media are external to this repository.
 
