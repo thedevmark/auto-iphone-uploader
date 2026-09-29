@@ -49,7 +49,7 @@ class VideoDropTests(unittest.TestCase):
 
     def test_phone_checks_default_on_and_persist(self):
         self.assertEqual(self.store.phone_checks(), {"doNotDisturb": True, "youtubeQualityEveryUpload": False,
-                                                     "inspectPhoneOnOpen": True})
+                                                     "inspectPhoneOnOpen": True, "removeAfterPost": True})
         self.store.set_phone_checks({"doNotDisturb": False})
         with Store(self.root / "state.sqlite") as reopened:
             self.assertFalse(reopened.phone_checks()["doNotDisturb"])
