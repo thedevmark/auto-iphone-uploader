@@ -1,0 +1,11 @@
+{"app": "youtube", "screen": "details", "locale": "en",
+ "signature": {"require": [{"id": "id.elements.components.metadata_editor.title"},
+                           {"id": "id.elements.components.identity_chip_component"}]},
+ "elements": {"title": {"id": "id.elements.components.metadata_editor.title"},
+              "visibility": {"label": "@label:visibility", "contains": true},
+              "audience": {"label": "@label:select_audience", "contains": true},
+              "thumbnail": {"label": "@label:edit_thumbnail", "contains": true},
+              "upload": {"label": "@label:upload_short", "type": "Button"}},
+ "actions": {"open_visibility": {"tap": "visibility", "expect": "visibility"},
+             "open_audience": {"tap": "audience", "expect": "audience"},
+             "upload": {"tap": "upload", "expect": "uploading", "irreversible": true}}}
