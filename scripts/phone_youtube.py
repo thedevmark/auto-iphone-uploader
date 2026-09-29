@@ -1,0 +1,451 @@
+"""Deterministic OneDrive -> YouTube Short upload through SideTap/WDA.
+
+The run stops at YouTube's Upload Short button. --commit is rejected until the
+native scheduler and receipt check exist. No model, browser session, or paid
+API is used by this script. An unexpected screen fails closed.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+import time
+from io import BytesIO
+from pathlib import Path
+
+from PIL import Image
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from video_drop.phone_ui import PhoneLayout, filled_radio, share_app_position, youtube_identity, youtube_page_account
+from video_drop.youtube_nav import open_tabs
+from video_drop.phone_focus import FocusError, upload_focus
+from video_drop.core import Store
+from video_drop.phone_manifest import verify_youtube_manifest, youtube_input
+from video_drop.accounts import load_targets
+
+
+def _sidetap_root() -> Path:
+    configured = os.environ.get("SIDETAP_ROOT", "").strip()
+    return Path(configured) if configured else Path.home() / "AppData" / "Local" / "SideTap"
+
+
+SIDETAP_SRC = _sidetap_root() / "src"
+phone = None
+sidetap_admin = None
+
+
+class WDAError(Exception):
+    pass
+
+
+class PhoneUploadError(RuntimeError):
+    pass
+
+
+def connect_sidetap() -> None:
+    global phone, sidetap_admin, WDAError
+    if not SIDETAP_SRC.is_dir():
+        raise PhoneUploadError(f"SideTap source missing: {SIDETAP_SRC}")
+    if str(SIDETAP_SRC) not in sys.path:
+        sys.path.insert(0, str(SIDETAP_SRC))
+    try:
+        from phone_harness import helpers, admin
+        from phone_harness.wda_client import WDAError as WDAClientError
+    except ImportError as exc:
+        raise PhoneUploadError(f"SideTap cannot load: {exc}") from exc
+    phone, sidetap_admin, WDAError = helpers, admin, WDAClientError
+
+
+_layout: PhoneLayout | None = None
+
+
+def layout(*, refresh: bool = False) -> PhoneLayout:
+    global _layout
+    if _layout is None or refresh:
+        _layout = PhoneLayout.from_info(phone.screen_info())
+    return _layout
+
+
+def tap_reference(x: float, y: float) -> None:
+    phone.tap(*layout().reference_point(x, y))
+
+
+def screen() -> list[dict]:
+    return phone.compact(phone.ocr())
+
+
+def stage(name: str) -> None:
+    print(json.dumps({"stage": name}), file=sys.stderr, flush=True)
+
+
+def matches(label: str, *, exact: bool = True) -> list[dict]:
+    needle = label.casefold()
+    return [
+        row for row in screen()
+        if layout().contains(row)
+        and (row["text"].casefold() == needle if exact else needle in row["text"].casefold())
+    ]
+
+
+def wait(label: str, *, timeout: float = 20, exact: bool = True) -> dict:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        found = matches(label, exact=exact)
+        if found:
+            return found[0]
+        time.sleep(0.5)
+    visible = [row["text"] for row in screen() if row.get("text")]
+    raise PhoneUploadError(f"Expected {label!r}; visible: {visible[:24]}")
+
+
+def tap(label: str, *, timeout: float = 20, exact: bool = True) -> None:
+    row = wait(label, timeout=timeout, exact=exact)
+    phone.tap(row["x"], row["y"])
+
+
+def assert_visible(label: str, *, exact: bool = True) -> None:
+    wait(label, timeout=8, exact=exact)
+
+
+def youtube_header_account() -> str:
+    labels = [row["text"] for row in screen() if row.get("text")]
+    return youtube_page_account(labels)
+
+
+def ensure_youtube_channel(expected: str) -> None:
+    """Select a known signed-in channel before sending the file to YouTube."""
+    stage("youtube_account")
+    open_tabs(phone)
+    assert_visible("You")
+    tap("You")
+    assert_visible("Accounts")
+    if youtube_header_account() == expected.casefold():
+        return
+    tap("Accounts")
+    options = [row for row in matches(expected) if row["text"].casefold() == expected.casefold()]
+    if len(options) != 1:
+        raise PhoneUploadError(f"YouTube account {expected} is missing or ambiguous")
+    phone.tap(options[0]["x"], options[0]["y"])
+    wait("You", timeout=30)
+    tap("You")
+    assert_visible("Accounts")
+    if youtube_header_account() != expected.casefold():
+        raise PhoneUploadError(f"YouTube did not switch to {expected}")
+
+
+def assert_share_sheet(data: dict, *, timeout: float = 180) -> None:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        labels = {row["text"] for row in screen()}
+        if "shareSheet.activity.contentView" in labels:
+            if data["filename"] not in labels:
+                raise PhoneUploadError("iOS share sheet has the wrong filename")
+            shown_size = f"{data['sizeBytes'] / 1_048_576:.1f} MB"
+            if not any(shown_size in label for label in labels):
+                raise PhoneUploadError("iOS share sheet has the wrong file size")
+            return
+        if "ShareHVC.AppsAndActions.ScrollView" in labels and "More" in labels:
+            tap("More")
+        time.sleep(0.5)
+    raise PhoneUploadError("iOS share sheet did not appear")
+
+
+def scroll_to(label: str, *, exact: bool = True) -> None:
+    for _ in range(4):
+        if matches(label, exact=exact):
+            return
+        phone.swipe(*layout().reference_point(220, 780), *layout().reference_point(220, 350), 0.55)
+    assert_visible(label, exact=exact)
+
+
+def open_onedrive_file(data: dict) -> None:
+    stage("onedrive_search")
+    filename = data["filename"]
+    expected_megabytes = data["sizeBytes"] / 1_048_576
+    onedrive_bundle = "com.microsoft.skydrive"
+    # A prior iOS share extension can bounce a direct app launch back to YouTube.
+    phone.press_home()
+    phone.open_app(onedrive_bundle, wait_seconds=12)
+    time.sleep(0.5)
+    if phone.current_app().get("bundleId") != onedrive_bundle:
+        phone.open_app(onedrive_bundle, wait_seconds=12)
+    for _ in range(4):
+        if phone.current_app().get("bundleId") != onedrive_bundle:
+            raise PhoneUploadError("OneDrive lost the foreground before file selection")
+        if matches("Search Your Files"):
+            break
+        if matches("Close"):
+            tap("Close")
+        elif matches("Back"):
+            tap("Back")
+        else:
+            raise PhoneUploadError("OneDrive search is not reachable from its current screen")
+        time.sleep(0.5)
+    else:
+        raise PhoneUploadError("OneDrive search did not open")
+
+    stem = Path(filename).stem.casefold()
+    result = None
+    # Search first by exact filename, then by stem. OneDrive has displayed an
+    # extra space before `.mp4` in search results for the verified file. The
+    # share panel below still has to show the exact filename and size.
+    for query in (filename, Path(filename).stem):
+        if matches("Clear search input"):
+            tap("Clear search input")
+        tap("Search Your Files")
+        phone.type_text(query)
+        # OneDrive keeps showing the previous results until Search is submitted.
+        keyboard_search = [row for row in matches("search") if layout().relative_band(row, top=0.75)]
+        if len(keyboard_search) != 1:
+            raise PhoneUploadError("OneDrive keyboard Search key is missing or ambiguous")
+        phone.tap(keyboard_search[0]["x"], keyboard_search[0]["y"])
+        deadline = time.monotonic() + 20
+        while time.monotonic() < deadline:
+            candidates = [row for row in screen() if stem in row["text"].casefold() and ".mp4" in row["text"].casefold()]
+            if len(candidates) == 1:
+                result = candidates[0]
+                break
+            if len(candidates) > 1:
+                raise PhoneUploadError(f"Multiple OneDrive results matched {filename!r}")
+            time.sleep(0.5)
+        if result is not None:
+            break
+    if result is None:
+        raise PhoneUploadError(f"OneDrive could not find {filename!r}")
+    phone.tap(result["x"], result["y"])
+    assert_visible(stem, exact=False)
+    tap("Share")
+    assert_visible(filename)
+    shown_size = f"{expected_megabytes:.1f} MB"
+    assert_visible(shown_size)
+    tap("More")
+    assert_share_sheet(data)
+    stage("ios_share_sheet")
+
+
+def choose_share_app(name: str, *, expected_bundle: str | None = None) -> None:
+    rail_y = layout().reference_point(0, 392)[1]
+    for _ in range(10):
+        rows = screen()
+        if not any(row["text"] == "shareSheet.activity.contentView" for row in rows):
+            raise PhoneUploadError("iOS share sheet disappeared before app selection")
+        direction, target = share_app_position(rows, name, layout())
+        if direction == "tap":
+            # The share rail keeps scrolling after WDA's swipe returns. Require
+            # a second position reading before touching a destination.
+            time.sleep(0.9)
+            stable_direction, stable = share_app_position(screen(), name, layout())
+            if stable_direction != "tap" or stable is None or abs(stable["x"] - target["x"]) > 5:
+                continue
+            phone.tap(stable["x"], stable["y"])
+            if expected_bundle:
+                deadline = time.monotonic() + 10
+                while time.monotonic() < deadline:
+                    if phone.current_app().get("bundleId") == expected_bundle:
+                        return
+                    time.sleep(0.5)
+                raise PhoneUploadError(f"Share selection did not open {name}; stop before composing")
+            return
+        if direction == "right":
+            phone.swipe(layout().width * 0.27, rail_y, layout().width * 0.52, rail_y, 0.5)
+        else:
+            phone.swipe(layout().width * 0.88, rail_y, layout().width * 0.18, rail_y, 0.45)
+        time.sleep(1.2)
+    raise PhoneUploadError(f"{name} was not safely visible in the iOS share sheet")
+
+
+def choose_unlabeled_radio(label: str, *, x: int = 35, exact: bool = True) -> None:
+    """Use the accessible row label and verify its non-accessible radio circle."""
+    # The row's text does not consistently receive taps; use the circle.
+    # Selecting audience can move both rows, so locate the row again after tap.
+    y = round(wait(label, exact=exact)["y"])
+    selected_x = layout().reference_point(x, 0)[0]
+    image = Image.open(BytesIO(phone.screenshot())).convert("RGB")
+    if filled_radio(image, layout(), selected_x, y):
+        return
+    phone.tap(selected_x, y)
+    time.sleep(0.45)
+    selected_y = round(wait(label, exact=exact)["y"])
+    image = Image.open(BytesIO(phone.screenshot())).convert("RGB")
+    if not filled_radio(image, layout(), selected_x, selected_y):
+        raise PhoneUploadError(f"YouTube radio {label!r} did not show selected")
+
+
+def leave_text_editor(expected: str) -> None:
+    # First tap may only dismiss the iOS keyboard; second leaves the editor.
+    for _ in range(2):
+        tap_reference(20, 84)
+        if matches(expected):
+            return
+    assert_visible(expected)
+
+
+def wait_for_trim_next(timeout: float = 15) -> None:
+    """The playing Short can hang WDA's accessibility snapshot; read pixels."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        image = Image.open(BytesIO(phone.screenshot())).convert("RGB")
+        sx, sy = image.width / layout().width, image.height / layout().height
+        bright = 0
+        total = 0
+        for x in range(380, 421, 5):
+            for y in range(880, 906, 5):
+                px, py = layout().reference_point(x, y)
+                r, g, b = image.getpixel((int(px * sx), int(py * sy)))
+                bright += min(r, g, b) > 220
+                total += 1
+        if bright / total > 0.6:
+            return
+        time.sleep(0.5)
+    raise PhoneUploadError("YouTube trim Next button did not appear")
+
+
+def advance_trim_to_editor() -> None:
+    """Wait through processing and retry only if the trim screen clearly remains."""
+    for attempt in range(2):
+        rows = screen()
+        labels = {row["text"] for row in rows if row.get("text")}
+        if "Swipe up to edit" in labels:
+            return
+        if "Crop your video" not in labels or "Next" not in labels:
+            raise PhoneUploadError(f"YouTube trim changed before Next: {sorted(labels)[:20]}")
+        tap("Next")
+        deadline = time.monotonic() + 90
+        crop_since = None
+        while time.monotonic() < deadline:
+            labels = {row["text"] for row in screen() if row.get("text")}
+            if "Swipe up to edit" in labels:
+                return
+            if "Processing" in labels:
+                crop_since = None
+            elif "Crop your video" in labels and "Next" in labels:
+                crop_since = crop_since or time.monotonic()
+                if time.monotonic() - crop_since > 5:
+                    break
+            time.sleep(0.8)
+    raise PhoneUploadError("YouTube stayed on the trim screen after two verified Next taps")
+
+
+def prepare_youtube(data: dict) -> None:
+    choose_share_app("YouTube", expected_bundle="com.google.ios.youtube")
+    stage("youtube_trim")
+    wait_for_trim_next(120 if data["sizeBytes"] > 500_000_000 else 30)
+    advance_trim_to_editor()
+    tap("Next")
+    assert_visible("Add details")
+    stage("youtube_details")
+    # YouTube exposes the identity as a combined display-name/handle label.
+    # Compare the handle token exactly, not a substring of another handle.
+    labels = [row["text"] for row in screen() if row.get("text")]
+    actual_account = youtube_identity(labels)
+    if actual_account != data["expectedAccount"].casefold():
+        raise PhoneUploadError(f"Wrong YouTube channel: {actual_account}")
+    assert_visible("Edit thumbnail", exact=False)
+    tap("Edit thumbnail", exact=False)
+    assert_visible("Thumbnail frame selector")
+    # The leftmost frame is the first frame of the clip.
+    tap_reference(17, 885)
+    for _ in range(3):
+        if matches("Add details"):
+            break
+        tap("Done")
+        time.sleep(0.4)
+    assert_visible("Add details")
+
+    tap("id.elements.components.metadata_editor.title")
+    phone.type_text(data["title"])
+    assert_visible(data["title"])
+    tap("Visibility", exact=False)
+    assert_visible("Set visibility")
+    choose_unlabeled_radio(data["visibility"].capitalize(), exact=False)
+    tap("Back")
+    assert_visible(f"Visibility, {data['visibility'].capitalize()}")
+    tap("Select audience")
+    assert_visible("Select audience")
+    choose_unlabeled_radio("No, it's not made for kids")
+    tap("Back")
+    assert_visible("No, it's not made for kids", exact=False)
+    tap("Show more")
+    tap("Add description")
+    phone.type_text(data["description"])
+    leave_text_editor("Add details")
+    tap("Paid promotion & brands", exact=False)
+    assert_visible("Paid promotion & brands")
+    choose_unlabeled_radio("No", x=28)
+    tap("Back")
+    assert_visible("Add details")
+    assert_visible("No, it doesn", exact=False)
+    # Scroll only the details list; the upload button stays fixed below it.
+    scroll_to("AI use, Tags", exact=False)
+    tap("AI use, Tags", exact=False)
+    tap("AI use", exact=False)
+    assert_visible("AI use")
+    choose_unlabeled_radio("No")
+    tap("Back")
+    assert_visible("Attributes")
+    tap("Add tags")
+    phone.type_text(", ".join(data["tags"]) + ",")
+    if matches("Tags must have", exact=False):
+        raise PhoneUploadError("YouTube rejected one or more tags")
+    leave_text_editor("Add details")
+    assert_visible("Upload Short")
+    stage("ready_to_upload")
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("release", help="Video Drop release ID or an exact legacy manifest path")
+    parser.add_argument("--db", type=Path, default=Path(os.environ.get("VIDEO_DROP_STATE", Path(__file__).resolve().parent.parent / ".state")) / "video-drop.sqlite")
+    parser.add_argument("--commit", action="store_true")
+    parser.add_argument("--resume-share", action="store_true")
+    args = parser.parse_args()
+    if args.commit:
+        raise PhoneUploadError("Native YouTube scheduling is not connected; immediate Upload Short is disabled")
+    with Store(args.db, load_targets(args.db.parent)) as store:
+        if args.release.isdecimal():
+            data = youtube_input(store, int(args.release))
+        else:
+            manifest = json.loads(Path(args.release).read_text(encoding="utf-8"))
+            data = verify_youtube_manifest(store, manifest)
+    if data["visibility"] not in ("private", "unlisted", "public"):
+        raise PhoneUploadError("Invalid YouTube visibility")
+    if not isinstance(data["tags"], list) or not all(isinstance(tag, str) and tag for tag in data["tags"]):
+        raise PhoneUploadError("Invalid YouTube tags")
+
+    # All work before Upload Short is safe to repeat: it can leave an
+    # unfinished composer, but cannot publish a duplicate. Recover a dropped
+    # WDA/tunnel link and rebuild the composer from the verified OneDrive file.
+    # Never replay Upload Short: a timed-out tap may already have submitted.
+    connect_sidetap()
+    for attempt in range(3):
+        try:
+            phone.unlock()
+            with upload_focus(phone):
+                if args.resume_share and attempt == 0:
+                    assert_share_sheet(data, timeout=8)
+                else:
+                    layout(refresh=True)
+                    ensure_youtube_channel(data["expectedAccount"])
+                    open_onedrive_file(data)
+                prepare_youtube(data)
+            break
+        except WDAError as exc:
+            if attempt == 2:
+                raise PhoneUploadError(f"Phone link failed after 3 preparation attempts: {exc}") from exc
+            stage("recover_phone_link")
+            print(f"Phone link dropped: {exc}", file=sys.stderr, flush=True)
+            if sidetap_admin.up() != 0:
+                raise PhoneUploadError("SideTap could not restore the phone link; no upload was submitted") from exc
+            time.sleep(1)
+    print(json.dumps({"kind": "ready", "releaseId": data["releaseId"], "account": data["expectedAccount"]}))
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main())
+    except (PhoneUploadError, FocusError, WDAError, OSError, ValueError) as exc:
+        print(json.dumps({"kind": "error", "message": str(exc)}), file=sys.stderr)
+        raise SystemExit(1) from None
