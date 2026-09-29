@@ -8,6 +8,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
+from PIL import Image, ImageDraw
+
 from video_drop.core import NY, Store, next_slot
 from video_drop.analyze import analyze, generate, safe_tag
 from video_drop.accounts import load_targets
@@ -270,23 +272,47 @@ class VideoDropTests(unittest.TestCase):
         caption = 'Instagram took down day 2 for "selling drugs" #timdillon #gtaradio #reels'
         self.store.save_text(release_id, "instagram", "@deutschmarkonline", "Day 2", caption, "")
         self.store.authorize(release_id, "instagram")
-        reserved = self.store.reserve_slot(release_id, datetime(2026, 9, 29, 8, tzinfo=timezone.utc))
+        self.store.reserve_slot(release_id, datetime(2026, 9, 29, 8, tzinfo=timezone.utc))
         self.store.mark_unconfirmed(release_id, "instagram")
+        frame = Image.new("RGB", (320, 568), "#152020")
+        draw = ImageDraw.Draw(frame)
+        draw.rectangle((0, 124, 320, 284), fill="#f2c849")
+        draw.rectangle((0, 284, 320, 444), fill="#2878bd")
+        draw.ellipse((100, 220, 220, 340), fill="#e92573")
+        screenshot = Image.new("RGB", (1320, 2868), "white")
+        screenshot.paste(frame.crop((0, 124, 320, 444)).resize((219, 219)), (36, 390))
         evidence = self.video.parent / "scheduled.png"
-        evidence.write_bytes(b"native scheduled-content screen")
-        with self.assertRaisesRegex(ValueError, "do not match"):
-            self.store.record_observed_schedule(release_id, "instagram", account="@deutschmarkonline",
-                                                caption="wrong caption", scheduled_at=reserved["scheduled_at"],
-                                                evidence_image=evidence)
-        result = self.store.record_observed_schedule(release_id, "instagram", account="@deutschmarkonline",
-                                                     caption=caption, scheduled_at=reserved["scheduled_at"],
-                                                     evidence_image=evidence)
+        screenshot.save(evidence)
+        rows = [
+            {"text": "Scheduled content", "x": 220, "y": 90},
+            {"text": 'Instagram took down day 2 for "selling drugs"', "x": 215, "y": 139},
+            {"text": "#timdillon #gtaradio #reels", "x": 200, "y": 158},
+            {"text": "Scheduled Sep 29 at 10:00 AM", "x": 215, "y": 181},
+        ]
+        kwargs = {"account": "@deutschmarkonline", "native_rows": rows,
+                  "device_time_zone": "America/New_York", "screen_info": {"width": 440, "height": 956},
+                  "evidence_image": evidence}
+        with self.assertRaisesRegex(ValueError, "account or time"):
+            self.store.record_observed_schedule(release_id, "instagram", account="@wrongaccount",
+                                                **{key: value for key, value in kwargs.items() if key != "account"})
+        with patch("video_drop.instagram_schedule.first_frame", return_value=frame):
+            with self.assertRaisesRegex(ValueError, "caption is missing"):
+                self.store.record_observed_schedule(release_id, "instagram",
+                                                    **{**kwargs, "native_rows": rows[:2] + rows[3:]})
+            with self.assertRaisesRegex(ValueError, "no unique scheduled entry"):
+                self.store.record_observed_schedule(release_id, "instagram",
+                                                    **{**kwargs, "native_rows": rows[:3] +
+                                                       [{"text": "Scheduled Sep 29 at 7:00 PM", "x": 215, "y": 181}]})
+            blank = Image.new("RGB", (1320, 2868), "white")
+            blank.save(evidence)
+            with self.assertRaisesRegex(ValueError, "does not match"):
+                self.store.record_observed_schedule(release_id, "instagram", **kwargs)
+            screenshot.save(evidence)
+            result = self.store.record_observed_schedule(release_id, "instagram", **kwargs)
         self.assertEqual(result["status"], "scheduled")
         self.assertEqual(next(d for d in result["destinations"] if d["platform"] == "instagram")["status"], "scheduled")
         with self.assertRaisesRegex(ValueError, "No uncertain native schedule"):
-            self.store.record_observed_schedule(release_id, "instagram", account="@deutschmarkonline",
-                                                caption=caption, scheduled_at=reserved["scheduled_at"],
-                                                evidence_image=evidence)
+            self.store.record_observed_schedule(release_id, "instagram", **kwargs)
 
     def test_uncertain_action_rechecks_source_identity(self):
         id_ = self.store.import_file(self.video)["id"]

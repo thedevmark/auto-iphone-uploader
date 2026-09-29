@@ -25,6 +25,8 @@ to retry.
 native Scheduled content rows against the exact reviewed caption and intended
 time in the verified iPhone time zone. It also requires the row's thumbnail to
 match the source video's center-cropped first frame; unfamiliar covers fail
-closed. This check does not verify the active account or itself mark a release
-scheduled. The phone runner must verify the account and capture the native
-screen before using the store's observed-schedule transition.
+closed. The store's observed-schedule transition now repeats this check against
+the saved source and evidence screenshot before it changes an Instagram
+destination to `scheduled`. The phone runner must still verify the active
+account and iPhone time zone and capture the native screen; neither a typed
+account name nor a local slot alone is a receipt.
