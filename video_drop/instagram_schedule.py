@@ -10,6 +10,8 @@ import re
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+from PIL import Image, ImageChops, ImageStat
+
 from .phone_ui import PhoneLayout
 
 
@@ -63,3 +65,54 @@ def matching_scheduled_reel(rows: list[dict], caption: str, scheduled_at: str,
         raise ValueError("Instagram scheduled caption is missing or ambiguous near that time")
     return {"caption": wanted, "scheduledLabel": expected_label,
             "captionRows": matches[0], "timeRow": scheduled_row}
+
+
+def matching_scheduled_cover(screenshot: Image.Image, first_frame: Image.Image,
+                             match: dict, layout: PhoneLayout) -> dict:
+    """Check the observed Reel thumbnail against the source's center-cropped first frame.
+
+    The scheduled-content row measured on iPhone puts a square cover left of
+    its caption. Geometry scales with the phone viewport; an altered layout or
+    a different selected cover must fail rather than become a receipt.
+    """
+    rows = match.get("captionRows")
+    if not isinstance(rows, list) or not rows:
+        raise ValueError("Scheduled Reel caption position is missing")
+    caption_y = min(row["y"] for row in rows)
+    size = 0.166 * layout.width
+    left = 0.027 * layout.width
+    sx, sy = screenshot.width / layout.width, screenshot.height / layout.height
+    frame = first_frame.convert("RGB")
+    side = min(frame.size)
+    x, y = (frame.width - side) // 2, (frame.height - side) // 2
+    cover = frame.crop((x, y, x + side, y + side)).resize((128, 128)).crop((8, 8, 120, 120))
+    if min(ImageStat.Stat(cover).stddev) < 20:
+        raise ValueError("First frame has too little visual detail to verify the cover")
+    # Accessibility centers vary between a one-line and wrapped caption.
+    # Search only the measured thumbnail band to tolerate that offset.
+    best: tuple[float, tuple[int, int, int, int]] | None = None
+    screenshot = screenshot.convert("RGB")
+    for half_point in range(-34, -11):
+        top = caption_y + half_point / 2
+        if top < 0 or left + size > layout.width or top + size > layout.height:
+            continue
+        box = tuple(round(value) for value in (left * sx, top * sy,
+                                               (left + size) * sx, (top + size) * sy))
+        thumbnail = screenshot.crop(box).resize((128, 128)).crop((8, 8, 120, 120))
+        score = sum(ImageStat.Stat(ImageChops.difference(thumbnail, cover)).mean) / 3
+        if best is None or score < best[0]:
+            best = score, box
+    if best is None:
+        raise ValueError("Scheduled Reel thumbnail is outside the screen")
+    score, box = best
+    if score > 22:
+        raise ValueError(f"Instagram scheduled cover does not match the first frame (difference {score:.1f})")
+    return {"difference": round(score, 1), "thumbnailBox": box}
+
+
+def verified_scheduled_reel(rows: list[dict], screenshot: Image.Image, first_frame: Image.Image,
+                            caption: str, scheduled_at: str, device_time_zone: str,
+                            layout: PhoneLayout) -> dict:
+    """Require both the approved copy/time and the source cover on one native screen."""
+    match = matching_scheduled_reel(rows, caption, scheduled_at, device_time_zone, layout)
+    return {**match, **matching_scheduled_cover(screenshot, first_frame, match, layout)}

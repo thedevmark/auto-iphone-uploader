@@ -1,6 +1,10 @@
 import unittest
 
-from video_drop.instagram_schedule import matching_scheduled_reel, scheduled_list_label
+from PIL import Image, ImageDraw
+
+from video_drop.instagram_schedule import (matching_scheduled_cover,
+                                           matching_scheduled_reel, scheduled_list_label,
+                                           verified_scheduled_reel)
 from video_drop.phone_ui import PhoneLayout
 
 
@@ -20,6 +24,33 @@ def scheduled_rows(caption: str = CAPTION, time: str = "Scheduled Sep 29 at 10:0
 
 
 class InstagramScheduleTests(unittest.TestCase):
+    def test_scheduled_thumbnail_matches_first_frame_but_rejects_another_clip(self):
+        frame = Image.new("RGB", (320, 568), "#152020")
+        draw = ImageDraw.Draw(frame)
+        draw.rectangle((0, 124, 320, 284), fill="#f2c849")
+        draw.rectangle((0, 284, 320, 444), fill="#2878bd")
+        draw.ellipse((100, 220, 220, 340), fill="#e92573")
+        square = frame.crop((0, 124, 320, 444)).resize((219, 219))
+        screenshot = Image.new("RGB", (1320, 2868), "white")
+        screenshot.paste(square, (36, 390))
+        verified = verified_scheduled_reel(scheduled_rows(), screenshot, frame,
+                                           CAPTION, SLOT, "America/New_York", LAYOUT)
+        self.assertLess(verified["difference"], 5)
+        wrong = Image.new("RGB", (320, 568), "#d5eafb")
+        wrong_draw = ImageDraw.Draw(wrong)
+        wrong_draw.rectangle((0, 124, 320, 284), fill="#172bbd")
+        wrong_draw.rectangle((0, 284, 320, 444), fill="#e93113")
+        wrong_draw.ellipse((100, 220, 220, 340), fill="#12cb66")
+        with self.assertRaisesRegex(ValueError, "does not match"):
+            verified_scheduled_reel(scheduled_rows(), screenshot, wrong,
+                                    CAPTION, SLOT, "America/New_York", LAYOUT)
+
+    def test_uniform_first_frame_is_not_sufficient_cover_evidence(self):
+        screenshot = Image.new("RGB", (1320, 2868), "black")
+        frame = Image.new("RGB", (320, 568), "black")
+        with self.assertRaisesRegex(ValueError, "too little visual detail"):
+            matching_scheduled_cover(screenshot, frame, {"captionRows": [{"y": 140}]}, LAYOUT)
+
     def test_native_list_matches_caption_and_new_york_slot(self):
         match = matching_scheduled_reel(scheduled_rows(), CAPTION, SLOT,
                                         "America/New_York", LAYOUT)
