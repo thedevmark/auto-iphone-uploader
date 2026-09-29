@@ -22,15 +22,22 @@ def visible_rows(phone) -> list[dict]:
 
 def focus_state(rows: list[dict]) -> str:
     labels = [row.get("text", "").strip() for row in rows]
-    if "Focus" in labels and "Do Not Disturb" not in labels:
+    dnd = any(label == "Do Not Disturb" or label.startswith("Do Not Disturb, ") for label in labels)
+    if "Focus" in labels and not dnd:
         return "off"
-    if "Do Not Disturb" in labels and "Focus" not in labels:
+    if dnd and "Focus" not in labels:
         return "dnd"
     raise FocusError("Cannot verify the current Focus state in Control Center")
 
 
 def unique_row(rows: list[dict], label: str) -> dict:
-    found = [row for row in rows if row.get("text", "").strip() == label]
+    # iOS may append explanatory text to the DND choice in the Focus menu.
+    # Keep exact matching for other controls and require one unambiguous button.
+    found = [row for row in rows if
+             (row.get("text", "").strip() == label and
+              (label != "Do Not Disturb" or row.get("type") == "Button")) or
+             (label == "Do Not Disturb" and row.get("type") == "Button" and
+              row.get("text", "").strip().startswith(label + ", "))]
     if len(found) != 1:
         raise FocusError(f"Expected one {label!r} Control Center control; found {len(found)}")
     return found[0]

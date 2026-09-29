@@ -94,6 +94,13 @@ its exact caption is confirmed. A final tap remains unconfirmed until a matching
 Threads post is checked, and Video Drop never retries it automatically. Other destinations target the selected native
 slot once their phone runners and receipts are connected.
 
+An operator who has checked a matching item in a native app's Scheduled
+content list can record that observed schedule with
+`Store.record_observed_schedule`. It checks the saved account, caption, time,
+and approved revision, and stores a hash of the local screenshot. This is a
+manual observation; it does not enable unattended Instagram scheduling or
+prove that a future post was published.
+
 ```powershell
 python -m unittest discover -s tests -v
 ```

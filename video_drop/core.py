@@ -517,6 +517,48 @@ class Store:
     def record_receipt(self, release_id: int, platform: str, url: str) -> dict:
         raise ValueError("Provider receipt verification is not connected yet")
 
+    def record_observed_schedule(self, release_id: int, platform: str, *, account: str,
+                                 caption: str, scheduled_at: str, evidence_image: Path) -> dict:
+        """Record a matching native scheduled-content screen inspected by the operator.
+
+        This is an observed schedule, not an automatic provider receipt or a
+        public-post confirmation. Keep the evidence under the ignored state dir.
+        """
+        if platform not in TIMED_DESTINATIONS:
+            raise ValueError("This destination does not support a scheduled receipt")
+        evidence_image = evidence_image.resolve(strict=True)
+        if not evidence_image.is_file() or evidence_image.stat().st_size == 0:
+            raise ValueError("Scheduled-content evidence is empty")
+        self.db.execute("BEGIN IMMEDIATE")
+        try:
+            release = self.release(release_id)
+            destination = next(d for d in release["destinations"] if d["platform"] == platform)
+            if destination["status"] != "unconfirmed" or release["delivery_mode"] != "schedule":
+                raise ValueError("No uncertain native schedule to verify")
+            if (destination["account"].casefold() != account.casefold()
+                    or destination["description"] != caption
+                    or release["scheduled_at"] != scheduled_at):
+                raise ValueError("Native scheduled-content details do not match this release")
+            revision = self._revision_hash(platform, destination["account"], destination["title"],
+                                           destination["description"], destination["tags"], destination["visibility"])
+            if destination["revision_hash"] != revision:
+                raise ValueError("Approved text revision changed")
+            now = utc_now().isoformat()
+            self.db.execute("UPDATE destination SET status='scheduled',updated_at=? WHERE id=?", (now, destination["id"]))
+            remaining = [d for d in release["destinations"] if d["id"] != destination["id"]
+                         and d["revision_hash"] and d["status"] != "scheduled"]
+            self.db.execute("UPDATE release SET status=?,updated_at=? WHERE id=?",
+                            ("partial" if remaining else "scheduled", now, release_id))
+            self._event(release_id, platform, "native_schedule_observed", {
+                "account": account, "caption": caption, "scheduled_at": scheduled_at,
+                "evidence_sha256": digest(evidence_image), "verification": "human_inspected_native_list",
+            })
+            self.db.commit()
+        except Exception:
+            self.db.rollback()
+            raise
+        return self.release(release_id)
+
     def discard(self, release_id: int) -> dict:
         release = self.release(release_id)
         if release["status"] not in {"draft", "reserved"}:

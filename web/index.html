@@ -96,11 +96,12 @@ const progressSteps=['Video received','File checked','Local analysis','Draft pre
 function renderProgress(){
  if(!current)return;
  const analysis=JSON.parse(current.analysis_json||'{}'),destinations=current.destinations||[];
+ const selectedDestinations=destinations.filter(d=>d.revision_hash||d.status!=='pending');
  const analysisReady=['complete','partial'].includes(analysis.status);
  const copyReady=destinations.length>0&&destinations.every(d=>d.account&&(d.title||d.description));
- const confirmed=destinations.filter(d=>d.revision_hash).length,allConfirmed=destinations.length>0&&confirmed===destinations.length;
- const allScheduled=destinations.length>0&&destinations.every(d=>['scheduled','posted','published'].includes(d.status));
- const allVerified=destinations.length>0&&destinations.every(d=>d.external_url&&['posted','published'].includes(d.status));
+ const confirmed=selectedDestinations.filter(d=>d.revision_hash).length,allConfirmed=selectedDestinations.length>0&&confirmed===selectedDestinations.length;
+ const allScheduled=selectedDestinations.length>0&&selectedDestinations.every(d=>['scheduled','posted','published'].includes(d.status));
+ const allVerified=selectedDestinations.length>0&&selectedDestinations.every(d=>d.external_url&&['posted','published'].includes(d.status));
  const phoneWork=['uploading','partial','needs_check'].includes(current.status)||destinations.some(d=>d.status==='unconfirmed');
  let active=analysis.status==='failed'||!analysisReady?2:!copyReady||dirty||sharedDirty?4:!allConfirmed?5:!allScheduled?6:!allVerified?7:-1;
  if(phoneWork&&!allVerified)active=7;
@@ -113,7 +114,7 @@ function renderProgress(){
  else if(processError?.releaseId===current.id)issue={step:processError.step,title:'This step did not finish',detail:processError.message+(actionRecovery(processError.message)?' '+actionRecovery(processError.message):''),action:'Review details',run:()=>{$('field_account')?.focus()}};
  else if(active===6)issue={step:6,title:'Posting is not connected',detail:'No app upload has started. Your confirmed details remain saved while native phone posting is unfinished.'};
  const states=progressSteps.map((_,index)=>index===issue?.step?'issue':done[index]?'done':index===active?'active':'pending');
- const details=['Accepted','Decoded',analysis.status==='failed'?'Retry analysis':analysis.status==='partial'?'Partial':analysisReady?'Ready':analysis.status==='pending'?'Queued':'Working…','Ready',dirty||sharedDirty?'Saving edits':copyReady?'Text ready':'Your edits',`${confirmed}/${destinations.length} confirmed`,allScheduled?'In apps':current.scheduled_at?'Time held only':'App pending',allVerified?'Verified':current.status==='needs_check'?'Check receipt':'Receipt pending'];
+ const details=['Accepted','Decoded',analysis.status==='failed'?'Retry analysis':analysis.status==='partial'?'Partial':analysisReady?'Ready':analysis.status==='pending'?'Queued':'Working…','Ready',dirty||sharedDirty?'Saving edits':copyReady?'Text ready':'Your edits',`${confirmed}/${selectedDestinations.length} confirmed`,allScheduled?'In apps':current.scheduled_at?'Time held only':'App pending',allVerified?'Verified':current.status==='needs_check'?'Check receipt':'Receipt pending'];
  if(issue)details[issue.step]='Needs attention';
  const motions=['read','read','analyze','prepare','wait','wait','send','verify'];
  const running=states.map((state,index)=>state==='active'&&index===2&&analysis.status==='processing');

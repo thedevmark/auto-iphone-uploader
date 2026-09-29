@@ -265,6 +265,29 @@ class VideoDropTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "after platform work starts"):
             self.store.authorize(id_, "youtube")
 
+    def test_observed_instagram_schedule_requires_matching_native_details(self):
+        release_id = self.store.import_file(self.video)["id"]
+        caption = 'Instagram took down day 2 for "selling drugs" #timdillon #gtaradio #reels'
+        self.store.save_text(release_id, "instagram", "@deutschmarkonline", "Day 2", caption, "")
+        self.store.authorize(release_id, "instagram")
+        reserved = self.store.reserve_slot(release_id, datetime(2026, 9, 29, 8, tzinfo=timezone.utc))
+        self.store.mark_unconfirmed(release_id, "instagram")
+        evidence = self.video.parent / "scheduled.png"
+        evidence.write_bytes(b"native scheduled-content screen")
+        with self.assertRaisesRegex(ValueError, "do not match"):
+            self.store.record_observed_schedule(release_id, "instagram", account="@deutschmarkonline",
+                                                caption="wrong caption", scheduled_at=reserved["scheduled_at"],
+                                                evidence_image=evidence)
+        result = self.store.record_observed_schedule(release_id, "instagram", account="@deutschmarkonline",
+                                                     caption=caption, scheduled_at=reserved["scheduled_at"],
+                                                     evidence_image=evidence)
+        self.assertEqual(result["status"], "scheduled")
+        self.assertEqual(next(d for d in result["destinations"] if d["platform"] == "instagram")["status"], "scheduled")
+        with self.assertRaisesRegex(ValueError, "No uncertain native schedule"):
+            self.store.record_observed_schedule(release_id, "instagram", account="@deutschmarkonline",
+                                                caption=caption, scheduled_at=reserved["scheduled_at"],
+                                                evidence_image=evidence)
+
     def test_uncertain_action_rechecks_source_identity(self):
         id_ = self.store.import_file(self.video)["id"]
         self.store.save_text(id_, "youtube", "@deutschmarkonline", "Title", "Description", "tag")
