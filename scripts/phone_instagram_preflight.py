@@ -91,6 +91,7 @@ def main() -> None:
         raise ValueError(f"Source video missing: {source}")
     color = edits_color_mode(source)
     connect_sidetap()
+    phone.unlock()
     actual = selected_instagram_account()
     if actual != account.casefold():
         raise ValueError(f"Instagram has {actual}; expected {account}. Switch before Edits export")
