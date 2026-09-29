@@ -54,9 +54,8 @@ Get-FileHash auto-iphone-uploader-v0.1.0.zip -Algorithm SHA256
 ```
 
 Once a VirusTotal key is configured, release notes also link a scan of the
-same zip. The source is plain
-Python and HTML with no compiled binaries, so you can also read it before
-running it. CodeQL scans every change for security issues.
+same zip. The source is plain Python and HTML with no compiled binaries, so
+you can also read it before running it. CodeQL scans every change for security issues.
 
 ## Report a vulnerability
 
