@@ -259,11 +259,13 @@ separate process. License texts and details are in
 ## Develop
 
 ```powershell
-python -m pip install -r requirements.txt
-python -m unittest discover -s tests -q
+python -m pip install -r requirements-test.txt
+python -m pytest tests -q
 ```
 
-The suite runs without a phone. GitHub Actions runs it on Windows and Linux
+The suite runs without a phone (`tests/conftest.py` pins the time zone and
+stubs the phone-link wait, so run it with pytest, not `unittest`). GitHub
+Actions runs it on Windows and Linux
 with Python 3.11 and 3.14, plus the installer's `-CheckOnly` mode on Windows.
 Live iPhone behavior is checked separately because CI has no phone or
 platform accounts. This repo is also taking over the video workflow from the

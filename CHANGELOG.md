@@ -76,6 +76,9 @@ What was tried on the reference phone (iPhone 16 Pro Max, iOS 26.7) is marked
   uploads nothing when it fails; the zip must carry the third-party notices
   and must not contain binaries or signing material.
 - Tests and docs use placeholder accounts, clip names and device IDs only.
+- The suite is run with pytest (`requirements-test.txt`), in CI and in the
+  release build: `tests/conftest.py` pins the time zone and stubs the
+  phone-link wait, which `unittest discover` does not load.
 
 #### Known limitations
 
