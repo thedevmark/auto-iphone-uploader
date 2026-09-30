@@ -42,10 +42,10 @@ class PhoneUiTests(unittest.TestCase):
 
     def test_youtube_handle_is_read_from_identity_chip(self):
         labels = ["Add details", "id.elements.components.identity_chip_component",
-                  "deutschmark, @deutschmarkonline", "Visibility, Public"]
-        self.assertEqual(youtube_identity(labels), "@deutschmarkonline")
-        labels[2] = "Deutschmark, @thedeutschmark"
-        self.assertEqual(youtube_identity(labels), "@thedeutschmark")
+                  "Example Creator, @examplechannel", "Visibility, Public"]
+        self.assertEqual(youtube_identity(labels), "@examplechannel")
+        labels[2] = "Second Creator, @secondchannel"
+        self.assertEqual(youtube_identity(labels), "@secondchannel")
         with self.assertRaisesRegex(ValueError, "missing"):
             youtube_identity(["Add details"])
 
@@ -53,9 +53,9 @@ class PhoneUiTests(unittest.TestCase):
         profile = build_profile(
             {"width": 390, "height": 844},
             [{"bundle_id": "com.google.ios.youtube"}, {"bundle_id": "com.burbn.instagram"}],
-            {"youtube": {"selected": "@deutschmarkonline", "available": ["@deutschmarkonline"],
+            {"youtube": {"selected": "@examplechannel", "available": ["@examplechannel"],
                          "uploadQuality": {"status": "full"}}},
-            {"youtube": "@deutschmarkonline", "instagram": "@other"},
+            {"youtube": "@examplechannel", "instagram": "@other"},
         )
         self.assertTrue(profile["apps"]["youtube"]["accountVerified"])
         self.assertTrue(profile["apps"]["youtube"]["targetMatched"])
@@ -68,17 +68,17 @@ class PhoneUiTests(unittest.TestCase):
             {"width": 390, "height": 844},
             [{"bundle_id": "com.google.ios.youtube"}],
             {"youtube": {"selected": "@other", "available": ["@other"]}},
-            {"youtube": "@deutschmarkonline"},
+            {"youtube": "@examplechannel"},
         )
         self.assertTrue(wrong["apps"]["youtube"]["accountVerified"])
         self.assertFalse(wrong["apps"]["youtube"]["targetMatched"])
 
     def test_selected_channel_comes_from_youtube_header_only(self):
-        labels = ["id.elements.components.page_header", "deutschmark", "@deutschmarkonline",
+        labels = ["id.elements.components.page_header", "Example Creator", "@examplechannel",
                   "View channel", "Other creator, @otherchannel"]
-        self.assertEqual(youtube_page_account(labels), "@deutschmarkonline")
+        self.assertEqual(youtube_page_account(labels), "@examplechannel")
         with self.assertRaisesRegex(ValueError, "missing"):
-            youtube_page_account(["@deutschmarkonline"])
+            youtube_page_account(["@examplechannel"])
 
     def test_youtube_composer_has_a_known_reverse_path(self):
         self.assertEqual(exit_target(["Discard changes?", "Cancel", "Discard"]), "Discard")

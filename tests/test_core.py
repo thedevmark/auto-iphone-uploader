@@ -29,7 +29,7 @@ class VideoDropTests(unittest.TestCase):
 
     def test_chosen_posting_time_must_be_a_free_future_configured_slot(self):
         release_id = self.store.import_file(self.video)["id"]
-        self.store.save_text(release_id, "youtube", "@deutschmarkonline", "Title", "Description", "tag")
+        self.store.save_text(release_id, "youtube", "@examplechannel", "Title", "Description", "tag")
         self.store.authorize(release_id, "youtube")
         now = datetime(2026, 9, 29, 19, 0, tzinfo=timezone.utc)
         tomorrow_ten = datetime(2026, 9, 30, 10, 0, tzinfo=NY)
@@ -42,7 +42,7 @@ class VideoDropTests(unittest.TestCase):
         self.assertEqual(planned["scheduled_at"], "2026-09-30T14:00:00+00:00")
         (self.root / "other.mp4").write_bytes(b"other video")
         other = self.store.import_file(self.root / "other.mp4")["id"]
-        self.store.save_text(other, "youtube", "@deutschmarkonline", "Other", "Description", "tag")
+        self.store.save_text(other, "youtube", "@examplechannel", "Other", "Description", "tag")
         self.store.authorize(other, "youtube")
         with self.assertRaisesRegex(ValueError, "already has that posting time"):
             self.store.reserve_slot(other, now, at=tomorrow_ten)
@@ -81,7 +81,7 @@ class VideoDropTests(unittest.TestCase):
         other.write_bytes(b"other video")
         following = self.store.import_file(other)
         self.assertEqual([r["id"] for r in self.store.drafts()], [release["id"], following["id"]])
-        self.store.save_text(release["id"], "youtube", "@deutschmarkonline", "Original title", "Description #clip", "game")
+        self.store.save_text(release["id"], "youtube", "@examplechannel", "Original title", "Description #clip", "game")
         self.store.authorize(release["id"], "youtube")
         reserved = self.store.reserve_slot(release["id"], datetime(2026, 9, 27, 20, tzinfo=timezone.utc))
         repeated = self.store.reserve_slot(release["id"], datetime(2026, 9, 27, 21, tzinfo=timezone.utc))
@@ -271,10 +271,10 @@ class VideoDropTests(unittest.TestCase):
     def test_exact_text_revision_invalidated_on_edit(self):
         release = self.store.import_file(self.video)
         id_ = release["id"]
-        self.store.save_text(id_, "youtube", "@deutschmarkonline", "Title", "Description", "tag")
+        self.store.save_text(id_, "youtube", "@examplechannel", "Title", "Description", "tag")
         authorized = self.store.authorize(id_, "youtube")
         self.assertTrue(authorized["destinations"][0]["revision_hash"])
-        edited = self.store.save_text(id_, "youtube", "@deutschmarkonline", "Changed", "Description", "tag")
+        edited = self.store.save_text(id_, "youtube", "@examplechannel", "Changed", "Description", "tag")
         self.assertEqual(edited["destinations"][0]["revision_hash"], "")
         with self.assertRaisesRegex(ValueError, "Authorize"):
             self.store.reserve_slot(id_)
@@ -282,7 +282,7 @@ class VideoDropTests(unittest.TestCase):
     def test_unconfirmed_needs_receipt(self):
         release = self.store.import_file(self.video)
         id_ = release["id"]
-        self.store.save_text(id_, "youtube", "@deutschmarkonline", "Title", "Description", "tag")
+        self.store.save_text(id_, "youtube", "@examplechannel", "Title", "Description", "tag")
         self.store.authorize(id_, "youtube")
         with self.assertRaisesRegex(ValueError, "No platform action"):
             self.store.mark_unconfirmed(id_, "youtube")
@@ -294,14 +294,14 @@ class VideoDropTests(unittest.TestCase):
             self.store.record_receipt(id_, "youtube", "https://youtube.com/shorts/example")
         self.assertEqual(self.store.release(id_)["destinations"][0]["status"], "unconfirmed")
         with self.assertRaisesRegex(ValueError, "after platform work starts"):
-            self.store.save_text(id_, "youtube", "@deutschmarkonline", "Changed", "Description", "tag")
+            self.store.save_text(id_, "youtube", "@examplechannel", "Changed", "Description", "tag")
         with self.assertRaisesRegex(ValueError, "after platform work starts"):
             self.store.authorize(id_, "youtube")
 
     def test_observed_instagram_schedule_requires_matching_native_details(self):
         release_id = self.store.import_file(self.video)["id"]
-        caption = 'Instagram took down day 2 for "selling drugs" #timdillon #gtaradio #reels'
-        self.store.save_text(release_id, "instagram", "@deutschmarkonline", "Day 2", caption, "")
+        caption = 'Day 2 of the lighthouse series #exampleshow #gameradio #reels'
+        self.store.save_text(release_id, "instagram", "@examplechannel", "Day 2", caption, "")
         self.store.authorize(release_id, "instagram")
         self.store.reserve_slot(release_id, datetime(2026, 9, 29, 8, tzinfo=timezone.utc))
         self.store.mark_unconfirmed(release_id, "instagram")
@@ -316,11 +316,11 @@ class VideoDropTests(unittest.TestCase):
         screenshot.save(evidence)
         rows = [
             {"text": "Scheduled content", "x": 220, "y": 90},
-            {"text": 'Instagram took down day 2 for "selling drugs"', "x": 215, "y": 139},
-            {"text": "#timdillon #gtaradio #reels", "x": 200, "y": 158},
+            {"text": 'Day 2 of the lighthouse series', "x": 215, "y": 139},
+            {"text": "#exampleshow #gameradio #reels", "x": 200, "y": 158},
             {"text": "Scheduled Sep 29 at 10:00 AM", "x": 215, "y": 181},
         ]
-        kwargs = {"account": "@deutschmarkonline", "native_rows": rows,
+        kwargs = {"account": "@examplechannel", "native_rows": rows,
                   "device_time_zone": "America/New_York", "screen_info": {"width": 440, "height": 956},
                   "evidence_image": evidence}
         with self.assertRaisesRegex(ValueError, "account or time"):
@@ -347,7 +347,7 @@ class VideoDropTests(unittest.TestCase):
 
     def test_uncertain_action_rechecks_source_identity(self):
         id_ = self.store.import_file(self.video)["id"]
-        self.store.save_text(id_, "youtube", "@deutschmarkonline", "Title", "Description", "tag")
+        self.store.save_text(id_, "youtube", "@examplechannel", "Title", "Description", "tag")
         self.store.authorize(id_, "youtube")
         self.store.reserve_slot(id_)
         self.video.write_bytes(b"different video")
@@ -358,11 +358,11 @@ class VideoDropTests(unittest.TestCase):
     def test_facebook_and_threads_share_instagram_caption_but_not_account(self):
         id_ = self.store.import_file(self.video)["id"]
         self.store.save_text(id_, "facebook", "new-safe-page", "wrong", "wrong", "")
-        self.store.save_text(id_, "threads", "@deutschmarkonline", "wrong", "wrong", "")
-        release = self.store.save_text(id_, "instagram", "@deutschmarkonline", "", "Caption #clip", "")
+        self.store.save_text(id_, "threads", "@examplechannel", "wrong", "wrong", "")
+        release = self.store.save_text(id_, "instagram", "@examplechannel", "", "Caption #clip", "")
         by_platform = {d["platform"]: d for d in release["destinations"]}
         self.assertEqual(by_platform["facebook"]["account"], "new-safe-page")
-        self.assertEqual(by_platform["threads"]["account"], "@deutschmarkonline")
+        self.assertEqual(by_platform["threads"]["account"], "@examplechannel")
         self.assertEqual(by_platform["facebook"]["description"], "Caption #clip #reels")
         self.assertEqual(by_platform["threads"]["description"], "Caption #clip")
 
@@ -376,9 +376,9 @@ class VideoDropTests(unittest.TestCase):
             "youtube_title": "Old suggestion", "youtube_description": "Description #Game",
             "youtube_tags": ["Game"], "instagram_caption": "Old line #reels",
             "tiktok_caption": "Different line #fyp"}})
-        self.store.save_text(first, "youtube", "@deutschmarkonline", "Old title", "My description #Game", "Game")
-        self.store.save_text(first, "instagram", "@deutschmarkonline", "", "Custom line   #TimDillon #reels", "")
-        self.store.save_text(first, "tiktok", "@deutschmarkonline", "", "TikTok line #fyp", "")
+        self.store.save_text(first, "youtube", "@examplechannel", "Old title", "My description #Game", "Game")
+        self.store.save_text(first, "instagram", "@examplechannel", "", "Custom line   #ExampleShow #reels", "")
+        self.store.save_text(first, "tiktok", "@examplechannel", "", "TikTok line #fyp", "")
         self.store.authorize(first, "youtube")
         self.store.authorize(first, "instagram")
         updated = self.store.apply_shared_title(first, "New hook")
@@ -386,9 +386,9 @@ class VideoDropTests(unittest.TestCase):
         self.assertEqual(destinations["youtube"]["title"], "New hook")
         self.assertEqual(destinations["youtube"]["description"], "My description #Game")
         self.assertEqual(destinations["youtube"]["tags"], "Game")
-        self.assertEqual(destinations["instagram"]["description"], "New hook   #TimDillon #reels")
-        self.assertEqual(destinations["facebook"]["description"], "New hook #TimDillon #reels")
-        self.assertEqual(destinations["threads"]["description"], "New hook #TimDillon")
+        self.assertEqual(destinations["instagram"]["description"], "New hook   #ExampleShow #reels")
+        self.assertEqual(destinations["facebook"]["description"], "New hook #ExampleShow #reels")
+        self.assertEqual(destinations["threads"]["description"], "New hook #ExampleShow")
         self.assertEqual(destinations["tiktok"]["description"], "New hook #fyp")
         self.assertEqual(destinations["facebook"]["account"], "")
         self.assertFalse(destinations["youtube"]["revision_hash"])
@@ -403,7 +403,7 @@ class VideoDropTests(unittest.TestCase):
         release_id = self.store.import_file(self.video)["id"]
         self.store.save_analysis(release_id, {"status": "complete", "suggestions": {
             "youtube_description": "Gameplay details #Old #shorts", "youtube_tags": ["Valheim"]}})
-        self.store.save_text(release_id, "youtube", "@deutschmarkonline", "Old", "My edited detail #Old", "Valheim")
+        self.store.save_text(release_id, "youtube", "@examplechannel", "Old", "My edited detail #Old", "Valheim")
         self.store.authorize(release_id, "youtube")
         updated = self.store.apply_shared_copy(release_id, "Valheim kick", "#Valheim #Kick #valheim #reels")
         destinations = {d["platform"]: d for d in updated["destinations"]}
@@ -433,7 +433,7 @@ class VideoDropTests(unittest.TestCase):
         self.store.apply_shared_title(release_id, "New hook")
         with self.assertRaisesRegex(ValueError, "Keep hashtags"):
             self.store.apply_shared_title(release_id, "New hook #clip")
-        self.store.save_text(release_id, "youtube", "@deutschmarkonline", "New hook", "Description", "tag")
+        self.store.save_text(release_id, "youtube", "@examplechannel", "New hook", "Description", "tag")
         self.store.authorize(release_id, "youtube")
         self.store.reserve_slot(release_id)
         self.store.mark_unconfirmed(release_id, "youtube")
@@ -483,7 +483,7 @@ class VideoDropTests(unittest.TestCase):
         self.assertTrue(safe_tag("Valheim"))
         id_ = self.store.import_file(self.video)["id"]
         with self.assertRaisesRegex(ValueError, "blocked sensitive"):
-            self.store.save_text(id_, "youtube", "@deutschmarkonline", "Title", "Description #elections", "Valheim")
+            self.store.save_text(id_, "youtube", "@examplechannel", "Title", "Description #elections", "Valheim")
 
 
 if __name__ == "__main__":

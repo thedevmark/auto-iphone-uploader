@@ -8,10 +8,10 @@ live owner until this repository passes the migration checks in `MIGRATION.md`.
 - Multiple finished videos may wait in the review queue. Edit one selected
   video at a time; never silently switch its source or select an older clip
   for a phone action.
-- Mark reviews and finalizes every public title, caption, description, tag,
+- The operator reviews and finalizes every public title, caption, description, tag,
   and hashtag. The exact reviewed revision is the only publishable text.
 - Verify the intended platform account and source file before preparing an
-  upload. The YouTube gaming channel is `@deutschmarkonline`.
+  upload. Each platform's target account comes from the local `accounts.json`.
 - A timed-out final tap is unconfirmed. Check the account for a receipt before
   any retry; never submit a possible duplicate automatically.
 - Phone automation uses the local SideTap installation. Do not copy its Apple
@@ -23,7 +23,6 @@ live owner until this repository passes the migration checks in `MIGRATION.md`.
 
 ## Working rules
 
-- Use `markskill` for substantive implementation and review.
 - Run focused checks after changes; a green unit test is not proof of a phone
   upload or platform receipt.
 - Do not remove Homebase's Video Drop route, jobs, or schema until the migration

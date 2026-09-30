@@ -52,8 +52,8 @@ class ThreadsSafetyTests(unittest.TestCase):
             source.write_bytes(b"finished source")
             with Store(Path(folder) / "release.sqlite") as store:
                 release_id = store.import_file(source)["id"]
-                store.save_text(release_id, "instagram", "@deutschmarkonline", "", "Caption", "")
-                store.save_text(release_id, "threads", "@deutschmarkonline", "", "", "")
+                store.save_text(release_id, "instagram", "@examplechannel", "", "Caption", "")
+                store.save_text(release_id, "threads", "@examplechannel", "", "", "")
                 store.authorize(release_id, "threads")
                 self.assertEqual(store.release(release_id)["delivery_mode"], "schedule")
                 with self.assertRaisesRegex(ValueError, "No platform action"):
@@ -71,8 +71,8 @@ class ThreadsSafetyTests(unittest.TestCase):
             source.write_bytes(b"finished source")
             with Store(path) as store:
                 release_id = store.import_file(source)["id"]
-                store.save_text(release_id, "instagram", "@deutschmarkonline", "", "Caption", "")
-                store.save_text(release_id, "threads", "@deutschmarkonline", "", "", "")
+                store.save_text(release_id, "instagram", "@examplechannel", "", "Caption", "")
+                store.save_text(release_id, "threads", "@examplechannel", "", "", "")
                 store.set_delivery_mode(release_id, "post_now")
                 revision = next(d for d in store.authorize(release_id, "threads")["destinations"]
                                 if d["platform"] == "threads")["revision_hash"]

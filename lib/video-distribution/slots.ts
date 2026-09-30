@@ -1,4 +1,4 @@
-/** Local machine time. Video Drop runs on Mark's New York workstation. */
+/** Local machine time. */
 export function nextVideoSlot(now: Date, occupied: Iterable<Date>): Date {
   const taken = new Set([...occupied].map((date) => date.getTime()));
   for (let day = 0; day < 366; day += 1) {

@@ -93,21 +93,21 @@ class WatchFolderTests(unittest.TestCase):
             exports.mkdir()
             watcher = WatchFolder(root / "state", lambda _id: None)
             watcher.configure(folder=exports, enabled=True)
-            intermediate = exports / "day5td.19052.32088.m4v"
+            intermediate = exports / "day5clip.19052.32088.m4v"
             intermediate.write_bytes(b"video stream without final mux")
-            (exports / "day5td.19052.32088.m4v.md0").write_bytes(b"sidecar")
-            (exports / "day5td.19052.32088.aac").write_bytes(b"audio stream")
+            (exports / "day5clip.19052.32088.m4v.md0").write_bytes(b"sidecar")
+            (exports / "day5clip.19052.32088.aac").write_bytes(b"audio stream")
             with patch("video_drop.watch.complete_video", return_value=True) as complete:
                 self.assertEqual(watcher.scan(now=0), [])
                 self.assertEqual(watcher.scan(now=31), [])
                 self.assertEqual(complete.call_count, 0)
-                finished = exports / "day5td.mp4"
+                finished = exports / "day5clip.mp4"
                 finished.write_bytes(b"final mux")
                 self.assertEqual(watcher.scan(now=32), [])
                 self.assertEqual(watcher.scan(now=63), [1])
                 self.assertEqual(complete.call_count, 1)
             with Store(root / "state" / "video-drop.sqlite") as store:
-                self.assertEqual(store.current()["source_name"], "day5td.mp4")
+                self.assertEqual(store.current()["source_name"], "day5clip.mp4")
 
     def test_retries_invalid_file_and_stops_when_disabled(self):
         with tempfile.TemporaryDirectory() as directory:

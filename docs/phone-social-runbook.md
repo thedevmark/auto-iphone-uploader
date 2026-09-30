@@ -52,7 +52,7 @@ the ignored .state/ directory.
 Threads posts immediately for approved releases. Run `python scripts/phone_threads.py
 <release-id>` to prepare a native composer from the exact OneDrive file; add
 `--commit` only for an approved live run. The script checks the stored source
-hash, approved text revision, @deutschmarkonline account, attached video, and
+hash, approved text revision, @examplechannel account, attached video, and
 the full pasted caption. A final tap is recorded as unconfirmed before it
 happens, so a dropped connection never triggers another post automatically.
 Check the native account for a receipt before clearing that state. Threads is

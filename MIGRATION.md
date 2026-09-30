@@ -20,7 +20,7 @@ composer state.
 
 1. Standalone app and database can import one exact clip without moving or
    altering the media file. A duplicate import is rejected.
-2. Local analysis gives editable best-effort metadata. Mark can review and
+2. Local analysis gives editable best-effort metadata. The operator can review and
    authorize the exact final text for each destination.
 3. A batch chooses the next free configured New York slot (10 AM and 7 PM by
    default, one to five per day) and enters it in each supported platform's
@@ -119,7 +119,7 @@ composer state.
   historical X records remain part of the migration.
   **Do not remove Homebase code or point users at this app as the publisher yet.**
 - On 2026-09-28, SideTap doctor was green and live iPhone onboarding verified
-  YouTube `@deutschmarkonline` among three signed-in channels. The no-commit
+  YouTube `@examplechannel` among three signed-in channels. The no-commit
   Valheim preparation reached YouTube's details screen and visually confirmed
   the Private radio, but WebDriverAgent later wedged while reading that screen.
   Recovery then reported a screenshot tunnel timeout. No upload or schedule
@@ -148,7 +148,7 @@ composer state.
   out in a background draft. The default is now `qwen3:14b`: with an 8K context
   and thinking disabled, a direct full Valheim pass returned nonempty title,
   description, tags, captions, transcript, and a visible game in about 30
-  seconds. A subsequent background retry on the existing firstitmedillon draft
+  seconds. A subsequent background retry on an existing draft
   completed with title, description hashtags, tags, and platform captions;
   saved public text remained untouched. Suggestions remain editable and
   unauthorized.
