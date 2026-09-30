@@ -20,6 +20,9 @@ jobs:
       contents: write
       id-token: write
       attestations: write
+    outputs:
+      sha: ${{ steps.build.outputs.sha }}
+      scanned: ${{ steps.vt.outcome }}
     env:
       TAG: ${{ github.event.release.tag_name }}
       VT_API_KEY: ${{ secrets.VT_API_KEY }}
@@ -30,12 +33,14 @@ jobs:
           persist-credentials: false
 
       - name: Build source zip from the tagged commit
+        id: build
         run: |
           name="auto-iphone-uploader-${TAG}"
           git archive --format=zip --prefix="${name}/" -o "${name}.zip" HEAD
           sha256sum "${name}.zip" > SHA256SUMS.txt
           cat SHA256SUMS.txt
           echo "ZIP=${name}.zip" >> "$GITHUB_ENV"
+          echo "sha=$(cut -d' ' -f1 SHA256SUMS.txt)" >> "$GITHUB_OUTPUT"
 
       - name: Sign build provenance
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
@@ -50,6 +55,7 @@ jobs:
       # Runs only once a VT_API_KEY repository secret exists. Adds a public
       # VirusTotal report link for the zip to the release notes.
       - name: Scan zip with VirusTotal
+        id: vt
         if: ${{ env.VT_API_KEY != '' }}
         uses: crazy-max/ghaction-virustotal@936d8c5c00afe97d3d9a1af26d017cfdf26800a2 # v5.0.0
         with:
@@ -57,3 +63,46 @@ jobs:
           github_token: ${{ github.token }}
           update_release_body: true
           files: ${{ env.ZIP }}
+
+  # After a scan, point the README's VirusTotal badge at this release's result.
+  badge:
+    needs: source
+    if: ${{ needs.source.outputs.scanned == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ github.event.release.tag_name }}
+      SHA: ${{ needs.source.outputs.sha }}
+      VT_API_KEY: ${{ secrets.VT_API_KEY }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+
+      - name: Wait for a stable VirusTotal verdict
+        run: |
+          last=""
+          for attempt in $(seq 1 30); do
+            sleep 20
+            stats=$(curl -sf -H "x-apikey: ${VT_API_KEY}" "https://www.virustotal.com/api/v3/files/${SHA}" \
+              | python .github/scripts/update_virustotal_badge.py stats || true)
+            echo "attempt ${attempt}: ${stats:-no report yet}"
+            if [ -n "$stats" ] && [ "${stats#* }" != "0" ] && [ "$stats" = "$last" ]; then
+              echo "FLAGGED=${stats% *}" >> "$GITHUB_ENV"
+              echo "ENGINES=${stats#* }" >> "$GITHUB_ENV"
+              exit 0
+            fi
+            last="$stats"
+          done
+          echo "VirusTotal did not return a stable verdict in time" >&2
+          exit 1
+
+      - name: Commit the new badge
+        run: |
+          python .github/scripts/update_virustotal_badge.py "$TAG" "$SHA" "$FLAGGED" "$ENGINES"
+          git diff --quiet && exit 0
+          git config user.name "github-actions[bot]"
+          git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+          git commit -am "Point the VirusTotal badge at ${TAG} (${FLAGGED}/${ENGINES} flagged)"
+          git push origin HEAD:main
