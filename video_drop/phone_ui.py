@@ -15,6 +15,8 @@ from PIL import Image
 
 REFERENCE_WIDTH = 440
 REFERENCE_HEIGHT = 956
+# Bottom safe-area inset (home indicator) on every Face ID iPhone, in points.
+HOME_INDICATOR = 34.0
 
 
 @dataclass(frozen=True)
@@ -29,11 +31,27 @@ class PhoneLayout:
             raise ValueError(f"Expected an iPhone upright in portrait: {width:g} x {height:g}")
         return cls(width, height)
 
+    @property
+    def bottom_inset(self) -> float:
+        """Face ID iPhones are taller than 2:1 and keep a home-indicator strip; Home-button models have none."""
+        return HOME_INDICATOR if self.height / self.width > 2 else 0.0
+
     def reference_point(self, x: float, y: float) -> tuple[float, float]:
         """Scale a measured 440 x 956 fallback point to this phone."""
         if not (0 <= x <= REFERENCE_WIDTH and 0 <= y <= REFERENCE_HEIGHT):
             raise ValueError("Reference point is outside the measured phone")
         return x * self.width / REFERENCE_WIDTH, y * self.height / REFERENCE_HEIGHT
+
+    def bottom_right_point(self, x: float, y: float) -> tuple[float, float]:
+        """Move a measured 440 x 956 point for a control pinned to the bottom-right safe area.
+
+        iOS keeps such a control a fixed number of points from the right edge
+        and from the bottom safe-area edge, so proportional scaling drifts it.
+        """
+        if not (0 <= x <= REFERENCE_WIDTH and 0 <= y <= REFERENCE_HEIGHT - HOME_INDICATOR):
+            raise ValueError("Reference point is outside the measured safe area")
+        return (self.width - (REFERENCE_WIDTH - x),
+                self.height - self.bottom_inset - (REFERENCE_HEIGHT - HOME_INDICATOR - y))
 
     def contains(self, row: dict) -> bool:
         return 0 <= row.get("x", -1) <= self.width and 0 <= row.get("y", -1) <= self.height
@@ -52,19 +70,38 @@ def share_app_position(rows: list[dict], name: str, layout: PhoneLayout) -> tupl
     open the wrong destination. Return a scroll direction until the requested
     icon is comfortably inside the viewport.
     """
-    rail = [row for row in rows if row.get("type") == "Cell"
-            and 0.3 * layout.height <= row.get("y", -1) <= 0.55 * layout.height]
-    found = [row for row in rail if row.get("text", "").casefold() == name.casefold()]
-    if len(found) > 1:
-        raise ValueError(f"Ambiguous share app: {name}")
-    if not found:
+    row = _share_cell(rows, name, layout)
+    if row is None:
         return "left", None
-    row = found[0]
     if row["x"] < 0.12 * layout.width:
         return "right", None
     if row["x"] > 0.88 * layout.width:
         return "left", None
     return "tap", row
+
+
+def _share_cell(rows: list[dict], name: str, layout: PhoneLayout) -> dict | None:
+    rail = [row for row in rows if row.get("type") == "Cell"
+            and 0.3 * layout.height <= row.get("y", -1) <= 0.55 * layout.height]
+    found = [row for row in rail if row.get("text", "").casefold() == name.casefold()]
+    if len(found) > 1:
+        raise ValueError(f"Ambiguous share app: {name}")
+    return found[0] if found else None
+
+
+def share_rail_y(rows: list[dict], name: str, layout: PhoneLayout, fallback: float) -> float:
+    """Scroll the rail on the row where iOS shows the requested app, even while clipped.
+
+    The share sheet sits at a fixed offset below the safe-area top, so a
+    proportional y lands on a different row on shorter phones.
+    """
+    row = _share_cell(rows, name, layout)
+    return float(row["y"]) if row is not None else fallback
+
+
+def first_frame_point(slider) -> tuple[float, float]:
+    """The leftmost frame of YouTube's thumbnail slider, from its live frame."""
+    return slider.left + min(5.0, slider.width / 2), slider.top + slider.height / 2
 
 
 def youtube_identity(labels: list[str]) -> str:

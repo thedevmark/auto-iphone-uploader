@@ -20,7 +20,12 @@ from pathlib import Path
 from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from video_drop.phone_ui import PhoneLayout, filled_radio, share_app_position, size_shown, youtube_identity, youtube_page_account
+from video_drop.phone_ui import (PhoneLayout, filled_radio, first_frame_point, share_app_position, share_rail_y,
+                                  size_shown, youtube_identity, youtube_page_account)
+from video_drop.screens.labels import Labels
+from video_drop.screens.matcher import MatchError, find
+from video_drop.screens.model import Locator
+from video_drop.screens.snapshot import Element, Snapshot, elements_from_tree
 from video_drop.youtube_nav import open_tabs
 from video_drop.phone_focus import FocusError, optional_focus
 from video_drop.core import Store
@@ -77,12 +82,20 @@ def recover_link() -> bool:
     return recover(sidetap_admin, release=lambda: release_frozen_app(device.ios_path()))
 
 
-def tap_reference(x: float, y: float) -> None:
-    phone.tap(*layout().reference_point(x, y))
-
-
 def screen() -> list[dict]:
     return phone.compact(phone.ocr())
+
+
+def live_element(label: str, kind: str) -> Element:
+    """One control with its full frame from the live tree; compact rows keep only centers."""
+    snapshot = Snapshot(layout().width, layout().height, elements_from_tree(phone.ui_tree()))
+    try:
+        found = find(snapshot, Locator(label=label, type=kind), Labels("en", {})).element
+    except MatchError as exc:
+        raise PhoneUploadError(str(exc)) from exc
+    if found is None or not layout().contains({"x": found.x, "y": found.y}):
+        raise PhoneUploadError(f"{label!r} is outside the screen")
+    return found
 
 
 def stage(name: str) -> None:
@@ -244,12 +257,14 @@ def open_onedrive_file(data: dict) -> None:
 
 
 def choose_share_app(name: str, *, expected_bundle: str | None = None) -> None:
-    rail_y = layout().reference_point(0, 392)[1]
     for _ in range(10):
         rows = screen()
         if not any(row["text"] == "shareSheet.activity.contentView" for row in rows):
             raise PhoneUploadError("iOS share sheet disappeared before app selection")
         direction, target = share_app_position(rows, name, layout())
+        # Scroll on the requested app's own row when iOS exposes it; the
+        # measured 440 x 956 row is only a fallback while it is off-screen.
+        rail_y = share_rail_y(rows, name, layout(), layout().reference_point(0, 392)[1])
         if direction == "tap":
             # The share rail keeps scrolling after WDA's swipe returns. Require
             # a second position reading before touching a destination.
@@ -279,7 +294,9 @@ def choose_unlabeled_radio(label: str, *, x: int = 35, exact: bool = True) -> No
     # The row's text does not consistently receive taps; use the circle.
     # Selecting audience can move both rows, so locate the row again after tap.
     y = round(wait(label, exact=exact)["y"])
-    selected_x = layout().reference_point(x, 0)[0]
+    # The circle sits a fixed number of points from the leading edge on every
+    # width; scaling it by screen width moved the samples off the ring.
+    selected_x = float(x)
     image = Image.open(BytesIO(phone.screenshot())).convert("RGB")
     if filled_radio(image, layout(), selected_x, y):
         return
@@ -294,7 +311,8 @@ def choose_unlabeled_radio(label: str, *, x: int = 35, exact: bool = True) -> No
 def leave_text_editor(expected: str) -> None:
     # First tap may only dismiss the iOS keyboard; second leaves the editor.
     for _ in range(2):
-        tap_reference(20, 84)
+        back = live_element("Back", "Button")
+        phone.tap(back.x, back.y)
         if matches(expected):
             return
     assert_visible(expected)
@@ -310,7 +328,8 @@ def wait_for_trim_next(timeout: float = 15) -> None:
         total = 0
         for x in range(380, 421, 5):
             for y in range(880, 906, 5):
-                px, py = layout().reference_point(x, y)
+                # Next is pinned to the bottom-right safe area, not scaled.
+                px, py = layout().bottom_right_point(x, y)
                 r, g, b = image.getpixel((int(px * sx), int(py * sy)))
                 bright += min(r, g, b) > 220
                 total += 1
@@ -364,7 +383,7 @@ def prepare_youtube(data: dict) -> None:
     tap("Edit thumbnail", exact=False)
     assert_visible("Thumbnail frame selector")
     # The leftmost frame is the first frame of the clip.
-    tap_reference(17, 885)
+    phone.tap(*first_frame_point(live_element("Thumbnail frame selector", "Slider")))
     for _ in range(3):
         if matches("Add details"):
             break

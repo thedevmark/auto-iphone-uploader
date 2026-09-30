@@ -20,6 +20,10 @@ class IconError(RuntimeError):
     pass
 
 
+class AmbiguousIcon(IconError):
+    """Two near-equal matches in one band; the matcher must not fall back from this."""
+
+
 def to_points(screenshot_png: bytes, width: float, height: float) -> Image.Image:
     image = Image.open(io.BytesIO(screenshot_png)).convert("L")
     return image.resize((round(width), round(height)), Image.LANCZOS)
@@ -44,5 +48,5 @@ def locate(screen: Image.Image, icon: Image.Image, band: tuple[float, float, flo
     suppressed = scores.copy()
     suppressed[max(0, best[0] - h + 1):best[0] + h, max(0, best[1] - w + 1):best[1] + w] = -1
     if suppressed.max() >= scores[best] - AMBIGUITY_MARGIN:
-        raise IconError("Icon match is ambiguous inside the search band")
+        raise AmbiguousIcon("Icon match is ambiguous inside the search band")
     return float(left + best[1] + w / 2), float(top + best[0] + h / 2)

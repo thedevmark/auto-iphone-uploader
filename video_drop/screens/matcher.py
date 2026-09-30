@@ -7,7 +7,7 @@ from pathlib import Path
 
 from PIL import Image
 
-from .icons import IconError, locate, to_points
+from .icons import AmbiguousIcon, IconError, locate, to_points
 from .labels import Labels
 from .model import Locator, ScreenMap
 from .snapshot import Element, Snapshot
@@ -81,6 +81,8 @@ def _find_once(snapshot: Snapshot, locator: Locator, labels: Labels, icon_dir: P
         screen = to_points(snapshot.screenshot, snapshot.width, snapshot.height)
         try:
             x, y = locate(screen, Image.open(Path(icon_dir) / locator.icon), band)
+        except AmbiguousIcon as exc:
+            raise AmbiguousMatch(str(exc)) from exc
         except IconError as exc:
             raise MatchError(str(exc)) from exc
         return Target(x, y, None)
