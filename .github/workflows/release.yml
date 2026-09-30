@@ -1,9 +1,10 @@
 name: Release
 
-# Publish a GitHub Release (for example `gh release create v0.1.0 --generate-notes`)
-# and this workflow attaches a source zip built by GitHub, not on a personal
-# machine, plus its SHA-256 and a signed build-provenance attestation. Anyone
-# can check the zip came from this repository at that tag with
+# Publish a GitHub Release (for example `gh release create v1.0.0 --generate-notes`)
+# and this workflow first runs the test suite on the tagged commit, then attaches
+# a source zip built by GitHub, not on a personal machine, plus its SHA-256 and a
+# signed build-provenance attestation. A failing test uploads nothing. Anyone can
+# check the zip came from this repository at that tag with
 # `gh attestation verify <zip> --repo thedevmark/auto-iphone-uploader`.
 
 on:
@@ -14,7 +15,30 @@ permissions:
   contents: read
 
 jobs:
+  # The release is only built when the tagged commit passes the suite everywhere CI runs it.
+  tests:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: true
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ['3.11', '3.14']
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: python -m pip install -r requirements.txt
+      - run: python -m unittest discover -s tests -q
+      - if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/install_windows.ps1 -CheckOnly -NoChecklist
+
   source:
+    needs: tests
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -42,6 +66,20 @@ jobs:
           echo "ZIP=${name}.zip" >> "$GITHUB_ENV"
           echo "sha=$(cut -d' ' -f1 SHA256SUMS.txt)" >> "$GITHUB_OUTPUT"
 
+      # The zip must carry the third-party notices for what the installer downloads
+      # (go-ios, WebDriverAgent) and what is vendored (the SideTap phone driver).
+      - name: Check the third-party notices are in the zip
+        run: |
+          for f in LICENSE third_party/NOTICE.md third_party/LICENSE-go-ios \
+                   third_party/LICENSE-WebDriverAgent third_party/LICENSE-SideTap \
+                   video_drop/phone/LICENSE-SideTap video_drop/phone/VENDORED.md; do
+            unzip -l "$ZIP" | grep -q " auto-iphone-uploader-${TAG}/${f}\$" || { echo "missing ${f}" >&2; exit 1; }
+          done
+          # Never ship a downloaded binary, a signed build or a signing identity.
+          if unzip -l "$ZIP" | grep -E -q '\.(exe|ipa|p12|mobileprovision)$|/tools/|/wda/'; then
+            echo "the zip contains a binary or signing material" >&2; exit 1
+          fi
+
       - name: Sign build provenance
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
@@ -52,7 +90,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload "$TAG" "$ZIP" SHA256SUMS.txt --clobber --repo "$GITHUB_REPOSITORY"
 
-      # Runs only once a VT_API_KEY repository secret exists. Adds a public
+      # Optional. Runs only once a VT_API_KEY repository secret exists. Adds a public
       # VirusTotal report link for the zip to the release notes.
       - name: Scan zip with VirusTotal
         id: vt

@@ -27,4 +27,4 @@ jobs:
       - run: python -m unittest discover -s tests -q
       - if: runner.os == 'Windows'
         shell: pwsh
-        run: ./scripts/install_windows.ps1 -CheckOnly
+        run: ./scripts/install_windows.ps1 -CheckOnly -NoChecklist
