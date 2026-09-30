@@ -3,12 +3,93 @@
 All notable changes to Auto iPhone Uploader. Versions match the Git tags that
 [release.yml](.github/workflows/release.yml) builds release zips from.
 
-## 1.0.0 (unreleased; current candidate 1.0.0-rc.1)
+## 1.0.0 (unreleased; current candidate 1.0.0-rc.2)
 
 The first release meant for people other than its author. See the README's
-[Known limitations](README.md#known-limitations) before relying on it.
+[Known limitations](README.md#known-limitations) and
+[docs/launch-checklist.md](docs/launch-checklist.md) for what still stands
+between this candidate and 1.0.
 
-### Added
+### 1.0.0-rc.2 (2026-09-30)
+
+What was tried on the reference phone (iPhone 16 Pro Max, iOS 26.7) is marked
+**live-tested**; everything else has offline tests only.
+
+#### Added
+
+- **Built-in phone driver.** The WebDriverAgent driver is now part of the app
+  (`video_drop/phone/`, copied from SideTap under MIT with the provenance in
+  `VENDORED.md`). No separate SideTap install, and no Codex-only storage
+  location to find. `pymobiledevice3` (GPL-3.0) is used only for the re-sign
+  step and only as a separate process.
+- **Windows installer, complete.** `scripts/install_windows.ps1` installs the
+  pinned packages, downloads go-ios 1.3.2 and the unsigned WebDriverAgent
+  16.12.9 runner from their official GitHub releases with SHA-256 checks,
+  repacks the runner as `wda\WebDriverAgent.ipa`, writes `GO_IOS_PATH` and
+  `WDA_IPA` into `.env`, creates the Desktop shortcut and a Startup entry that
+  brings the server and the phone link supervisor up at sign-in, and ends with
+  the setup checklist. Idempotent; `-CheckOnly` reports without downloading or
+  writing. Third-party license texts ship in `third_party/`.
+- **Phone link supervisor** (live-tested): one background process owns the USB
+  tunnel, the WebDriverAgent runner and the port forwards, probes them every
+  five seconds and recovers a wedged runner with a Home press instead of a
+  restart. Runners wait for it and declare busy windows around uploads.
+  [docs/phone-link-reliability.md](docs/phone-link-reliability.md) has the
+  root causes.
+- **Instagram Post now through Edits** (live-tested): the clip goes OneDrive →
+  Edits → 4K export → Instagram, with the first-frame cover proven by
+  screenshot, the exact caption, and Instagram's own Facebook and Threads
+  "Also share on" switches set from **Settings → Post now**. One upload covers
+  three destinations; Threads is never posted separately unless you turn that
+  on and the crosspost off.
+- **Post now in order** (live-tested): YouTube, then Instagram (with its
+  crossposts), then TikTok, each waiting for the one before.
+- **Native Schedule runners for YouTube and Instagram** (built, partly
+  live-tested): `scripts/phone_youtube_schedule.py` and
+  `scripts/phone_instagram.py` enter the reserved slot in each app's own
+  scheduler, reading every day button and time wheel back. Without `--commit`
+  they stop before the final tap. The slot entry is proven from recordings;
+  a committed schedule and its receipt are still open (see
+  [docs/native-scheduling.md](docs/native-scheduling.md)).
+- **Setup checklist rows:** Phone driver (replaces the SideTap row), Signed
+  WebDriverAgent on the iPhone with the days left on the signature and the
+  exact Sideloadly steps, Passcode saved for automation (`PHONE_PASSCODE` in
+  `.env`, never read or shown by the checklist), Apple Mobile Device Service
+  running, and USB power saving off. `python -m video_drop.setup_report`
+  prints the same rows in a terminal.
+- `scripts/phone_resign.py` re-signs WebDriverAgent after Sideloadly so taps
+  work, and asks the supervisor to start the driver.
+- Files-app route for Google Drive, Dropbox and iCloud Drive folders
+  (`video_drop/files_app.py`, `source_route.py`): built, **not live-checked**.
+- Native receipt read-back (`video_drop/receipts.py`,
+  `scripts/phone_receipts.py`): in progress; manual **Posted** / **Scheduled**
+  remain the working path.
+
+#### Changed
+
+- Posting times follow the PC's time zone (or the one chosen in Settings)
+  instead of fixed US Eastern time.
+- The Threads runner refuses Schedule-mode releases before touching the phone:
+  native Threads scheduling is not built, so a scheduled release leaves
+  Threads pending and says so.
+- The release workflow runs the test suite on the tagged commit first and
+  uploads nothing when it fails; the zip must carry the third-party notices
+  and must not contain binaries or signing material.
+- Tests and docs use placeholder accounts, clip names and device IDs only.
+
+#### Known limitations
+
+- Tried on one iPhone 16 Pro Max on iOS 26.7 only.
+- Windows must keep the iPhone's USB port powered (the checklist's **USB power
+  saving off** row) or the phone drops off the bus mid-upload.
+- Native Threads scheduling is not built; the Files-app route and the native
+  receipts are not live-checked; a committed YouTube or Instagram schedule
+  has not been run on a throwaway clip yet.
+- A free Apple ID's WebDriverAgent signature lasts 7 days.
+
+### 1.0.0-rc.1 (2026-09-30)
+
+#### Added
 
 - First-run setup checklist in the editor: SideTap, iPhone over USB, phone
   link, phone details, free space, local AI (Ollama) and video folder, each
@@ -29,7 +110,7 @@ The first release meant for people other than its author. See the README's
 - The release workflow scans each release zip with VirusTotal and keeps the
   README badge current.
 
-### Changed
+#### Changed
 
 - The phone link recovers without restarting a live WebDriverAgent session,
   and stops safely before the final tap if it cannot.
@@ -37,17 +118,6 @@ The first release meant for people other than its author. See the README's
   OneDrive round a file size.
 - Nested duplicate screen elements with an identical frame count as one
   target.
-- Tests and docs use placeholder accounts and clip names only.
-
-### Known limitations
-
-- Tried on one iPhone 16 Pro Max on iOS 26.7 only.
-- YouTube, Instagram and Facebook scheduling is done by hand in the phone apps;
-  Instagram and Facebook posting is done by hand.
-- The editor has no control yet to put a video on a posting time; the planner
-  is reachable through `POST /api/queue/plan`.
-- Phone runners open videos from OneDrive only.
-- Posting times use US Eastern time.
 
 ## 0.1.0 (2026-09-29)
 

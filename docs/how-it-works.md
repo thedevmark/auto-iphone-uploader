@@ -1,37 +1,67 @@
 # How it works
 
 The details behind the [README](../README.md). All social-platform uploads,
-schedules, and receipt checks run through the connected iPhone with SideTap.
-The local browser page is only an editor; no platform website is an upload
-fallback.
+schedules, and receipt checks run through the connected iPhone with the
+app's own driver (`video_drop/phone/`, go-ios plus WebDriverAgent). The local
+browser page is only an editor; no platform website is an upload fallback.
 
 ## Setup checklist
 
 `video_drop/setup_check.py` builds the first-run checklist shown in the editor
-(`GET /api/setup`). Every probe is read-only: SideTap install and import,
-USB iPhone count via `ios list`, the phone link's status on port 8100, the phone
-inventory from **Check phone**, the last measured free space, Ollama and its two
-models, and whether the watch folder sits inside a OneDrive, Google Drive,
-Dropbox or iCloud Drive folder. Free space is advisory; the other rows must be
-green for the checklist to report ready.
+(`GET /api/setup`) and printed by `python -m video_drop.setup_report`. Every
+probe is read-only: the built-in driver imports in a child process and go-ios
+is found (`GO_IOS_PATH` in `.env`, else PATH or the npm global folder), USB
+iPhone count via `ios list`, the phone link's status on port 8100, the phone
+inventory from **Check phone**, the last measured free space, Ollama and its
+two models, whether the watch folder sits inside OneDrive (Google Drive,
+Dropbox and iCloud Drive are detected too), the WebDriverAgent signing
+profile's expiry read off the phone (misagent via `pymobiledevice3` in a
+separate process; the app's own copy from the last re-sign is the fallback),
+whether `PHONE_PASSCODE` is set (never its value), the Apple Mobile Device
+Service (`sc query`) and Windows USB power saving (`powercfg`, WMI). Free
+space and local AI are advisory; the other rows must be green for the
+checklist to report ready.
 
-## Launcher and server
+## Installer, launcher and server
+
+`scripts/install_windows.ps1` is idempotent. It installs the pinned Python
+packages, downloads go-ios 1.3.2 and the unsigned WebDriverAgent 16.12.9
+runner from their GitHub releases with SHA-256 checks (`tools\go-ios\ios.exe`,
+`wda\WebDriverAgent.ipa`; `video_drop/wda_ipa.py` does the `.ipa` repack),
+writes `GO_IOS_PATH` and `WDA_IPA` into `.env` without touching other keys,
+creates the Desktop shortcut and a Startup entry, and runs the checklist.
+`-CheckOnly` only reports; `-SkipDownloads` verifies what is already there;
+`-ReplaceShortcut` repoints shortcuts that target another checkout. It does
+not install drivers or services, sign into accounts, or touch the iPhone.
 
 Double-click the shortcut, or run `pythonw launch_video_drop.py`. The launcher
-starts the local server in the background if needed and opens the editor.
-Closing the editor window does not stop the server; run the launcher again to
-reopen it. If the source changes while the server is running, the launcher
-shows a clear stale-server message instead of opening the old version. Restart
-that server before opening the updated app; local draft data remains in
-`.state`. To run the server in the foreground:
+starts the local server in the background if needed, makes sure the phone
+link supervisor is running, and opens the editor. The Startup entry runs the
+same launcher with `--no-browser`, so the server and the supervisor are up
+after sign-in without a browser window. Closing the editor window does not
+stop the server; run the launcher again to reopen it. If the source changes
+while the server is running, the launcher shows a clear stale-server message
+instead of opening the old version. Restart that server before opening the
+updated app; local draft data remains in `.state`. To run the server in the
+foreground:
 
 ```powershell
 python -m video_drop.server
 ```
 
-`scripts/install_windows.ps1` preserves an existing shortcut pointed at another
-checkout; use `-ReplaceShortcut` only when you want to change its target. It
-does not install phone drivers, sign into accounts, or touch the iPhone.
+## Phone link supervisor
+
+`video_drop/link_supervisor.py` is one detached process that owns the go-ios
+tunnel, the WebDriverAgent runner and the port forwards. It probes WDA, the
+processes, the phone on USB and the tunnel every five seconds, presses Home
+when an app wedges the driver, restarts only what died with backoff, leaves a
+dead route alone for five minutes before one daemon restart, and reports
+`needs-replug` when nothing else helps. Status is in `.state/link-status.json`
+(the editor's Phone panel reads it through `/api/link`), every decision in
+`.state/link-events.jsonl`. Runners call `phone_link.wait_ready()` before the
+first phone action and `phone_link.busy()` around uploads.
+[phone-link-reliability.md](phone-link-reliability.md) has the measurements
+behind each rule.
 
 ## Local analysis
 
@@ -97,10 +127,15 @@ authorization; any changed output must be reviewed and confirmed again.
 ## Posting and receipts
 
 Each new video defaults to Schedule; Post now is an explicit saved choice that
-takes no time slot. Threads, YouTube and TikTok have one-shot native Post now
-actions. Each stays unconfirmed after the final tap until its receipt is
-checked, and the app never retries a final tap automatically. Instagram and
-Facebook have no phone runner yet; post them in the apps yourself.
+takes no time slot. `video_drop/release_run.py` runs one ordered phone run per
+release: YouTube, then Instagram through Edits with the Facebook and Threads
+crossposts from **Settings → Post now**, then TikTok, and a separate Threads
+post only when the Threads crosspost is off and that option is on. Each
+destination stays unconfirmed after the final tap until its receipt is
+checked, and the app never retries a final tap automatically. In Schedule
+mode the YouTube and Instagram runners enter the reserved slot in each app's
+own scheduler ([native-scheduling.md](native-scheduling.md)); Threads has no
+native schedule runner yet and stays pending.
 
 TikTok has no native scheduler on the tested account, so in Schedule mode the
 running app posts it itself (`video_drop/slot_posts.py`). A slot is armed only
@@ -138,7 +173,15 @@ prove that a future post was published.
 
 ## Phone scripts
 
-The SideTap YouTube preparation runner is in `scripts/phone_youtube.py`. Pass a
+Every runner imports the built-in driver (`video_drop.phone`), waits for the
+link supervisor, and can be run by hand for a rehearsal that stops before the
+final tap: `scripts/phone_youtube.py`, `phone_youtube_schedule.py`,
+`phone_instagram.py`, `phone_tiktok.py`, `phone_threads.py`, each taking a
+release ID and `--commit` for the one final tap. `scripts/phone_resign.py`
+re-signs WebDriverAgent after Sideloadly. `scripts/link_soak.py` watches the
+link for a while without acting.
+
+The YouTube preparation runner is in `scripts/phone_youtube.py`. Pass a
 release ID; it reads the confirmed text and original file identity from the
 local database, checks the OneDrive share sheet and YouTube channel, and fills
 the composer. An older manifest path also works only when every field matches
@@ -158,8 +201,10 @@ again in the composer, and scales its few unlabeled controls from the measured
 portrait screen size. Other app account screens still need mapping before
 phone automation can use them.
 
-The phone runner requires a local SideTap installation and Pillow. It cannot
-recover from a USB device that disappears from Windows.
+The phone runners need go-ios and a signed WebDriverAgent on the phone (the
+installer and the checklist cover both) plus Pillow. When Windows loses the
+iPhone completely, the supervisor waits for it and asks for a replug only when
+the route never comes back.
 [phone-social-runbook.md](phone-social-runbook.md) records what was observed
 and what remains to map.
 
