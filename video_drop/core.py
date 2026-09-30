@@ -259,6 +259,17 @@ class Store:
                             (json.dumps(checks),))
         return checks
 
+    def setup_completed_at(self) -> str:
+        row = self.db.execute("SELECT value FROM setting WHERE key='setup_completed_at'").fetchone()
+        return json.loads(row[0]) if row else ""
+
+    def complete_setup(self) -> str:
+        """Record the first time every required setup item passed; later passes keep that time."""
+        with self.db:
+            self.db.execute("INSERT INTO setting(key,value) VALUES('setup_completed_at',?) ON CONFLICT(key) DO NOTHING",
+                            (json.dumps(utc_now().isoformat()),))
+        return self.setup_completed_at()
+
     def set_delivery_mode(self, release_id: int, mode: str) -> dict:
         if mode not in DELIVERY_MODES:
             raise ValueError("Choose Schedule or Post now")

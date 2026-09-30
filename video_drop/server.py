@@ -22,9 +22,11 @@ from .accounts import load_targets
 from .watch import WatchFolder, complete_video, eligible
 from .runtime_identity import source_fingerprint
 from .phone_space import ensure_room, free_bytes
+from . import setup_check
 
 ROOT = Path(__file__).resolve().parent.parent
 phone_free_bytes = free_bytes
+setup_probes = setup_check.local_probes
 STATIC_FILES = {
     "/logo.svg": ("logo.svg", "image/svg+xml"),
     "/logo.ico": ("logo.ico", "image/x-icon"),
@@ -126,6 +128,26 @@ def sidetap_status() -> dict:
         return result
 
 
+def setup_status(*, complete: bool = False) -> dict:
+    """Run the read-only setup checklist; ``complete`` records a fully passing run."""
+    result = setup_check.checklist(setup_probes(STATE, WATCHER.status, phone_inspection))
+    if complete and not result["ready"]:
+        raise ValueError("Finish the remaining setup steps first")
+    with Store(STATE / "video-drop.sqlite") as store:
+        result["completedAt"] = store.complete_setup() if complete else store.setup_completed_at()
+    return result
+
+
+def measured_phone_space() -> int | None:
+    """Read the iPhone's free space and keep the last reading for the setup checklist."""
+    free = phone_free_bytes()
+    if free is not None:
+        STATE.mkdir(parents=True, exist_ok=True)
+        (STATE / "phone-space.json").write_text(json.dumps({"freeBytes": free, "checkedAt": utc_now().isoformat()}),
+                                                encoding="utf-8")
+    return free
+
+
 def queue_phone_inspection() -> dict:
     global PHONE_RUNNING
     with PHONE_LOCK:
@@ -214,7 +236,7 @@ def queue_phone_post(release_id: int, platform: str) -> dict:
             release = store.release(release_id)
             if release["delivery_mode"] != "post_now":
                 raise ValueError("This video is set to schedule; choose Post now to post it immediately")
-            ensure_room(release["file_size"], phone_free_bytes())
+            ensure_room(release["file_size"], measured_phone_space())
             if platform == "threads":
                 from scripts.phone_threads import release_input
                 release_input(store, release_id)
@@ -535,6 +557,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(200, {"watch": WATCHER.status(), "postingSlots": slots,
                                  "timeZone": "America/New_York", "nextSlots": upcoming,
                                  "phoneChecks": store.phone_checks(),
+                                 "setupCompletedAt": store.setup_completed_at(),
                                  "youtubeQuality": phone_inspection().get("youtube", {}).get("uploadQuality", {})})
         elif path == "/api/phone":
             self._json(200, phone_inspection())
@@ -544,6 +567,8 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, local_video_files())
         elif path == "/api/sidetap":
             self._json(200, sidetap_status())
+        elif path == "/api/setup":
+            self._json(200, setup_status())
         else:
             self.send_error(404)
 
@@ -613,6 +638,12 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/phone/inspect":
             self._json(200, queue_phone_inspection())
+            return
+        if path == "/api/setup/complete":
+            try:
+                self._json(200, setup_status(complete=True))
+            except (ValueError, OSError) as exc:
+                self._json(400, {"error": str(exc)})
             return
         if path == "/api/queue/plan":
             try:
