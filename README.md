@@ -137,6 +137,9 @@ green when it is ready, and tells you exactly what to do when it is not:
 Every check only reads. None of them taps the phone, except **Check phone**,
 which you start yourself. Click **Check again** after fixing something.
 
+Without Ollama the **Local AI** row stays open and the checklist reopens each
+time the app starts. Everything else still works; you write the text yourself.
+
 Then tell the app which account each platform must post to, in
 `.state\accounts.json` inside the app folder, for example:
 
