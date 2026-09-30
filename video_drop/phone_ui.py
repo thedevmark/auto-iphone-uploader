@@ -53,6 +53,17 @@ class PhoneLayout:
         return (self.width - (REFERENCE_WIDTH - x),
                 self.height - self.bottom_inset - (REFERENCE_HEIGHT - HOME_INDICATOR - y))
 
+    def bottom_sheet_point(self, x: float, y: float) -> tuple[float, float]:
+        """Move a measured 440 x 956 point for a control in a full-width sheet on the bottom safe area.
+
+        The sheet keeps its rows a fixed number of points above the bottom
+        safe-area edge, while its buttons share the width proportionally.
+        """
+        if not (0 <= x <= REFERENCE_WIDTH and 0 <= y <= REFERENCE_HEIGHT - HOME_INDICATOR):
+            raise ValueError("Reference point is outside the measured safe area")
+        return (x * self.width / REFERENCE_WIDTH,
+                self.height - self.bottom_inset - (REFERENCE_HEIGHT - HOME_INDICATOR - y))
+
     def contains(self, row: dict) -> bool:
         return 0 <= row.get("x", -1) <= self.width and 0 <= row.get("y", -1) <= self.height
 

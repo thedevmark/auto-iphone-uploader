@@ -17,6 +17,7 @@ from urllib.parse import urlsplit
 from urllib.request import urlopen
 
 from .core import Store, digest, next_slot, utc_now
+from .slot_posts import SlotPost, plan_slot_posts
 from .analyze import OLLAMA, TEXT_MODEL, VISION_MODEL, analyze
 from .accounts import load_targets
 from .watch import WatchFolder, complete_video, eligible
@@ -49,6 +50,8 @@ SIDETAP_STATUS_CACHE: tuple[float, dict] | None = None
 MODEL_RECOVERY_INTERVAL = 30
 MODEL_RETRY_DELAY_SECONDS = 120
 MODEL_RETRY_LIMIT = 3
+SLOT_POST_INTERVAL = 20
+PLATFORM_NAMES = {"youtube": "YouTube", "tiktok": "TikTok"}
 WATCHER = WatchFolder(STATE, lambda release_id: queue_analysis(release_id))
 
 VIDEO_TYPES = {".mp4": "video/mp4", ".m4v": "video/mp4", ".mov": "video/quicktime", ".webm": "video/webm"}
@@ -217,35 +220,76 @@ def phone_action_status() -> dict:
         platform = result["platform"]
         destination = next(d for d in release["destinations"] if d["platform"] == platform)
         return {**result, "status": "needs_check" if destination["status"] == "unconfirmed" else "interrupted",
-                "message": f"Check {platform.title()} for a matching post before trying again" if destination["status"] == "unconfirmed"
+                "message": f"Check {platform_name(platform)} for a matching post before trying again" if destination["status"] == "unconfirmed"
                            else "Phone preparation stopped before the final tap; reconnect SideTap and try again"}
     return result
 
 
-def queue_phone_post(release_id: int, platform: str) -> dict:
-    """Run one native phone action in this process so a server exit cannot leave a child posting."""
+def platform_name(platform: str) -> str:
+    return PLATFORM_NAMES.get(platform, platform.title())
+
+
+class PhoneBusy(ValueError):
+    """The single phone worker is taken; a slot post tries again on the next tick."""
+
+
+def slot_post_state(store: Store, release_id: int, platform: str, now: datetime | None = None) -> SlotPost | None:
+    return next((plan for plan in plan_slot_posts(store, now or utc_now())
+                 if plan.release_id == release_id and plan.platform == platform), None)
+
+
+def queue_phone_post(release_id: int, platform: str, *, slot: SlotPost | None = None) -> dict:
+    """Run one native phone action in this process so a server exit cannot leave a child posting.
+
+    ``slot`` is set only by the slot scheduler. The slot is claimed here, under the
+    phone locks and after every input check, so it is attempted at most once.
+    """
     global PHONE_ACTION_RUNNING
     if TEST_MODE:
         raise ValueError("Posting is disabled in this test session")
-    if platform not in {"threads", "youtube"}:
+    if platform not in {"threads", "youtube", "tiktok"}:
         raise ValueError("This native phone posting path is not connected")
+    if slot is not None and (slot.release_id, slot.platform) != (release_id, platform):
+        raise ValueError("Slot post does not match this destination")
     with PHONE_ACTION_LOCK:
         if PHONE_ACTION_RUNNING:
-            raise ValueError("A phone action is already running")
+            raise PhoneBusy("A phone action is already running")
+        if slot is not None:
+            with PHONE_LOCK:
+                if PHONE_RUNNING:
+                    raise PhoneBusy("The phone check is running")
+            if utc_now() >= slot.deadline:
+                raise ValueError("The slot's posting window closed; nothing was posted")
         with Store(STATE / "video-drop.sqlite", load_targets(STATE)) as store:
             release = store.release(release_id)
-            if release["delivery_mode"] != "post_now":
+            if slot is not None and (release["delivery_mode"] != "schedule" or release["scheduled_at"] != slot.slot):
+                raise ValueError("The posting time changed; nothing was posted")
+            missed = False
+            if platform == "tiktok" and release["delivery_mode"] == "schedule" and slot is None:
+                state = slot_post_state(store, release_id, platform)
+                if state is None or state.state != "missed":
+                    raise ValueError("This app posts TikTok itself at the slot; Post now opens only after a missed slot")
+                missed = True
+            elif release["delivery_mode"] != "post_now" and slot is None:
                 raise ValueError("This video is set to schedule; choose Post now to post it immediately")
             ensure_room(release["file_size"], measured_phone_space())
             if platform == "threads":
                 from scripts.phone_threads import release_input
                 release_input(store, release_id)
+            elif platform == "tiktok":
+                from scripts.phone_tiktok import release_input
+                release_input(store, release_id)
             else:
                 from video_drop.phone_manifest import youtube_input
                 if youtube_input(store, release_id)["deliveryMode"] != "post_now":
                     raise ValueError("YouTube scheduling is not connected; choose Post now")
+            if slot is not None and not store.mark_slot_post(release_id, platform, slot.slot, "slot_post_queued"):
+                raise ValueError("This slot was already attempted; check the account before any retry")
+            if missed:
+                store.record_manual_intervention(release_id, platform, "post_now_after_missed_slot")
         result = {"status": "running", "platform": platform, "releaseId": release_id,
-                  "message": f"Preparing the confirmed video in {platform.title()}"}
+                  "message": (f"Posting {platform_name(platform)} at its slot" if slot else
+                              f"Preparing the confirmed video in {platform_name(platform)}")}
         STATE.mkdir(parents=True, exist_ok=True)
         (STATE / "phone-action.json").write_text(json.dumps(result), encoding="utf-8")
         PHONE_ACTION_RUNNING = True
@@ -255,9 +299,15 @@ def queue_phone_post(release_id: int, platform: str) -> dict:
         result = {"status": "failed", "platform": platform, "releaseId": release_id,
                   "message": "Phone action stopped before a result was recorded"}
         try:
+            if slot is not None and utc_now() >= slot.deadline:
+                raise ValueError("The slot's posting window closed before the phone was free; nothing was posted")
             if platform == "threads":
                 from scripts.phone_threads import run
                 outcome = run(release_id, STATE / "video-drop.sqlite", commit=True)
+            elif platform == "tiktok":
+                from scripts.phone_tiktok import run
+                outcome = run(release_id, STATE / "video-drop.sqlite", commit=True,
+                              not_after=slot.deadline if slot else None)
             else:
                 from scripts.phone_youtube import run
                 with Store(STATE / "video-drop.sqlite", load_targets(STATE)) as store:
@@ -269,11 +319,13 @@ def queue_phone_post(release_id: int, platform: str) -> dict:
         except Exception as exc:
             with Store(STATE / "video-drop.sqlite", load_targets(STATE)) as store:
                 release = store.release(release_id)
-            destination = next(d for d in release["destinations"] if d["platform"] == platform)
+                destination = next(d for d in release["destinations"] if d["platform"] == platform)
+                if slot is not None and destination["status"] == "pending":
+                    store.mark_slot_post(release_id, platform, slot.slot, "slot_post_failed", error=str(exc)[:240])
             uncertain = destination["status"] == "unconfirmed"
             result = {"status": "needs_check" if uncertain else "failed", "platform": platform,
                       "releaseId": release_id,
-                      "message": f"Check {platform.title()} for a matching post before any retry" if uncertain else str(exc)[:240]}
+                      "message": f"Check {platform_name(platform)} for a matching post before any retry" if uncertain else str(exc)[:240]}
         finally:
             (STATE / "phone-action.json").write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
             with PHONE_ACTION_LOCK:
@@ -285,6 +337,55 @@ def queue_phone_post(release_id: int, platform: str) -> dict:
 
 def queue_threads_post(release_id: int) -> dict:
     return queue_phone_post(release_id, "threads")
+
+
+def slot_post_tick(now: datetime | None = None) -> list[SlotPost]:
+    """Arm future slots and start due app-posted destinations. Returns the posts started."""
+    if TEST_MODE:
+        return []
+    now = now or utc_now()
+    with Store(STATE / "video-drop.sqlite", load_targets(STATE)) as store:
+        plans = plan_slot_posts(store, now)
+        for plan in plans:
+            if plan.state == "arm":
+                store.mark_slot_post(plan.release_id, plan.platform, plan.slot, "slot_armed")
+    started = []
+    for plan in plans:
+        if plan.state != "post":
+            continue
+        try:
+            queue_phone_post(plan.release_id, plan.platform, slot=plan)
+            started.append(plan)
+        except PhoneBusy:
+            continue
+        except (ValueError, RuntimeError, OSError) as exc:
+            with Store(STATE / "video-drop.sqlite", load_targets(STATE)) as store:
+                store.mark_slot_post(plan.release_id, plan.platform, plan.slot, "slot_post_failed", error=str(exc)[:240])
+            STATE.mkdir(parents=True, exist_ok=True)
+            (STATE / "phone-action.json").write_text(json.dumps({
+                "status": "failed", "platform": plan.platform, "releaseId": plan.release_id,
+                "message": f"{platform_name(plan.platform)} did not post at its slot: {exc}"[:240]}), encoding="utf-8")
+    return started
+
+
+def slot_post_loop(stop: threading.Event) -> None:
+    while not stop.is_set():
+        try:
+            slot_post_tick()
+        except Exception as exc:  # keep the scheduler alive; the next tick reads fresh state
+            print(f"Slot scheduler: {exc}", file=sys.stderr, flush=True)
+        stop.wait(SLOT_POST_INTERVAL)
+
+
+def with_slot_posts(store: Store, releases: list[dict]) -> list[dict]:
+    """Add each release's app-posted slot state for the UI: waiting, due, queued, blocked or missed."""
+    labels = {"arm": "waiting", "armed": "waiting", "post": "due"}
+    plans = plan_slot_posts(store, utc_now())
+    for release in releases:
+        release["slotPosts"] = {plan.platform: {"state": labels.get(plan.state, plan.state), "slot": plan.slot,
+                                                "until": plan.deadline.isoformat(), "reason": plan.reason}
+                                for plan in plans if plan.release_id == release["id"]}
+    return releases
 
 
 def initial_video_folder() -> Path:
@@ -538,13 +639,14 @@ class Handler(BaseHTTPRequestHandler):
         elif match := re.fullmatch(r"/api/releases/(\d+)", path):
             try:
                 with self._store() as store:
-                    self._json(200, {"release": store.release(int(match[1])), "testMode": TEST_MODE})
+                    release = with_slot_posts(store, [store.release(int(match[1]))])[0]
+                    self._json(200, {"release": release, "testMode": TEST_MODE})
             except ValueError as exc:
                 self._json(404, {"error": str(exc)})
         elif path == "/api/queue":
             with self._store() as store:
                 rows = store.db.execute("SELECT id FROM release WHERE status IN ('draft','reserved','scheduled','uploading','partial','needs_check') ORDER BY CASE WHEN status='draft' THEN 0 ELSE 1 END, scheduled_at, id").fetchall()
-                self._json(200, {"releases": [store.release(row[0]) for row in rows]})
+                self._json(200, {"releases": with_slot_posts(store, [store.release(row[0]) for row in rows])})
         elif path == "/api/settings":
             with self._store() as store:
                 slots = store.posting_slots()
@@ -558,6 +660,7 @@ class Handler(BaseHTTPRequestHandler):
                                  "timeZone": "America/New_York", "nextSlots": upcoming,
                                  "phoneChecks": store.phone_checks(),
                                  "setupCompletedAt": store.setup_completed_at(),
+                                 "unattendedStreak": store.unattended_streak(),
                                  "youtubeQuality": phone_inspection().get("youtube", {}).get("uploadQuality", {})})
         elif path == "/api/phone":
             self._json(200, phone_inspection())
@@ -662,14 +765,14 @@ class Handler(BaseHTTPRequestHandler):
             except (ValueError, OSError, json.JSONDecodeError) as exc:
                 self._json(400, {"error": str(exc)})
             return
-        if match := re.fullmatch(r"/api/releases/(\d+)/(threads|youtube)-post", path):
+        if match := re.fullmatch(r"/api/releases/(\d+)/(threads|youtube|tiktok)-post", path):
             try:
                 self._body()
                 self._json(202, queue_phone_post(int(match[1]), match[2]))
             except (ValueError, RuntimeError, OSError, json.JSONDecodeError) as exc:
                 self._json(400, {"error": str(exc)})
             return
-        match = re.fullmatch(r"/api/releases/(\d+)/(text|shared-title|shared-copy|authorize|delivery-mode|schedule|unconfirmed|receipt|discard|analyze)", path)
+        match = re.fullmatch(r"/api/releases/(\d+)/(text|shared-title|shared-copy|authorize|delivery-mode|schedule|unconfirmed|receipt|manual-receipt|discard|analyze)", path)
         try:
             data = self._body()
             with self._store() as store:
@@ -694,6 +797,8 @@ class Handler(BaseHTTPRequestHandler):
                         result = store.mark_unconfirmed(release_id, platform)
                     elif action == "receipt":
                         raise ValueError("Provider receipt verification is not connected yet")
+                    elif action == "manual-receipt":
+                        result = store.record_manual_receipt(release_id, platform, str(data.get("choice", "")))
                     elif action == "analyze":
                         if store.release(release_id)["status"] != "draft":
                             raise ValueError("Only a draft can be analyzed")
@@ -734,6 +839,10 @@ def main() -> None:
     watch_thread = threading.Thread(target=WATCHER.run, args=(watch_stop,),
                                     name="video-drop-watch-folder", daemon=True)
     watch_thread.start()
+    slot_stop = threading.Event()
+    slot_thread = threading.Thread(target=slot_post_loop, args=(slot_stop,),
+                                   name="video-drop-slot-posts", daemon=True)
+    slot_thread.start()
     print(f"Auto iPhone Uploader: http://127.0.0.1:{args.port}  state: {STATE}", flush=True)
     try:
         server.serve_forever()
@@ -742,6 +851,7 @@ def main() -> None:
     finally:
         recovery_stop.set()
         watch_stop.set()
+        slot_stop.set()
         server.server_close()
 
 

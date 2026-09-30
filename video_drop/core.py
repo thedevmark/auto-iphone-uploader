@@ -27,6 +27,18 @@ PHONE_CHECK_DEFAULTS = {
 }
 DELIVERY_MODES = ("schedule", "post_now")
 PLATFORM_HASHTAGS = {"youtube": "#shorts", "instagram": "#reels", "facebook": "#reels", "threads": "", "tiktok": "#fyp"}
+# Apps with no native scheduler on the operator's account: in Schedule mode this app posts
+# them itself at the slot, and only inside SLOT_GRACE after it. A later start is a missed slot.
+APP_POSTED_DESTINATIONS = frozenset({"tiktok"})
+SLOT_GRACE = timedelta(minutes=15)
+POST_ORDER = ("youtube", "instagram", "tiktok", "facebook", "threads")
+RECEIPT_CHOICES = ("posted", "scheduled")
+# A user saying "I checked it on the phone", or a hand-started post, is a hand fix.
+MANUAL_EVENTS = frozenset({"receipt_manual", "manual_intervention"})
+# Receipts the app read back from the native app itself.
+APP_RECEIPT_EVENTS = frozenset({"native_schedule_observed"})
+STREAK_GOAL = 20
+RECEIPT_WINDOW = timedelta(hours=1)
 
 
 def caption_with_title(caption: str, title: str) -> str:
@@ -634,6 +646,111 @@ class Store:
             self.db.rollback()
             raise
         return self.release(release_id)
+
+    @staticmethod
+    def _included(release: dict) -> list[dict]:
+        """Destinations this release actually targets: approved text, or work already started."""
+        return [d for d in release["destinations"] if d["revision_hash"] or d["status"] != "pending"]
+
+    def record_manual_receipt(self, release_id: int, platform: str, choice: str) -> dict:
+        """Record the user's own phone check as the receipt. It is never a native verification."""
+        if choice not in RECEIPT_CHOICES:
+            raise ValueError("Choose Posted or Scheduled")
+        self.db.execute("BEGIN IMMEDIATE")
+        try:
+            release = self.release(release_id)
+            if release["status"] == "discarded":
+                raise ValueError("This video was discarded")
+            destination = next((d for d in release["destinations"] if d["platform"] == platform), None)
+            if not destination:
+                raise ValueError("Unknown destination")
+            if destination["status"] not in {"pending", "unconfirmed"}:
+                raise ValueError("This destination already has a receipt")
+            now = utc_now().isoformat()
+            self.db.execute("UPDATE destination SET status=?,updated_at=? WHERE id=?", (choice, now, destination["id"]))
+            included = [d for d in self._included(release) if d["id"] != destination["id"]]
+            included.append({**destination, "status": choice})
+            remaining = [d for d in included if d["status"] not in RECEIPT_CHOICES]
+            status = ("partial" if remaining else
+                      "posted" if all(d["status"] == "posted" for d in included) else "scheduled")
+            self.db.execute("UPDATE release SET status=?,updated_at=? WHERE id=?", (status, now, release_id))
+            self._event(release_id, platform, "receipt_manual", {
+                "choice": choice, "previous": destination["status"], "confirmed_at": now,
+                "verification": "user_checked_phone",
+            })
+            self.db.commit()
+        except Exception:
+            self.db.rollback()
+            raise
+        return self.release(release_id)
+
+    def record_manual_intervention(self, release_id: int, platform: str, action: str) -> None:
+        with self.db:
+            self._event(release_id, platform, "manual_intervention", {"action": action})
+
+    def slot_post_releases(self) -> list[dict]:
+        """Schedule-mode releases that hold a slot and may still need the app to post."""
+        rows = self.db.execute("""SELECT id FROM release WHERE delivery_mode='schedule' AND scheduled_at IS NOT NULL
+            AND status IN ('reserved','scheduled','uploading','partial','needs_check') ORDER BY scheduled_at, id""")
+        return [self.release(row[0]) for row in rows.fetchall()]
+
+    def slot_post_marks(self) -> dict[tuple[int, str, str], set[str]]:
+        """Persisted scheduler marks, keyed by (release, platform, slot) so a replanned slot starts fresh."""
+        marks: dict[tuple[int, str, str], set[str]] = {}
+        for row in self.db.execute("""SELECT release_id, platform, kind, json_extract(payload,'$.slot') FROM event
+                WHERE kind IN ('slot_armed','slot_post_queued','slot_post_failed')"""):
+            marks.setdefault((row[0], row[1], row[3]), set()).add(row[2])
+        return marks
+
+    def mark_slot_post(self, release_id: int, platform: str, slot: str, kind: str, **details) -> bool:
+        """Write one scheduler mark once. Returns False if that mark already exists."""
+        if kind not in {"slot_armed", "slot_post_queued", "slot_post_failed"}:
+            raise ValueError("Unknown slot mark")
+        self.db.execute("BEGIN IMMEDIATE")
+        try:
+            exists = self.db.execute("""SELECT 1 FROM event WHERE release_id=? AND platform=? AND kind=?
+                AND json_extract(payload,'$.slot')=?""", (release_id, platform, kind, slot)).fetchone()
+            if not exists:
+                self._event(release_id, platform, kind, {"slot": slot, **details})
+            self.db.commit()
+        except Exception:
+            self.db.rollback()
+            raise
+        return not exists
+
+    def unattended_streak(self, now: datetime | None = None) -> dict:
+        """Consecutive most-recent Schedule releases that reached every app with no hand fix.
+
+        Releases still inside their receipt window are skipped. A manual receipt or intervention,
+        a missed slot, a receipt the app did not read itself, or a receipt still missing an hour
+        after the slot ends the streak. Post now releases are started by hand and are not counted.
+        """
+        now = now or utc_now()
+        kinds: dict[int, set[tuple[str | None, str]]] = {}
+        for row in self.db.execute("SELECT release_id, platform, kind FROM event"):
+            kinds.setdefault(row[0], set()).add((row[1], row[2]))
+        count = 0
+        rows = self.db.execute("""SELECT id FROM release WHERE delivery_mode='schedule' AND status NOT IN ('draft','discarded')
+            ORDER BY COALESCE(scheduled_at, created_at) DESC, id DESC""").fetchall()
+        for row in rows:
+            release = self.release(row[0])
+            events = kinds.get(release["id"], set())
+            included = self._included(release)
+            if not included:
+                continue
+            if any(kind in MANUAL_EVENTS for _, kind in events):
+                break
+            if all(d["status"] in RECEIPT_CHOICES for d in included):
+                if all(any((d["platform"], kind) in events for kind in APP_RECEIPT_EVENTS) for d in included):
+                    count += 1
+                    continue
+                break
+            slot = datetime.fromisoformat(release["scheduled_at"]) if release["scheduled_at"] else None
+            if slot is None or now < slot + SLOT_GRACE:
+                continue
+            if now >= slot + RECEIPT_WINDOW or any(d["status"] == "pending" for d in included):
+                break
+        return {"count": count, "goal": STREAK_GOAL}
 
     def discard(self, release_id: int) -> dict:
         release = self.release(release_id)
