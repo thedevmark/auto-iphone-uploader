@@ -12,8 +12,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-from video_drop.sidetap_root import sidetap_root  # noqa: E402
-SIDETAP = sidetap_root()
+from video_drop.phone import device as phone_device  # noqa: E402
+from video_drop.phone import helpers as phone_helpers  # noqa: E402
 device = None
 phone = None
 from video_drop.phone_onboarding import build_profile  # noqa: E402
@@ -25,17 +25,9 @@ HANDLE = re.compile(r"@[A-Za-z0-9._-]+\Z")
 
 
 def connect_sidetap() -> None:
+    """Bind the app's own phone driver (video_drop/phone). The name is historical."""
     global device, phone
-    source = SIDETAP / "src"
-    if not source.is_dir():
-        raise ValueError(f"SideTap source missing: {source}")
-    if str(source) not in sys.path:
-        sys.path.insert(0, str(source))
-    try:
-        from phone_harness import device as installed_device, helpers
-    except ImportError as exc:
-        raise ValueError(f"SideTap cannot load: {exc}") from exc
-    device, phone = installed_device, helpers
+    device, phone = phone_device, phone_helpers
 
 
 def rows() -> list[dict]:

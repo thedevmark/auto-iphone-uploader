@@ -1,5 +1,5 @@
 {"app": "tiktok", "screen": "post", "locale": "en", "bundle": "com.zhiliaoapp.musically",
- "signature": {"require": [{"id": "(publishPageBackButton)"}, {"label": "@label:post", "type": "Button"}]},
+ "signature": {"require": [{"id": "(publishPageBackButton)"}, {"label": "@label:edit_cover", "type": "Button"}]},
  "elements": {"back": {"id": "(publishPageBackButton)"},
               "description": {"type": "TextView"},
               "hashtags": {"label": "@label:add_hashtag", "type": "Button"},

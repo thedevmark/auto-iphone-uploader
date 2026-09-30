@@ -33,6 +33,7 @@ import argparse
 import json
 import os
 import re
+import subprocess
 import sys
 import time
 from datetime import datetime, timezone
@@ -61,6 +62,7 @@ VIDEO_POINT = (155.0, 828.0)
 NEXT_POINT = (325.0, 896.0)
 SHEET_SETTLE = 6.0
 EDITOR_SETTLE = 10.0
+PREPARE_ATTEMPTS = 3
 # Recorded post screen vs its source: first frame 2.7; frames 1-10 s into the same clip 10.5-13.8.
 COVER_LIMIT = 8.0
 # Keyboard-up Post pill: 56 pt wide, 16 pt from the trailing edge (recorded 2026-09-30).
@@ -208,7 +210,8 @@ def live() -> Snapshot:
 
 
 def screen_image() -> Image.Image:
-    return Image.open(BytesIO(phone.screenshot()))
+    # The editor and post screen keep the clip playing; go-ios pixels never queue behind WDA.
+    return Image.open(BytesIO(share.screen_pixels()))
 
 
 def wait_for_post_screen(timeout: float = 30) -> Snapshot:
@@ -237,7 +240,17 @@ def open_share_sheet(data: dict) -> None:
     share.layout(refresh=True)
     # A composer left open by an earlier stop could sit under the measured Next point.
     phone.close_app(TIKTOK_BUNDLE)
-    share.open_onedrive_file(data)
+    share.open_source_file(data)
+
+
+def leave_tiktok() -> None:
+    """Home Screen over USB (no WDA), then close TikTok so the next attempt starts clean."""
+    try:
+        from video_drop.phone import device
+        release_frozen_app(device.ios_path())
+        subprocess.run([device.ios_path(), "kill", TIKTOK_BUNDLE], capture_output=True, timeout=30)
+    except Exception:
+        pass
 
 
 def compose(data: dict, frame: Image.Image, evidence_dir: Path) -> dict:
@@ -246,11 +259,8 @@ def compose(data: dict, frame: Image.Image, evidence_dir: Path) -> dict:
     share.choose_share_app("TikTok")
     time.sleep(SHEET_SETTLE)
     phone.tap(*layout.bottom_sheet_point(*VIDEO_POINT))
-    deadline = time.monotonic() + 30
-    while phone.current_app().get("bundleId") != TIKTOK_BUNDLE:
-        if time.monotonic() >= deadline:
-            raise share.PhoneUploadError("TikTok did not open from its share sheet; nothing was posted")
-        time.sleep(0.5)
+    # TikTok's editor plays the clip, and asking WDA which app is in front there froze it
+    # until iOS killed the runner (2026-09-30 11:24). Wait blind; the post screen check proves it.
     share.stage("tiktok_editor")
     time.sleep(EDITOR_SETTLE)
     phone.tap(*layout.bottom_right_point(*NEXT_POINT))
@@ -258,7 +268,8 @@ def compose(data: dict, frame: Image.Image, evidence_dir: Path) -> dict:
     share.stage("tiktok_post_screen")
 
     # Cover gate: first frame, proven from a stored screenshot, before any text or final tap.
-    png = phone.screenshot()
+    # The post screen keeps the clip playing, which wedges WDA's screenshot; go-ios pixels do not queue behind it.
+    png = share.screen_pixels()
     stem = evidence_stem(evidence_dir, data["releaseId"])
     stem.with_name(stem.name + "-cover.png").write_bytes(png)
     with Image.open(BytesIO(png)) as screenshot:
@@ -298,19 +309,17 @@ def run(release_id: int, db: Path, *, commit: bool = False, not_after: datetime 
         global phone
         phone = share.phone
         phone.unlock()
-        with optional_focus(phone, store.phone_checks()["doNotDisturb"]):
-            for attempt in range(3):
+        with share.busy("TikTok preparation", 900), optional_focus(phone, store.phone_checks()["doNotDisturb"]):
+            # Nothing is public before mark_unconfirmed, so preparation can start over after a link hiccup.
+            for attempt in range(PREPARE_ATTEMPTS):
                 try:
                     open_share_sheet(data)
+                    evidence = compose(data, frame, db.parent / "evidence")
                     break
                 except share.WDAError as exc:
-                    if attempt == 2 or not share.recover_link():
-                        raise share.PhoneUploadError("SideTap could not restore TikTok preparation; nothing posted") from exc
-                    time.sleep(1)
-            try:
-                evidence = compose(data, frame, db.parent / "evidence")
-            except share.WDAError as exc:
-                raise share.PhoneUploadError("The phone link dropped while TikTok was open; nothing was posted") from exc
+                    leave_tiktok()
+                    if attempt == PREPARE_ATTEMPTS - 1 or not share.recover_link():
+                        raise share.PhoneUploadError("The phone link dropped while TikTok was open; nothing was posted") from exc
             if not commit:
                 return {"kind": "ready", "platform": "tiktok", "releaseId": release_id, "cover": evidence["cover"]}
             if not_after is not None and utc_now() > not_after:
@@ -320,14 +329,16 @@ def run(release_id: int, db: Path, *, commit: bool = False, not_after: datetime 
             # point can mean a successful post, so the script cannot replay it.
             store.mark_unconfirmed(release_id, "tiktok", expected_revision=data["revisionHash"])
             post = composer_ready(live(), data["caption"], screen_image())
-            phone.tap(post.x, post.y)
-            try:
-                # TikTok opens its playing feed after posting, which can freeze WDA; leave it.
-                time.sleep(20)
-                from phone_harness import device
-                release_frozen_app(device.ios_path())
-            except Exception:
-                pass
+            # TikTok uploads after the tap and opens its playing feed, which freezes WDA:
+            # shield the link for the upload, read nothing, and leave the feed for the Home Screen.
+            with share.busy("TikTok upload", 30, linger=share.upload_linger(data["sizeBytes"])):
+                phone.tap(post.x, post.y)
+                try:
+                    time.sleep(20)
+                    from video_drop.phone import device
+                    release_frozen_app(device.ios_path())
+                except Exception:
+                    pass
             return {"kind": "unconfirmed", "platform": "tiktok", "releaseId": release_id,
                     "cover": evidence["cover"],
                     "message": "Final tap sent; check the TikTok profile for the post before any retry"}

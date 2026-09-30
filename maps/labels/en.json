@@ -68,5 +68,9 @@
   "get_info": "Get Info",
   "content_unavailable": "Content Unavailable",
   "try_again": "Try Again",
-  "turn_on": "Turn On"
+  "turn_on": "Turn On",
+  "browse": "Browse",
+  "folder": "Folder",
+  "download": "iCloud download",
+  "actions_menu": ", Actions Menu"
 }

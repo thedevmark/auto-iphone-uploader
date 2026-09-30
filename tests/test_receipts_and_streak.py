@@ -62,7 +62,7 @@ class ManualReceiptTests(unittest.TestCase):
             self.assertEqual(statuses(store, release_id)["release"], "posted")
 
     def test_a_pending_destination_the_user_posted_by_hand_can_be_confirmed(self):
-        # A TikTok never approved here,, posted by a separate runner.
+        # The reference TikTok: never approved here, posted by a separate runner.
         with tempfile.TemporaryDirectory() as folder, Store(Path(folder) / "db.sqlite") as store:
             release_id = scheduled_release(store, Path(folder), "a.mp4", "2026-09-30T14:00:00+00:00",
                                            ("youtube", "instagram", "facebook"))
@@ -190,11 +190,14 @@ class StreakTests(unittest.TestCase):
         source.write_bytes(b"now")
         post_now = self.store.import_file(source)["id"]
         self.store.save_text(post_now, "instagram", "@me", "", "Caption", "")
-        self.store.save_text(post_now, "threads", "@me", "", "", "")
-        self.store.authorize(post_now, "threads")
+        for platform in ("instagram", "facebook", "threads"):
+            if platform != "instagram":
+                self.store.save_text(post_now, platform, "@me", "", "", "")
+            self.store.authorize(post_now, platform)
         self.store.set_delivery_mode(post_now, "post_now")
-        self.store.mark_unconfirmed(post_now, "threads")
-        self.store.record_manual_receipt(post_now, "threads", "posted")
+        self.store.mark_unconfirmed(post_now, "instagram")  # claims the Facebook and Threads crossposts too
+        for platform in ("instagram", "facebook", "threads"):
+            self.store.record_manual_receipt(post_now, platform, "posted")
         source = self.path / "draft.mp4"
         source.write_bytes(b"draft")
         self.store.import_file(source)

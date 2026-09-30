@@ -225,14 +225,14 @@ class PickerRouteTests(unittest.TestCase):
                     with self.assertRaises(HTTPError) as raised:
                         urlopen(request, timeout=5)
                     self.assertEqual(raised.exception.code, 400)
-                    self.assertIn("Native platform scheduling is not connected", raised.exception.read().decode())
+                    self.assertIn("Reserve a posting time before scheduling", raised.exception.read().decode())
                     raised.exception.close()
                     threads_schedule = Request(f"http://127.0.0.1:{http.server_port}/api/releases/{release_id}/schedule",
                                                data=b'{"platform":"threads"}', method="POST")
                     with self.assertRaises(HTTPError) as rejected:
                         urlopen(threads_schedule, timeout=5)
                     self.assertEqual(rejected.exception.code, 400)
-                    self.assertIn("Native platform scheduling is not connected", rejected.exception.read().decode())
+                    self.assertIn("Reserve a posting time before scheduling", rejected.exception.read().decode())
                     rejected.exception.close()
                     receipt = Request(f"http://127.0.0.1:{http.server_port}/api/releases/{release_id}/receipt",
                                       data=b'{"platform":"youtube","url":"https://youtube.com/shorts/unverified"}',

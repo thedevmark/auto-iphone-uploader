@@ -11,8 +11,9 @@ composer state.
   jobs in its scheduler.
 - Campaign slots, public text revisions, scheduled derivatives, and insights
   reference those records. These need explicit replacement or a stable bridge.
-- SideTap is already a separate upstream repository. This repo owns only the
-  video workflow that calls it; SideTap's phone state stays local.
+- SideTap is a separate upstream repository. This repo vendors the driver it
+  needs (`video_drop/phone/`, pinned in its `VENDORED.md`) and no longer imports
+  the installed SideTap; the driver's phone state stays local in `.state/phone/`.
 - Homebase's current working tree contains many unrelated changes. Copy
   feature files from that working tree without resetting or deleting them.
 
@@ -20,12 +21,14 @@ composer state.
 
 1. Standalone app and database can import one exact clip without moving or
    altering the media file. A duplicate import is rejected.
-2. Local analysis gives editable best-effort metadata. The operator can review and
+2. Local analysis gives editable best-effort metadata. The owner can review and
    authorize the exact final text for each destination.
 3. A batch chooses the next free configured New York slot (10 AM and 7 PM by
    default, one to five per day) and enters it in each supported platform's
-   native scheduler, including consecutive clips. Threads uses immediate
-   native posting by operator choice. Auto iPhone Uploader records each native schedule
+   native scheduler, including consecutive clips. Threads is scheduled
+   natively in the Threads app (Instagram's scheduler turns its Threads
+   crosspost off), never posted immediately; in Post now it rides Instagram's
+   crosspost. Auto iPhone Uploader records each native schedule
    or publication confirmation; it does not need to remain running until the
    scheduled publish time. Confirm scheduling in the actual TikTok
    iPhone app and account before treating TikTok as supported; its availability
@@ -84,11 +87,16 @@ composer state.
 - A separate test database watched four newly rendered synthetic clips. All
   four were imported in order with distinct hashes and completed local analysis
   on their first attempt, without touching the operator's media or releases.
-- The Homebase importer now checks every original file's size and SHA-256
-  before writing an archive snapshot or merged copy. On 2026-09-29, all seven
-  live Homebase media records matched their files and the existing migration
-  preview matched seven releases and 30 uploads without a delta. This proves
-  snapshot integrity at that moment, not the later native cutover.
+- The Homebase importer checks every original file's size and SHA-256 before
+  writing a snapshot or merged copy. On 2026-09-29, all seven live source
+  files matched and the preview matched seven releases and 30 uploads without
+  a delta. Native scheduling and the final cutover remain separate gates.
+- A fresh staged copy at `.state/merge-proof-20260929.sqlite` combined the two
+  active standalone releases with those seven Homebase releases: nine releases
+  and 40 destinations total. The two existing releases and their destination,
+  event, setting, and watch-folder rows matched the active database exactly;
+  SQLite integrity passed. The active database was not replaced. Recheck the
+  Homebase delta and repeat this proof immediately before any cutover.
 - New-release account targets now come from ignored local `accounts.json`,
   rather than account handles committed in source. Onboarding distinguishes
   an observed selected account from a match to the intended target. The other
@@ -119,7 +127,7 @@ composer state.
   historical X records remain part of the migration.
   **Do not remove Homebase code or point users at this app as the publisher yet.**
 - On 2026-09-28, SideTap doctor was green and live iPhone onboarding verified
-  YouTube `@examplechannel` among three signed-in channels. The no-commit
+  the intended YouTube channel among three signed-in channels. The no-commit
   Valheim preparation reached YouTube's details screen and visually confirmed
   the Private radio, but WebDriverAgent later wedged while reading that screen.
   Recovery then reported a screenshot tunnel timeout. No upload or schedule
@@ -148,7 +156,7 @@ composer state.
   out in a background draft. The default is now `qwen3:14b`: with an 8K context
   and thinking disabled, a direct full Valheim pass returned nonempty title,
   description, tags, captions, transcript, and a visible game in about 30
-  seconds. A subsequent background retry on an existing draft
+  seconds. A subsequent background retry on the existing firstitmedillon draft
   completed with title, description hashtags, tags, and platform captions;
   saved public text remained untouched. Suggestions remain editable and
   unauthorized.
@@ -160,14 +168,13 @@ composer state.
 - Each release now stores Schedule as its default delivery choice, or an
   explicit Post now choice. Post now takes no slot; the store permits one
   guarded final attempt from a draft and then requires a receipt check. The
-  Threads and YouTube can launch native Post now runners from the editor after
-  exact-text confirmation; their final taps become unconfirmed until matching
-  native posts are checked. YouTube Post now has no connected-phone proof yet.
-  The YouTube preparation runner
+  Threads can launch its native Post now runner from the editor after exact-text
+  confirmation; its final tap becomes unconfirmed until a matching native post
+  is checked. The YouTube preparation runner now
   takes a release ID and checks the original file and confirmed text against
   the database before opening OneDrive. A legacy manifest must match that
-  release exactly. Native scheduling and automatic receipt resolution remain
-  disabled pending phone proof.
+  release exactly. Phone submission remains disabled pending native schedule
+  and receipt proof.
 - YouTube, Instagram, and Threads phone preparation now require the saved
   release account to match the ignored local `accounts.json` target. Threads
   no longer has an operator handle embedded in executable code; the scripts
@@ -185,25 +192,3 @@ composer state.
   server/web history. The current source-folder default now uses environment
   and home-directory locations. History still needs a privacy cleanup and
   review before changing the GitHub repository from private to public.
-
-## Homebase data snapshot
-
-The importer opens Homebase's SQLite database read-only. Without `--apply` it
-prints counts and migration hazards. With `--apply` it creates a **new**
-destination database and refuses to overwrite one. Existing statuses and all
-legacy release, upload, public-text revision, and observation fields are
-retained as JSON for the later cutover; legacy authorization is not reused for
-new posts.
-
-```powershell
-python scripts/import_homebase.py --source <path-to-Homebase-database> --dest .state\homebase-snapshot.sqlite
-python scripts/import_homebase.py --source <path-to-Homebase-database> --dest .state\homebase-snapshot.sqlite --apply
-python scripts/import_homebase.py --source <path-to-Homebase-database> --dest .state\homebase-snapshot.sqlite --compare
-python scripts/import_homebase.py --source <path-to-Homebase-database> --existing .state\video-drop.sqlite --dest .state\merged-preview.sqlite --merge-copy
-```
-
-`--merge-copy` uses SQLite's online backup to stage a standalone database copy,
-then adds Homebase history and verifies the result before creating the requested
-file. Failed merges leave no candidate file. It rejects duplicate media and an
-already imported Homebase history. Both source databases remain untouched;
-the new copy is a cutover candidate, not an automatic switch.

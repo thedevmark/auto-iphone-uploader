@@ -1,12 +1,20 @@
 import unittest
+from unittest import mock
 
 from video_drop.phone_focus import FocusError, focus_state, optional_focus, upload_focus
+from video_drop.screens.snapshot import Element
+
+
+def node(kind, name, x, y, value="", label=""):
+    return {"type": "XCUIElementType" + kind, "name": name, "label": label or name, "value": value,
+            "rect": {"x": x - 30, "y": y - 30, "width": 60, "height": 60}, "isVisible": "1"}
 
 
 class FakePhone:
-    def __init__(self, dnd=False, detailed_dnd_menu=False):
-        self.dnd = dnd
-        self.detailed_dnd_menu = detailed_dnd_menu
+    """Control Center as recorded on iOS 26.7 (fixtures/control-center/*)."""
+
+    def __init__(self, focus=""):
+        self.focus = focus
         self.in_control = False
         self.in_menu = False
         self.taps = []
@@ -14,78 +22,71 @@ class FakePhone:
     def screen_info(self):
         return {"width": 440, "height": 956}
 
+    def press_home(self):
+        self.in_control = self.in_menu = False
+
     def swipe(self, x1, y1, x2, y2, seconds):
-        self.in_control = y2 > y1
-        self.in_menu = False
+        self.in_control = y1 < 5 and y2 > y1
 
-    def ocr(self):
+    def ui_tree(self):
         if self.in_menu:
-            labels = ["Focus", "Do Not Disturb, Silence all notifications" if self.detailed_dnd_menu else "Do Not Disturb"]
+            children = [node("Button", "mode-Do Not Disturb", 220, 263, label="Do Not Disturb, Silence all notifications"),
+                        node("Button", "mode-Work", 220, 435, label="Work")]
         elif self.in_control:
-            labels = ["Do Not Disturb" if self.dnd else "Focus"]
+            children = [node("Button", "focus-module", 129, 450, self.focus, "Focus")]
         else:
-            labels = ["Video composer"]
-        return [{"text": label, "x": 200, "y": 200 + i * 80,
-                 "type": "Icon" if label == "Focus" and self.in_control else "Button"}
-                for i, label in enumerate(labels)]
-
-    def compact(self, rows):
-        return rows
+            children = [node("Button", "Video composer", 200, 200)]
+        return {"type": "XCUIElementTypeApplication", "children": children}
 
     def tap(self, x, y):
         self.taps.append((x, y))
-        if self.in_menu and y == 280:
-            self.dnd = not self.dnd
-            self.in_menu = False
-        elif self.in_control and self.dnd:
-            self.dnd = False
-        elif self.in_control:
+        if self.in_menu and (x, y) == (220, 263):
+            self.focus = "" if self.focus == "Do Not Disturb" else "Do Not Disturb"
+        elif self.in_control and (x, y) == (129, 450):
             self.in_menu = True
 
 
+@mock.patch("video_drop.phone_focus.time.sleep", lambda seconds: None)
 class PhoneFocusTests(unittest.TestCase):
     def test_restores_off_even_when_upload_fails(self):
         phone = FakePhone()
         with self.assertRaisesRegex(RuntimeError, "upload failed"):
             with upload_focus(phone):
-                self.assertTrue(phone.dnd)
+                self.assertEqual(phone.focus, "Do Not Disturb")
                 raise RuntimeError("upload failed")
-        self.assertFalse(phone.dnd)
+        self.assertEqual(phone.focus, "")
         self.assertFalse(phone.in_control)
 
     def test_switched_off_check_leaves_focus_untouched(self):
         phone = FakePhone()
         with optional_focus(phone, False):
-            self.assertFalse(phone.dnd)
+            self.assertEqual(phone.focus, "")
         self.assertEqual(phone.taps, [])
-        self.assertFalse(phone.in_control)
 
     def test_switched_on_check_holds_dnd(self):
         phone = FakePhone()
         with optional_focus(phone, True):
-            self.assertTrue(phone.dnd)
-        self.assertFalse(phone.dnd)
+            self.assertEqual(phone.focus, "Do Not Disturb")
+        self.assertEqual(phone.focus, "")
 
     def test_preserves_dnd_that_was_already_on(self):
-        phone = FakePhone(dnd=True)
+        phone = FakePhone("Do Not Disturb")
         with upload_focus(phone):
-            self.assertTrue(phone.dnd)
-        self.assertTrue(phone.dnd)
+            self.assertEqual(phone.focus, "Do Not Disturb")
+        self.assertEqual(phone.focus, "Do Not Disturb")
         self.assertEqual(phone.taps, [])
 
-    def test_detailed_dnd_menu_label_enables_and_restores(self):
-        phone = FakePhone(detailed_dnd_menu=True)
-        with upload_focus(phone):
-            self.assertTrue(phone.dnd)
-        self.assertFalse(phone.dnd)
+    def test_another_focus_is_left_alone(self):
+        phone = FakePhone("Work")
+        with self.assertRaisesRegex(FocusError, "'Work' Focus is on"):
+            with upload_focus(phone):
+                pass
+        self.assertEqual(phone.focus, "Work")
+        self.assertEqual(phone.taps, [])
 
-    def test_ambiguous_focus_fails_closed(self):
-        with self.assertRaises(FocusError):
-            focus_state([{"text": "Focus"}, {"text": "Do Not Disturb"}])
-
-    def test_iphone_active_label_is_dnd(self):
-        self.assertEqual(focus_state([{"text": "Do Not Disturb, On", "type": "Button"}]), "dnd")
-
-
-if __name__ == "__main__":
-    unittest.main()
+    def test_state_reads_the_recorded_module_value(self):
+        module = lambda value: (Element("Button", "Focus", "focus-module", value, 46, 412, 166, 76),)
+        self.assertEqual(focus_state(module("")), "off")
+        self.assertEqual(focus_state(module("Do Not Disturb")), "dnd")
+        with self.assertRaisesRegex(FocusError, "found 0"):
+            focus_state(())

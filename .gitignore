@@ -19,3 +19,9 @@ __pycache__/
 .pytest_cache/
 .state/
 selfIdentity.plist
+# Downloaded by scripts/install_windows.ps1, never committed (third_party/NOTICE.md)
+tools/
+wda/
+*.ipa
+*.p12
+*.mobileprovision

@@ -90,7 +90,7 @@ class SlotDecisionTests(unittest.TestCase):
 
 
 def schedule_release(state: Path, *, slot: str = SLOT, status: str = "needs_check") -> int:
-    """A release shaped like a live one: native apps already handled, TikTok pending and approved."""
+    """A release shaped like the reference release: native apps already handled, TikTok pending and approved."""
     (state / "accounts.json").write_text('{"tiktok":"@creator"}', encoding="utf-8")
     source = state / "clip.mp4"
     source.write_bytes(b"finished video")
@@ -127,7 +127,7 @@ class SlotSchedulerTests(unittest.TestCase):
             return server.slot_post_tick(now)
 
     def test_restart_after_the_slot_never_reposts_tiktok(self):
-        """The TikTok is posted at 14:00Z by a separate runner that records nothing here.
+        """The reference TikTok is posted at 14:00Z by a separate runner that records nothing here.
 
         A server started after that slot, inside or after the grace window, must not post it again.
         """

@@ -20,6 +20,7 @@ from video_drop.screens.model import load_maps
 from video_drop.screens.runner import IrreversibleError, Runner
 from video_drop.screens.snapshot import load_fixture
 
+EDITS = "com.burbn.basel"
 INSTAGRAM, THREADS, TIKTOK, FILES = "com.burbn.instagram", "com.burbn.barcelona", "com.zhiliaoapp.musically", \
     "com.apple.DocumentsApp"
 DOT, ELLIPSIS = "·", "…"
@@ -197,6 +198,32 @@ VARIANTS = {
         Item("Other", f"Posting{ELLIPSIS}, Keep Threads open to finish uploading., Progress", (56, 817, 282, 21),
              "left", "bottom", value="0%"),
         Item("Button", "Create post", (177, 877, 86, 54), "center", "bottom"),
+    ]),
+    # Edits (recorded 2026-09-30): header controls, the quality popover, export progress, share targets.
+    "edits/project": (EDITS, ("edits", "project"), [
+        Item("Button", "Close project", (8, 59, 44, 44), name="project_navigation_close_button"),
+        Item("Button", "New project", (52, 72, 102, 18), name="project_navigation_project_name_button"),
+        Item("Button", "4K", (304, 59, 45, 44), "right", name="project_navigation_video_quality_button"),
+        Item("Button", "Next", (352, 64, 68, 34), "right", name="project_navigation_export_button"),
+        Item("StaticText", "00:00, 00:31", (201, 565, 38, 30), "center", name="playback_time_label"),
+    ]),
+    "edits/quality": (EDITS, ("edits", "quality"), [
+        *[Item("Button", label, (left, 144, 68, 32), "right", name=f"video_quality_segment_{i}_{label}")
+          for i, (label, left) in enumerate((("HD", 204), ("2K", 272), ("4K", 340)))],
+        *[Item("Button", label, (left, 216, 68, 31), "right", name=f"video_quality_segment_{i}_{label}")
+          for i, (label, left) in enumerate((("24", 204), ("30", 272), ("60", 340)))],
+        Item("Button", "SDR", (204, 287, 102, 32), "right", name="video_quality_segment_0_SDR"),
+        Item("Button", "HDR", (306, 287, 102, 32), "right", name="video_quality_segment_1_HDR"),
+    ]),
+    "edits/exporting": (EDITS, ("edits", "exporting"), [
+        Item("StaticText", "Export progress: 12.1%", (183, 140, 74, 29), "center", name="bsl_export_progress_label"),
+    ]),
+    "edits/share": (EDITS, ("edits", "share"), [
+        Item("StaticText", "Choose where to share", (92, 140, 256, 29), "center", name="bsl_export_title_label"),
+        *[Item("Button", label, (left, 808, 64, 65), "left", "bottom", name=name) for label, left, name in (
+            ("Instagram", 20, "bsl_export_share_instagram_button"), ("Facebook", 96, "bsl_export_share_facebook_button"),
+            ("Stories", 172, "bsl_export_share_story_button"), ("Download", 248, "bsl_export_download_button"),
+            ("More", 324, "bsl_export_more_button"))],
     ]),
     "tiktok/post": (TIKTOK, ("tiktok", "post"), [
         Item("Button", "Back", (6, 62, 44, 44), name="(publishPageBackButton)"),
@@ -458,6 +485,19 @@ class RunnerFlowTests(unittest.TestCase):
 # Local recordings (ignored by git) keyed by folder and timestamp only: screen, and the
 # controls the recording legitimately does not show (scrolled away, or not in that state).
 RECORDED = {
+    # 2026-09-30: the Edits 4K route (OneDrive -> Edits -> export -> Instagram) and the TikTok
+    # post screen with the keyboard up (Post is then a red pill outside the tree).
+    "edits/20260930-111429": ("edits", "project", ()),
+    "edits/20260930-111442": ("edits", "quality", ()),
+    "edits/20260930-111523": ("edits", "quality", ()),
+    "edits/20260930-111534": ("edits", "project", ()),
+    "edits/20260930-111547": ("edits", "exporting", ()),
+    "edits/20260930-111710": ("edits", "share", ()),
+    "instagram/20260930-104648": ("instagram", "share_extension", ()),
+    "tiktok/20260930-092433": ("tiktok", "post", ("drafts", "post")),
+    "instagram/20260930-104722": ("instagram", "new_reel", ("also_share_on", "more_options", "schedule")),
+    "instagram/20260930-111839": ("instagram", "new_reel", ("back", "edit_cover", "caption", "schedule")),
+    "instagram/20260930-111849": ("instagram", "also_share_on", ()),
     "files/20260929-151017": ("files", "folder", ()),
     "files/20260929-151036": ("files", "browse", ()),
     "files/20260929-151054": ("files", "turn_on_provider", ()),

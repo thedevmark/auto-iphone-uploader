@@ -1,0 +1,7 @@
+{"app": "edits", "screen": "share", "locale": "en", "bundle": "com.burbn.basel",
+ "signature": {"require": [{"id": "bsl_export_title_label"}, {"id": "bsl_export_share_instagram_button"}]},
+ "elements": {"instagram": {"id": "bsl_export_share_instagram_button"},
+              "facebook": {"id": "bsl_export_share_facebook_button"},
+              "stories": {"id": "bsl_export_share_story_button"},
+              "download": {"id": "bsl_export_download_button"},
+              "more": {"id": "bsl_export_more_button"}}}

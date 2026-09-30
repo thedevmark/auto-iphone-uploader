@@ -1,0 +1,4 @@
+# GPL-3.0 tool run only as a separate process by video_drop/phone/signing.py
+# (reads the WebDriverAgent provisioning profile off the phone). Never imported.
+# See third_party/NOTICE.md.
+pymobiledevice3==11.19.4

@@ -1,8 +1,17 @@
-"""Share one authorized video from OneDrive to Threads on the iPhone.
+"""Post one authorized video to Threads on its own, only when Settings allow it.
 
-Threads is an immediate-post destination. A final tap is recorded as
-unconfirmed before it happens, so a lost SideTap connection cannot replay it.
-Without --commit, stop at the fully verified native composer.
+Owner's rule: Post now shares Threads through Instagram's "Also share on…" Threads
+switch in the same upload (scripts/phone_instagram.py); there is no separate Threads
+post. Only when the Threads crosspost is off AND "Post Threads separately" is on does
+a Post now release get this path: OneDrive share -> Threads composer -> Post.
+
+Instagram's scheduler turns the Threads crosspost off, so a scheduled video's Threads
+post must be scheduled natively in the Threads app (its + composer with the clip in
+Photos, then Schedule). That native route is not built yet, and this script never posts
+a scheduled video immediately. Every refusal happens before the phone is touched.
+
+A final tap is recorded as unconfirmed before it happens, so a lost SideTap connection
+cannot replay it. Without --commit, stop at the fully verified native composer.
 """
 
 from __future__ import annotations
@@ -17,7 +26,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from video_drop.core import Store, digest  # noqa: E402
+from video_drop.core import Store, digest, threads_post_refusal  # noqa: E402
 from video_drop.accounts import load_targets, require_target  # noqa: E402
 from scripts import phone_youtube as share  # noqa: E402
 from video_drop.phone_focus import optional_focus  # noqa: E402
@@ -25,8 +34,13 @@ from video_drop.phone_focus import optional_focus  # noqa: E402
 phone = share.phone
 
 
+def _plain(text: str) -> str:
+    # Threads swaps straight and curly apostrophes between releases ("What’s new?").
+    return text.strip().replace("’", "'")
+
+
 def unique(rows: list[dict], label: str, *, kind: str | None = None) -> dict:
-    found = [row for row in rows if row.get("text", "").strip() == label
+    found = [row for row in rows if _plain(row.get("text", "")) == _plain(label)
              and (kind is None or row.get("type") == kind)]
     if len(found) != 1:
         raise share.PhoneUploadError(f"Expected one {label!r} in Threads, found {len(found)}")
@@ -35,6 +49,8 @@ def unique(rows: list[dict], label: str, *, kind: str | None = None) -> dict:
 
 def release_input(store: Store, release_id: int) -> dict:
     release = store.release(release_id)
+    if refusal := threads_post_refusal(release):
+        raise share.PhoneUploadError(refusal)
     destination = next(d for d in release["destinations"] if d["platform"] == "threads")
     if destination["status"] != "pending":
         raise share.PhoneUploadError("Threads is already attempted; check the account before any retry")
@@ -74,7 +90,7 @@ def paste_exact_caption(caption: str) -> None:
 def prepare(data: dict) -> None:
     phone.unlock()
     share.layout(refresh=True)
-    share.open_onedrive_file(data)
+    share.open_source_file(data)
     share.choose_share_app("Threads", expected_bundle="com.burbn.barcelona")
     rows = share.screen()
     unique(rows, "New thread")
@@ -98,7 +114,7 @@ def run(release_id: int, db: Path, *, commit: bool = False) -> dict:
         global phone
         phone = share.phone
         phone.unlock()
-        with optional_focus(phone, store.phone_checks()["doNotDisturb"]):
+        with share.busy("Threads preparation", 600), optional_focus(phone, store.phone_checks()["doNotDisturb"]):
             for attempt in range(3):
                 try:
                     prepare(data)
@@ -117,7 +133,9 @@ def run(release_id: int, db: Path, *, commit: bool = False) -> dict:
             unique(rows, data["account"], kind="Link")
             unique(rows, "Remove video at attached item #1", kind="Button")
             post = unique(rows, "Post this thread", kind="Button")
-            phone.tap(post["x"], post["y"])
+            # Threads uploads after the tap and lands on its autoplaying feed: shield the link, read nothing.
+            with share.busy("Threads upload", 30, linger=share.upload_linger(data["sizeBytes"])):
+                phone.tap(post["x"], post["y"])
             return {"kind": "unconfirmed", "platform": "threads", "releaseId": release_id,
                     "message": "Final tap sent; check native Threads receipt before any retry"}
 

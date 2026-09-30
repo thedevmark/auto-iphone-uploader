@@ -1,83 +1,107 @@
 """Do Not Disturb guard for native iPhone upload runs.
 
-Only observed Control Center labels authorize a tap. An unknown layout stops
-before media enters a platform composer.
+Recorded on iOS 26.7 (2026-09-30): Control Center's Focus module is one Button
+named "focus-module". Its value is empty while no Focus is on and reads
+"Do Not Disturb" while DND is on. Tapping it opens the Focus menu, whose modes
+are Buttons named "mode-<Focus>". Only those names authorize a tap; an unknown
+layout stops before media enters a platform composer.
+
+Reading the menu's tree right after choosing a mode froze WebDriverAgent on the
+reference phone, so a mode tap is never followed by a read on that screen: the
+run leaves Control Center and reopens it to prove the new state.
 """
 
 from __future__ import annotations
 
+import time
 from contextlib import contextmanager, nullcontext
 
 from .phone_ui import PhoneLayout
+from .screens.snapshot import Element, elements_from_tree
+
+MODULE = "focus-module"
+DND_MODE = "mode-Do Not Disturb"
+DND_VALUE = "Do Not Disturb"
 
 
 class FocusError(RuntimeError):
     pass
 
 
-def visible_rows(phone) -> list[dict]:
-    layout = PhoneLayout.from_info(phone.screen_info())
-    return [row for row in phone.compact(phone.ocr()) if layout.contains(row)]
+def _elements(phone) -> tuple[Element, ...]:
+    return elements_from_tree(phone.ui_tree())
 
 
-def focus_state(rows: list[dict]) -> str:
-    labels = [row.get("text", "").strip() for row in rows]
-    dnd = any(label == "Do Not Disturb" or label.startswith("Do Not Disturb, ") for label in labels)
-    if "Focus" in labels and not dnd:
-        return "off"
-    if dnd and "Focus" not in labels:
-        return "dnd"
-    raise FocusError("Cannot verify the current Focus state in Control Center")
-
-
-def unique_row(rows: list[dict], label: str) -> dict:
-    # iOS may append explanatory text to the DND choice in the Focus menu.
-    # Keep exact matching for other controls and require one unambiguous button.
-    found = [row for row in rows if
-             (row.get("text", "").strip() == label and
-              (label != "Do Not Disturb" or row.get("type") == "Button")) or
-             (label == "Do Not Disturb" and row.get("type") == "Button" and
-              row.get("text", "").strip().startswith(label + ", "))]
+def _one(elements: tuple[Element, ...], name: str) -> Element:
+    found = {(e.left, e.top, e.width, e.height): e for e in elements if e.type == "Button" and e.name == name}
     if len(found) != 1:
-        raise FocusError(f"Expected one {label!r} Control Center control; found {len(found)}")
-    return found[0]
+        raise FocusError(f"Expected one {name!r} Control Center control; found {len(found)}")
+    return next(iter(found.values()))
 
 
-def open_control_center(phone) -> list[dict]:
+def focus_state(elements: tuple[Element, ...]) -> str:
+    value = _one(elements, MODULE).value.strip()
+    if not value:
+        return "off"
+    if value == DND_VALUE:
+        return "dnd"
+    raise FocusError(f"The {value!r} Focus is on; leaving the phone's Focus alone")
+
+
+def _settle(phone, name: str, timeout: float = 4.0, poll: float = 0.4) -> tuple[Element, ...]:
+    deadline = time.monotonic() + timeout
+    while True:
+        elements = _elements(phone)
+        if any(e.type == "Button" and e.name == name for e in elements):
+            return elements
+        if time.monotonic() >= deadline:
+            raise FocusError(f"Control Center did not show {name!r}")
+        time.sleep(poll)
+
+
+def open_control_center(phone) -> tuple[Element, ...]:
     layout = PhoneLayout.from_info(phone.screen_info())
+    phone.press_home()
+    time.sleep(0.8)
     phone.swipe(layout.width * .92, 1, layout.width * .92, layout.height * .30, .3)
-    rows = visible_rows(phone)
-    focus_state(rows)
-    return rows
-
-
-def tap_row(phone, row: dict) -> None:
-    phone.tap(row["x"], row["y"])
+    time.sleep(1.0)
+    return _settle(phone, MODULE)
 
 
 def close_control_center(phone) -> None:
-    layout = PhoneLayout.from_info(phone.screen_info())
-    phone.swipe(layout.width * .5, layout.height * .75, layout.width * .5, 1, .3)
+    phone.press_home()
+    time.sleep(0.8)
+
+
+def _choose_dnd(phone, elements: tuple[Element, ...]) -> None:
+    module = _one(elements, MODULE)
+    phone.tap(module.x, module.y)
+    time.sleep(1.2)
+    mode = _one(_settle(phone, DND_MODE), DND_MODE)
+    phone.tap(mode.x, mode.y)
+    time.sleep(1.2)
+    close_control_center(phone)
+
+
+def _state_now(phone) -> str:
+    try:
+        return focus_state(open_control_center(phone))
+    finally:
+        close_control_center(phone)
 
 
 def enable_dnd(phone) -> bool:
     """Return True only if this run changed Focus from off to DND."""
-    rows = open_control_center(phone)
-    if focus_state(rows) == "dnd":
+    elements = open_control_center(phone)
+    if focus_state(elements) == "dnd":
         close_control_center(phone)
         return False
-    tap_row(phone, unique_row(rows, "Focus"))
-    rows = visible_rows(phone)
-    tap_row(phone, unique_row(rows, "Do Not Disturb"))
+    _choose_dnd(phone, elements)
     try:
-        close_control_center(phone)
-        rows = open_control_center(phone)
-        enabled = focus_state(rows) == "dnd"
-        close_control_center(phone)
-        if not enabled:
+        if _state_now(phone) != "dnd":
             raise FocusError("Do Not Disturb did not turn on; upload stopped")
     except Exception:
-        # The tap may have succeeded even if the subsequent phone read failed.
+        # The tap may have landed even if the proving read failed.
         try:
             restore_focus(phone)
         except Exception:
@@ -87,16 +111,12 @@ def enable_dnd(phone) -> bool:
 
 
 def restore_focus(phone) -> None:
-    rows = open_control_center(phone)
-    if focus_state(rows) != "dnd":
+    elements = open_control_center(phone)
+    if focus_state(elements) != "dnd":
         close_control_center(phone)
         raise FocusError("Focus changed during upload; leaving the current phone state alone")
-    tap_row(phone, unique_row(rows, "Do Not Disturb"))
-    close_control_center(phone)
-    rows = open_control_center(phone)
-    restored = focus_state(rows) == "off"
-    close_control_center(phone)
-    if not restored:
+    _choose_dnd(phone, elements)
+    if _state_now(phone) != "off":
         raise FocusError("Could not confirm Do Not Disturb was restored; check the phone")
 
 

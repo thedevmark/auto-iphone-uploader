@@ -7,12 +7,15 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
+from zoneinfo import ZoneInfo
 
 from PIL import Image, ImageDraw
 
-from video_drop.core import NY, Store, next_slot
+from video_drop.core import Store, next_slot
 from video_drop.analyze import analyze, generate, safe_tag
 from video_drop.accounts import load_targets
+
+NY = ZoneInfo("America/New_York")
 
 
 class VideoDropTests(unittest.TestCase):
@@ -49,7 +52,10 @@ class VideoDropTests(unittest.TestCase):
 
     def test_phone_checks_default_on_and_persist(self):
         self.assertEqual(self.store.phone_checks(), {"doNotDisturb": True, "youtubeQualityEveryUpload": False,
-                                                     "inspectPhoneOnOpen": True, "removeAfterPost": True})
+                                                     "inspectPhoneOnOpen": True, "removeAfterPost": True,
+                                                     "crosspostFacebook": True, "crosspostThreads": True,
+                                                     "threadsSeparatePost": False, "postNowInOrder": True,
+                                                     "filesAppForOneDrive": False})
         self.store.set_phone_checks({"doNotDisturb": False})
         with Store(self.root / "state.sqlite") as reopened:
             self.assertFalse(reopened.phone_checks()["doNotDisturb"])
@@ -300,7 +306,7 @@ class VideoDropTests(unittest.TestCase):
 
     def test_observed_instagram_schedule_requires_matching_native_details(self):
         release_id = self.store.import_file(self.video)["id"]
-        caption = 'Day 2 of the lighthouse series #exampleshow #gameradio #reels'
+        caption = 'Episode two is back up after the review #podcast #radio #reels'
         self.store.save_text(release_id, "instagram", "@examplechannel", "Day 2", caption, "")
         self.store.authorize(release_id, "instagram")
         self.store.reserve_slot(release_id, datetime(2026, 9, 29, 8, tzinfo=timezone.utc))
@@ -316,8 +322,8 @@ class VideoDropTests(unittest.TestCase):
         screenshot.save(evidence)
         rows = [
             {"text": "Scheduled content", "x": 220, "y": 90},
-            {"text": 'Day 2 of the lighthouse series', "x": 215, "y": 139},
-            {"text": "#exampleshow #gameradio #reels", "x": 200, "y": 158},
+            {"text": 'Episode two is back up after the review', "x": 215, "y": 139},
+            {"text": "#podcast #radio #reels", "x": 200, "y": 158},
             {"text": "Scheduled Sep 29 at 10:00 AM", "x": 215, "y": 181},
         ]
         kwargs = {"account": "@examplechannel", "native_rows": rows,
@@ -377,7 +383,7 @@ class VideoDropTests(unittest.TestCase):
             "youtube_tags": ["Game"], "instagram_caption": "Old line #reels",
             "tiktok_caption": "Different line #fyp"}})
         self.store.save_text(first, "youtube", "@examplechannel", "Old title", "My description #Game", "Game")
-        self.store.save_text(first, "instagram", "@examplechannel", "", "Custom line   #ExampleShow #reels", "")
+        self.store.save_text(first, "instagram", "@examplechannel", "", "Custom line   #Podcast #reels", "")
         self.store.save_text(first, "tiktok", "@examplechannel", "", "TikTok line #fyp", "")
         self.store.authorize(first, "youtube")
         self.store.authorize(first, "instagram")
@@ -386,9 +392,9 @@ class VideoDropTests(unittest.TestCase):
         self.assertEqual(destinations["youtube"]["title"], "New hook")
         self.assertEqual(destinations["youtube"]["description"], "My description #Game")
         self.assertEqual(destinations["youtube"]["tags"], "Game")
-        self.assertEqual(destinations["instagram"]["description"], "New hook   #ExampleShow #reels")
-        self.assertEqual(destinations["facebook"]["description"], "New hook #ExampleShow #reels")
-        self.assertEqual(destinations["threads"]["description"], "New hook #ExampleShow")
+        self.assertEqual(destinations["instagram"]["description"], "New hook   #Podcast #reels")
+        self.assertEqual(destinations["facebook"]["description"], "New hook #Podcast #reels")
+        self.assertEqual(destinations["threads"]["description"], "New hook #Podcast")
         self.assertEqual(destinations["tiktok"]["description"], "New hook #fyp")
         self.assertEqual(destinations["facebook"]["account"], "")
         self.assertFalse(destinations["youtube"]["revision_hash"])

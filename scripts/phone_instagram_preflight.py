@@ -10,50 +10,49 @@ import json
 import os
 import re
 import sys
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from video_drop.media_color import edits_color_mode  # noqa: E402
-from video_drop.phone_ui import PhoneLayout  # noqa: E402
+from video_drop.screens.snapshot import elements_from_tree  # noqa: E402
 from video_drop.core import Store, digest  # noqa: E402
 from video_drop.accounts import load_targets, require_target  # noqa: E402
-from video_drop.sidetap_root import sidetap_root  # noqa: E402
+from video_drop.phone import helpers as phone_helpers  # noqa: E402
 
-SIDETAP = sidetap_root()
 phone = None
 
 
 def connect_sidetap() -> None:
+    """Bind the app's own phone driver (video_drop/phone). The name is historical."""
     global phone
-    source = SIDETAP / "src"
-    if not source.is_dir():
-        raise ValueError(f"SideTap source missing: {source}")
-    if str(source) not in sys.path:
-        sys.path.insert(0, str(source))
-    try:
-        from phone_harness import helpers
-    except ImportError as exc:
-        raise ValueError(f"SideTap cannot load: {exc}") from exc
-    phone = helpers
+    phone = phone_helpers
+
+
+def profile_handle(elements) -> str:
+    """The active account from the profile header's account-switcher button.
+
+    Instagram 2026-09 names it user-switch-title-button and labels it with the
+    handle; its position moved between releases, so position is not trusted.
+    """
+    found = {e.label for e in elements if e.type == "Button" and e.name == "user-switch-title-button"}
+    if len(found) != 1 or not re.fullmatch(r"[A-Za-z0-9._]+", next(iter(found))):
+        raise ValueError("Instagram profile header is missing or ambiguous; stop before Edits export")
+    return "@" + next(iter(found)).casefold()
 
 
 def selected_instagram_account() -> str:
     phone.open_app("com.burbn.instagram", wait_seconds=2)
     if phone.current_app().get("bundleId") != "com.burbn.instagram":
         raise ValueError("Instagram is not foreground")
-    rows = phone.compact(phone.ocr())
-    profile = [row for row in rows if row["text"] == "Profile" and row.get("type") == "Button"]
+    elements = elements_from_tree(phone.ui_tree())
+    profile = [e for e in elements if e.type == "Button" and e.label == "Profile"]
     if len(profile) == 1:
-        phone.tap(profile[0]["x"], profile[0]["y"])
-        rows = phone.compact(phone.ocr())
-    layout = PhoneLayout.from_info(phone.screen_info())
-    handles = [row["text"] for row in rows if row.get("type") == "Button"
-               and layout.relative_band(row, left=0.3, right=0.7, top=0.06, bottom=0.12)
-               and re.fullmatch(r"[A-Za-z0-9._]+", row["text"])]
-    if len(handles) != 1:
-        raise ValueError("Instagram profile header is missing or ambiguous; stop before Edits export")
-    return "@" + handles[0].casefold()
+        phone.tap(profile[0].x, profile[0].y)
+        time.sleep(1.5)
+        elements = elements_from_tree(phone.ui_tree())
+    return profile_handle(elements)
 
 
 def main() -> None:

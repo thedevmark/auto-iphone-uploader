@@ -1,7 +1,7 @@
 """Deterministic OneDrive -> YouTube Short upload through SideTap/WDA.
 
-Scheduled runs stop at YouTube's Upload Short button until the native scheduler
-is verified. A confirmed Post now run may tap Upload Short once; its result
+Scheduled releases go through scripts/phone_youtube_schedule.py, which reuses this
+preparation. A confirmed Post now run may tap Upload Short once; its result
 remains unconfirmed until a native receipt is checked. No model, browser
 session, or paid API is used by this script. An unexpected screen fails closed.
 """
@@ -31,21 +31,15 @@ from video_drop.phone_focus import FocusError, optional_focus
 from video_drop.core import Store
 from video_drop.phone_manifest import verify_youtube_manifest, youtube_input
 from video_drop.accounts import load_targets
-from video_drop.sidetap_root import sidetap_root
-from video_drop.phone_link import recover, release_frozen_app
+from video_drop.phone import device as phone_device
+from video_drop.phone import helpers as phone_helpers
+from video_drop.phone.wda_client import WDAError
+from video_drop.phone_link import busy, pixels, recover, release_frozen_app, upload_linger
+from video_drop import setup_check, source_route
+from video_drop.files_app import FilesApp, FilesError
 
-
-def _sidetap_root() -> Path:
-    return sidetap_root()
-
-
-SIDETAP_SRC = _sidetap_root() / "src"
-phone = None
-sidetap_admin = None
-
-
-class WDAError(Exception):
-    pass
+phone = None  # the vendored driver once connect_sidetap() ran; tests inject their own
+pixel_source = None  # go-ios screenshot once the driver is connected; tests leave it unset
 
 
 class PhoneUploadError(RuntimeError):
@@ -53,17 +47,10 @@ class PhoneUploadError(RuntimeError):
 
 
 def connect_sidetap() -> None:
-    global phone, sidetap_admin, WDAError
-    if not SIDETAP_SRC.is_dir():
-        raise PhoneUploadError(f"SideTap source missing: {SIDETAP_SRC}")
-    if str(SIDETAP_SRC) not in sys.path:
-        sys.path.insert(0, str(SIDETAP_SRC))
-    try:
-        from phone_harness import helpers, admin
-        from phone_harness.wda_client import WDAError as WDAClientError
-    except ImportError as exc:
-        raise PhoneUploadError(f"SideTap cannot load: {exc}") from exc
-    phone, sidetap_admin, WDAError = helpers, admin, WDAClientError
+    """Bind the app's own phone driver (video_drop/phone). The name is historical."""
+    global phone, pixel_source
+    phone = phone_helpers
+    pixel_source = lambda: pixels(phone_device.ios_path())  # noqa: E731
 
 
 _layout: PhoneLayout | None = None
@@ -77,9 +64,19 @@ def layout(*, refresh: bool = False) -> PhoneLayout:
 
 
 def recover_link() -> bool:
-    """Release a frozen app and wait for WDA; restart it only as a last resort."""
-    from phone_harness import device
-    return recover(sidetap_admin, release=lambda: release_frozen_app(device.ios_path()))
+    """Release a frozen app and wait for WDA; the link supervisor is the last resort."""
+    return recover(release=lambda: release_frozen_app(phone_device.ios_path()))
+
+
+def screen_pixels() -> bytes:
+    """A screenshot that never touches WebDriverAgent: safe while a video plays.
+
+    Live runs read through go-ios (set by connect_sidetap); without SideTap
+    connected (tests) the injected phone's screenshot stands in.
+    """
+    if pixel_source is not None:
+        return pixel_source()
+    return phone.screenshot()
 
 
 def screen() -> list[dict]:
@@ -170,7 +167,8 @@ def assert_share_sheet(data: dict, *, timeout: float = 180) -> None:
     while time.monotonic() < deadline:
         labels = {row["text"] for row in screen()}
         if "shareSheet.activity.contentView" in labels:
-            if data["filename"] not in labels:
+            # The Files app's share sheet names the file without its extension.
+            if data["filename"] not in labels and Path(data["filename"]).stem not in labels:
                 raise PhoneUploadError("iOS share sheet has the wrong filename")
             if not size_shown(data["sizeBytes"], labels):
                 raise PhoneUploadError("iOS share sheet has the wrong file size")
@@ -256,6 +254,32 @@ def open_onedrive_file(data: dict) -> None:
     stage("ios_share_sheet")
 
 
+def source_db() -> Path:
+    return Path(os.environ.get("VIDEO_DROP_STATE", Path(__file__).resolve().parent.parent / ".state")) / "video-drop.sqlite"
+
+
+def open_source_file(data: dict, *, db: Path | None = None, clouds: list | None = None) -> None:
+    """Open the release's exact file on the iPhone and leave the iOS share sheet up.
+
+    OneDrive sources take the proven OneDrive-app path unless Settings send them through Files;
+    Google Drive, Dropbox and iCloud Drive sources always open through Apple's Files app.
+    """
+    try:
+        route = source_route.release_route(db or source_db(), data,
+                                           setup_check.detected_cloud_folders() if clouds is None else clouds)
+    except source_route.SourceRouteError as exc:
+        raise PhoneUploadError(str(exc)) from exc
+    if route.kind == source_route.ONEDRIVE_APP:
+        open_onedrive_file(data)
+        return
+    stage("files_route")
+    try:
+        FilesApp(phone, stage=stage).open_file(route.files, data["sizeBytes"])
+    except FilesError as exc:
+        raise PhoneUploadError(str(exc)) from exc
+    stage("ios_share_sheet")
+
+
 def choose_share_app(name: str, *, expected_bundle: str | None = None) -> None:
     for _ in range(10):
         rows = screen()
@@ -319,10 +343,10 @@ def leave_text_editor(expected: str) -> None:
 
 
 def wait_for_trim_next(timeout: float = 15) -> None:
-    """The playing Short can hang WDA's accessibility snapshot; read pixels."""
+    """The playing Short can hang WDA's accessibility snapshot AND its screenshot; read go-ios pixels."""
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        image = Image.open(BytesIO(phone.screenshot())).convert("RGB")
+        image = Image.open(BytesIO(screen_pixels())).convert("RGB")
         sx, sy = image.width / layout().width, image.height / layout().height
         bright = 0
         total = 0
@@ -493,7 +517,8 @@ def run(release: str, db: Path, *, commit: bool = False, resume_share: bool = Fa
             manifest = json.loads(Path(release).read_text(encoding="utf-8"))
             data = verify_youtube_manifest(store, manifest)
         if commit and data["deliveryMode"] != "post_now":
-            raise PhoneUploadError("YouTube scheduling is not connected; choose Post now for an immediate upload")
+            raise PhoneUploadError("A scheduled release goes through scripts/phone_youtube_schedule.py; "
+                                   "choose Post now for an immediate upload")
         if inspect_schedule:
             if data["deliveryMode"] != "schedule" or not data["scheduledAt"]:
                 raise PhoneUploadError("Reserve a future slot before inspecting YouTube Schedule")
@@ -511,13 +536,13 @@ def run(release: str, db: Path, *, commit: bool = False, resume_share: bool = Fa
         for attempt in range(3):
             try:
                 phone.unlock()
-                with optional_focus(phone, store.phone_checks()["doNotDisturb"]):
+                with busy("YouTube preparation", 900), optional_focus(phone, store.phone_checks()["doNotDisturb"]):
                     if resume_share and attempt == 0:
                         assert_share_sheet(data, timeout=8)
                     else:
                         layout(refresh=True)
                         ensure_youtube_channel(data["expectedAccount"])
-                        open_onedrive_file(data)
+                        open_source_file(data)
                     prepare_youtube(data)
                     if inspect_schedule:
                         return inspect_native_schedule(data, db)
@@ -534,7 +559,9 @@ def run(release: str, db: Path, *, commit: bool = False, resume_share: bool = Fa
                         raise PhoneUploadError("Upload Short button is missing or ambiguous")
                     store.mark_unconfirmed(data["releaseId"], "youtube",
                                            expected_revision=data["revisionHash"])
-                    phone.tap(upload[0]["x"], upload[0]["y"])
+                    # YouTube uploads on its own after this tap; shield the link for that long.
+                    with busy("YouTube upload", 30, linger=upload_linger(data.get("sizeBytes", 0))):
+                        phone.tap(upload[0]["x"], upload[0]["y"])
                     return {"kind": "unconfirmed", "releaseId": data["releaseId"],
                             "account": data["expectedAccount"],
                             "message": "Final tap sent; check the native YouTube receipt before any retry"}

@@ -19,7 +19,7 @@ repeated post:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from .core import APP_POSTED_DESTINATIONS, POST_ORDER, SLOT_GRACE
 
@@ -84,3 +84,42 @@ def plan_slot_posts(store, now: datetime) -> list[SlotPost]:
                 else:
                     plan("post")
     return plans
+
+
+def receipts_due(release: dict, plans: list[SlotPost], now: datetime) -> dict[str, bool]:
+    """Which destinations offer the Posted/Scheduled buttons for the user's own phone check.
+
+    Release status does not matter, only each destination's own moment:
+
+    - an unconfirmed destination always offers them;
+    - a targeted (approved) destination still pending offers them once its moment has
+      passed: its slot in Schedule mode (for an app-posted one, only after the app's own
+      window closed or was missed), or once phone work started on a Post now release;
+    - an untouched release before its slot, or a discarded one, never does.
+    """
+    if now.tzinfo is None:
+        raise ValueError("now must include a timezone")
+    destinations = release["destinations"]
+    if release["status"] == "discarded":
+        return {d["platform"]: False for d in destinations}
+    slot = datetime.fromisoformat(release["scheduled_at"]) if release.get("scheduled_at") else None
+    if slot is not None and slot.tzinfo is None:
+        slot = None
+    started = any(d["status"] != "pending" for d in destinations)
+    states = {plan.platform: plan.state for plan in plans if plan.release_id == release["id"]}
+    due = {}
+    for destination in destinations:
+        platform = destination["platform"]
+        if destination["status"] == "unconfirmed":
+            due[platform] = True
+        elif destination["status"] != "pending" or not destination["revision_hash"]:
+            due[platform] = False
+        elif platform in states:
+            # The app still owns this slot until it reports it missed.
+            due[platform] = states[platform] == "missed"
+        elif slot is not None:
+            wait = SLOT_GRACE if platform in APP_POSTED_DESTINATIONS else timedelta(0)
+            due[platform] = now >= slot + wait
+        else:
+            due[platform] = started or release["status"] not in {"draft", "reserved"}
+    return due

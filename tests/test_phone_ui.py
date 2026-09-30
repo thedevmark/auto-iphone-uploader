@@ -112,7 +112,7 @@ class PhoneUiTests(unittest.TestCase):
 
 class SizeShownTests(unittest.TestCase):
     def test_accepts_each_way_the_phone_rounds_the_size(self):
-        self.assertTrue(size_shown(1_101_781_282, ["clip-day6.mp4", "1 GB"]))
+        self.assertTrue(size_shown(1_101_781_282, ["episode6.mp4", "1 GB"]))
         self.assertTrue(size_shown(1_101_781_282, ["Video · 1.1 GB"]))
         self.assertTrue(size_shown(271_151_905, ["271.2 MB"]))
         self.assertTrue(size_shown(271_151_905, ["258.6 MB"]))
