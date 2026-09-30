@@ -53,13 +53,13 @@ has a source zip built by GitHub Actions from the tagged commit, a
 zip was built from this repository:
 
 ```powershell
-gh attestation verify auto-iphone-uploader-v0.1.0.zip --repo thedevmark/auto-iphone-uploader
+gh attestation verify auto-iphone-uploader-v1.0.0-rc.1.zip --repo thedevmark/auto-iphone-uploader
 ```
 
 Or compare its hash with `SHA256SUMS.txt`:
 
 ```powershell
-Get-FileHash auto-iphone-uploader-v0.1.0.zip -Algorithm SHA256
+Get-FileHash auto-iphone-uploader-v1.0.0-rc.1.zip -Algorithm SHA256
 ```
 
 The README badge links the VirusTotal report for the latest release zip,
