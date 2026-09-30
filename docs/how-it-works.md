@@ -5,6 +5,16 @@ schedules, and receipt checks run through the connected iPhone with SideTap.
 The local browser page is only an editor; no platform website is an upload
 fallback.
 
+## Setup checklist
+
+`video_drop/setup_check.py` builds the first-run checklist shown in the editor
+(`GET /api/setup`). Every probe is read-only: SideTap install and import,
+USB iPhone count via `ios list`, the phone link's status on port 8100, the phone
+inventory from **Check phone**, the last measured free space, Ollama and its two
+models, and whether the watch folder sits inside a OneDrive, Google Drive,
+Dropbox or iCloud Drive folder. Free space is advisory; the other rows must be
+green for the checklist to report ready.
+
 ## Launcher and server
 
 Double-click the shortcut, or run `pythonw launch_video_drop.py`. The launcher
@@ -87,11 +97,24 @@ authorization; any changed output must be reviewed and confirmed again.
 ## Posting and receipts
 
 Each new video defaults to Schedule; Post now is an explicit saved choice that
-takes no time slot. Threads and YouTube have one-shot native Post now actions.
-Both stay unconfirmed after the final tap until their native receipts are
-checked, and the app never retries a final tap automatically. Other
-destinations remain disabled until their phone runners and receipts are
-connected.
+takes no time slot. Threads, YouTube and TikTok have one-shot native Post now
+actions. Each stays unconfirmed after the final tap until its receipt is
+checked, and the app never retries a final tap automatically. Instagram and
+Facebook have no phone runner yet; post them in the apps yourself.
+
+TikTok has no native scheduler on the tested account, so in Schedule mode the
+running app posts it itself (`video_drop/slot_posts.py`). A slot is armed only
+while it is still in the future, the post starts only within 15 minutes after
+the slot, and a queued mark is saved before the phone is touched, so a restart
+never posts the same slot twice. A slot that passes without a finished post is
+marked missed; Post now then opens for that video.
+
+After checking a destination on the phone, the editor's **Posted** and
+**Scheduled** buttons record a manual receipt. The header's unattended streak
+counts the most recent Schedule-mode releases that reached every included app
+with no manual receipt, intervention or missed slot; its goal is 20. Only an
+observed native schedule (below) counts as an app-read receipt today, so manual
+confirmation ends the streak.
 
 The slot planner defaults to successive 10 AM and 7 PM New York times.
 Settings can hold one to five distinct daily times. With 10 AM and 7 PM

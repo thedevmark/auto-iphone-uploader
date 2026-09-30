@@ -10,9 +10,14 @@ never does, and how to check the code you run is the code published here.
   other devices on your network, and it rejects requests whose `Host` or
   `Origin` is not that local address.
 - Its only network calls go to programs on the same computer: the local
-  Ollama model server (`127.0.0.1:11434` by default) and the SideTap viewer
-  (`127.0.0.1:8770`). `tests/test_security_claims.py` fails the build if code
-  gains any other address.
+  Ollama model server (`127.0.0.1:11434` by default), the SideTap viewer
+  (`127.0.0.1:8770`) and the phone link SideTap runs (`127.0.0.1:8100`).
+  `tests/test_security_claims.py` fails the build if code gains any other
+  address.
+- The setup checklist only reads: it looks for SideTap, lists connected
+  iPhones with SideTap's `ios list` (it keeps the count, not the device ID),
+  asks the phone link and Ollama whether they are running, and looks for
+  OneDrive, Google Drive, Dropbox and iCloud Drive folders on this PC.
 - Setup (`scripts/install_windows.ps1`) installs the pinned packages in
   `requirements.txt` from PyPI and creates one Desktop shortcut. It installs
   no drivers or services and does not touch the phone.
@@ -26,14 +31,16 @@ bundle, modify, or download SideTap.
 
 - `phone_onboard.py` is read-only: it records screen size, which social apps
   are installed, and which YouTube channels are signed in.
-- The YouTube and Threads runners open OneDrive to find the exact video,
-  open that app, check the signed-in account matches the one you set, and
-  fill in the text you approved in the editor.
+- The YouTube, Threads and TikTok runners open OneDrive to find the exact
+  video, open that app, check the signed-in account matches the one you set,
+  and fill in the text you approved in the editor.
 - The Instagram check is read-only: it confirms the signed-in account and
-  posts nothing.
-- A post is only submitted when you chose **Post now** for that video and
-  confirmed its exact text. A final tap that times out is never retried
-  automatically.
+  posts nothing. The app does not post to Instagram or Facebook.
+- A post is only submitted for text you confirmed. YouTube, Threads and TikTok
+  post when you choose **Post now**. In **Schedule** mode the app itself posts
+  TikTok at the video's posting time, only inside a 15-minute window after it,
+  and at most once per posting time.
+- A final tap that times out is never retried automatically.
 
 It never stores or reads your Apple ID, passcode, device ID, or platform
 passwords, and it never uploads through a platform website.
