@@ -1,0 +1,3 @@
+{"app": "threads", "screen": "posting", "locale": "en", "bundle": "com.burbn.barcelona",
+ "signature": {"require": [{"label": "@label:posting", "contains": true}, {"label": "@label:keep_threads_open", "contains": true}]},
+ "elements": {"progress": {"label": "@label:posting", "contains": true}}}

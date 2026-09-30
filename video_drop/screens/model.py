@@ -7,8 +7,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 COORDINATE_KEYS = frozenset({"x", "y", "point", "points", "coordinate", "coordinates", "frame", "rect"})
-LOCATOR_KEYS = frozenset({"id", "label", "type", "contains", "relative_to", "side", "icon", "within", "fallback"})
-SIDES = frozenset({"left", "right", "above", "below"})
+LOCATOR_KEYS = frozenset({"id", "label", "value", "type", "contains", "relative_to", "side", "icon", "within",
+                          "fallback"})
+# "inside" searches the anchor's own frame (a switch inside its row); the others search a band beside it.
+SIDES = frozenset({"left", "right", "above", "below", "inside"})
 
 
 @dataclass(frozen=True)
@@ -16,7 +18,8 @@ class Locator:
     id: str | None = None
     label: str | None = None
     type: str | None = None
-    contains: bool = False
+    contains: bool = False  # applies to label and value alike
+    value: str | None = None
     relative_to: "Locator | None" = None
     side: str | None = None
     icon: str | None = None
@@ -63,10 +66,10 @@ def locator(data: dict) -> Locator:
         raise ValueError("A locator needs an id, label, type, or icon")
     side = data.get("side")
     if (side is None) != ("relative_to" not in data) or (side is not None and side not in SIDES):
-        raise ValueError("relative_to and side go together; side is left, right, above, or below")
+        raise ValueError("relative_to and side go together; side is left, right, above, below, or inside")
     return Locator(
         id=data.get("id"), label=data.get("label"), type=data.get("type"),
-        contains=bool(data.get("contains", False)),
+        contains=bool(data.get("contains", False)), value=data.get("value"),
         relative_to=locator(data["relative_to"]) if "relative_to" in data else None,
         side=side, icon=data.get("icon"), within=float(data.get("within", 120.0)),
         fallback=tuple(locator(item) for item in data.get("fallback", [])),
@@ -74,7 +77,7 @@ def locator(data: dict) -> Locator:
 
 
 def marker(data: dict) -> Locator:
-    """A signature marker is matched by presence, so it may only use id, label, type, and contains."""
+    """A signature marker is matched by presence, so it may only use id, label, value, type, and contains."""
     found = locator(data)
     if found.relative_to or found.icon or found.fallback:
         raise ValueError("A signature marker cannot use relative_to, icon, or fallback")

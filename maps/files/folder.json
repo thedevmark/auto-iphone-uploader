@@ -1,0 +1,6 @@
+{"app": "files", "screen": "folder", "locale": "en", "bundle": "com.apple.DocumentsApp",
+ "signature": {"require": [{"id": "File View"}, {"id": "DOC.browsingModeTabBar"}],
+               "forbid": [{"label": "@label:content_unavailable", "type": "StaticText"}]},
+ "elements": {"back": {"id": "BackButton"},
+              "search": {"type": "SearchField"},
+              "more": {"id": "OverflowBarButtonItem"}}}

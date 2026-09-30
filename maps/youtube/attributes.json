@@ -1,0 +1,8 @@
+{"app": "youtube", "screen": "attributes", "locale": "en", "bundle": "com.google.ios.youtube",
+ "signature": {"require": [{"label": "@label:attributes", "type": "Other"},
+                           {"id": "id.elements.components.metadata_editor.tag_editor"}]},
+ "elements": {"ai_use": {"id": "id.elements.components.metadata_editor.altered_content_picker", "label": "@label:ai_use"},
+              "add_tags": {"label": "@label:add_tags", "type": "Button"},
+              "back": {"label": "@label:back", "type": "Button"}},
+ "actions": {"open_ai_use": {"tap": "ai_use", "expect": "ai_use"},
+             "back": {"tap": "back", "expect": "details"}}}

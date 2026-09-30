@@ -215,6 +215,10 @@ SCREENS = {
              name="id.elements.components.metadata_editor.privacy_picker"),
         Item("Button", "Select audience", (0, 423, 440, 57), "stretch",
              name="id.elements.components.metadata_editor.audience_picker"),
+        # YouTube nests an unlabeled copy of each picker under the same id; an id alone is ambiguous.
+        Item("Button", "", (0, 423, 440, 57), "stretch", name="id.elements.components.metadata_editor.audience_picker"),
+        Item("Button", "Show more", (12, 483, 416, 49), "stretch",
+             name="id.elements.components.metadata_editor.expander.collapsed_button"),
         Item("Button", "Upload Short", (12, 862, 416, 48), "stretch", "bottom", name="id.metadata_editor.upload_button"),
         Item("StaticText", "Upload Short", (175, 877, 90, 18), "center", "bottom"),
     ],
@@ -228,6 +232,76 @@ SCREENS = {
         *radio_row("Private, Only people you choose can view", 316, 72),
         Item("Button", "Schedule", (0, 397, 440, 72), "stretch"),
     ],
+    "schedule": [
+        *back(),
+        Item("Other", "Set visibility", (48, 71, 118, 27)),
+        Item("ScrollView", "", (0, 106, 440, 816), "stretch", "stretch"),
+        Item("Button", "Publish now", (0, 106, 440, 64), "stretch"),
+        Item("Button", "Schedule", (0, 179, 440, 72), "stretch"),
+    ],
+    "schedule_picker": [
+        Item("DatePicker", "", (56, 266, 328, 372), "center"),
+        Item("Button", "Show year picker", (64, 282, 157, 38), "center", name="DatePicker.Show", value="September 2026"),
+        Item("Button", "Previous Month", (303, 282, 44, 38), "center", name="DatePicker.PreviousMonth"),
+        Item("Button", "Next Month", (346, 282, 44, 38), "center", name="DatePicker.NextMonth"),
+        Item("Button", "Wednesday, September 30", (196, 539, 47, 47), "center", value="1"),
+        Item("Other", "Time Picker", (56, 591, 328, 39), "center"),
+        Item("Button", "12:00 AM", (64, 591, 313, 37), "center"),
+        Item("StaticText", "Time", (64, 599, 40, 22), "center"),
+        Item("Button", "Cancel", (56, 649, 160, 45), "center"),
+        Item("Button", "OK", (224, 649, 160, 45), "center"),
+        Item("StaticText", "OK", (294, 663, 20, 18), "center"),
+        Item("Button", "Dismiss alert", (0, 0, 440, 956), "stretch", "stretch"),
+    ],
+    "time_wheels": [
+        Item("DatePicker", "", (152, 395, 219, 172), "center"),
+        Item("PickerWheel", "", (171, 357, 56, 248), "center", value="12 o’clock"),
+        Item("PickerWheel", "", (231, 357, 51, 248), "center", value="00 minutes"),
+        Item("PickerWheel", "", (286, 357, 66, 248), "center", value="AM"),
+        Item("Button", "dismiss popup", (0, 0, 440, 956), "stretch", "stretch", name="PopoverDismissRegion"),
+    ],
+    "thumbnail_editor": [
+        Item("Button", "Back", (0, 66, 64, 64), name="id.metadata.thumbnail_editor.back.button"),
+        Item("Button", "Done", (376, 66, 64, 64), "right", name="id.metadata.thumbnail_editor.done.button"),
+        Item("Slider", "Thumbnail frame selector", (12, 857, 416, 65), "stretch", "bottom", value="12 seconds"),
+    ],
+    "thumbnail_first_frame": [
+        Item("Button", "Back", (0, 66, 64, 64), name="id.metadata.thumbnail_editor.back.button"),
+        Item("Button", "Done", (376, 66, 64, 64), "right", name="id.metadata.thumbnail_editor.done.button"),
+        Item("Slider", "Thumbnail frame selector", (12, 857, 416, 65), "stretch", "bottom", value="Less than a second"),
+    ],
+    "paid_promotion": [
+        *back(),
+        Item("Other", "Paid promotion & brands", (48, 71, 237, 27)),
+        Item("Button", "Yes", (0, 191, 440, 48), "stretch", name="paid_product_placement_setting_notify"),
+        Item("Button", "", (0, 191, 440, 48), "stretch", name="paid_product_placement_setting_notify"),
+        Item("Button", "No", (0, 239, 440, 48), "stretch", name="paid_product_placement_setting_no"),
+        Item("Button", "", (0, 239, 440, 48), "stretch", name="paid_product_placement_setting_no"),
+    ],
+    "attributes": [
+        *back(),
+        Item("Other", "Attributes", (48, 71, 97, 27)),
+        Item("Button", "AI use", (0, 106, 440, 56), "stretch",
+             name="id.elements.components.metadata_editor.altered_content_picker"),
+        Item("Button", "", (0, 106, 440, 56), "stretch", name="id.elements.components.metadata_editor.altered_content_picker"),
+        Item("Other", "", (0, 162, 440, 52), "stretch", name="id.elements.components.metadata_editor.tag_editor"),
+        Item("Button", "Add tags", (0, 162, 440, 52), "stretch"),
+    ],
+    "ai_use": [
+        *back(),
+        Item("Other", "AI use", (48, 71, 60, 27)),
+        Item("ScrollView", "", (0, 106, 440, 816), "stretch", "stretch",
+             name="id.elements.components.metadata_editor.altered_content_settings"),
+        Item("Button", "Yes", (24, 329, 66, 24)),
+        Item("Button", "No", (24, 385, 61, 24)),
+    ],
+    "description_editor": [
+        *back(),
+        Item("Other", "Add description", (48, 71, 152, 27)),
+        Item("Other", "", (16, 117, 408, 20), name="id.elements.components.metadata_editor.description"),
+        Item("TextView", "", (16, 117, 408, 20)),
+        Item("Button", "Hashtags", (24, 623, 90, 24), name="id.elements.proactive_suggestion_category_0"),
+    ],
     "audience": [
         *back(),
         Item("Other", "Select audience", (48, 71, 150, 27)),
@@ -236,10 +310,6 @@ SCREENS = {
     ],
 }
 LABELS = Labels.load(MAPS, "en")
-# maps/youtube/visibility.json asks for a StaticText "Public"; the recorded
-# YouTube build exposes one Button "Public, Anyone can search for and view".
-# Not a size problem; see docs/size-independence-audit.md.
-KNOWN_MAP_GAPS = {("visibility", "public"), ("visibility", "unlisted"), ("visibility", "private")}
 
 
 def map_screens():
@@ -286,8 +356,6 @@ class MapScreensAcrossSizesTests(unittest.TestCase):
         for screen_name, screen in map_screens().items():
             reference = rendered_snapshot(SCREENS[screen_name], REFERENCE)
             for name, locator in screen.elements.items():
-                if (screen_name, name) in KNOWN_MAP_GAPS:
-                    continue
                 with self.subTest(screen=screen_name, element=name):
                     self.assertNotIsInstance(resolve(reference, locator), MatchError)
 
@@ -516,7 +584,7 @@ class RecordedFixtureSizeTests(unittest.TestCase):
     """Local only: the reference phone's own recordings, scaled to every size."""
 
     def test_recorded_screens_resolve_the_same_controls_on_every_size(self):
-        maps = list(map_screens().values())
+        maps = load_maps(MAPS)
         checked = 0
         for path in sorted(FIXTURES.glob("*/*.json")):
             reference = load_fixture(path.with_suffix(""))

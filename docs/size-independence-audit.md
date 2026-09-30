@@ -64,18 +64,13 @@ those recordings are absent.
 
 ## Found while testing, not size-related
 
-The maps do not match the recorded YouTube build at 440 x 956 either:
-
-- `visibility.json`: `public`, `unlisted` and `private` want a `StaticText`
-  whose label is exactly "Public" (and so on). The recording shows one
-  `Button`, "Public, Anyone can search for and view". A likely fix is
-  `{"label": "@label:public", "type": "Button", "contains": true}`.
-- `details.json`: `audience` wants a label containing "Select audience".
-  Recordings made after an audience was chosen read "Audience, No, it's not
-  made for kids". The picker id `…metadata_editor.audience_pi…` (truncated in
-  the recording) is a steadier locator.
-
-The size tests list these as `KNOWN_MAP_GAPS`. They are not fixed here.
+The first maps did not match the recorded YouTube build at 440 x 956 either:
+`visibility.json` wanted a `StaticText` labelled exactly "Public" where the app
+shows one `Button` ("Public, Anyone can search for and view"), and
+`details.json` wanted "Select audience" after an audience had been chosen.
+The screen-map update that followed fixed both: the visibility choices match a
+`Button` whose label contains the choice, and the audience row is found by the
+picker id with "Audience" or "Select audience" as its label.
 
 ## Still unproven without another device
 

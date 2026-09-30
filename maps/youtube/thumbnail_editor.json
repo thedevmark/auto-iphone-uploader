@@ -1,0 +1,7 @@
+{"app": "youtube", "screen": "thumbnail_editor", "locale": "en", "bundle": "com.google.ios.youtube",
+ "signature": {"require": [{"id": "id.metadata.thumbnail_editor.done.button"},
+                           {"label": "@label:thumbnail_frame_selector", "type": "Slider"}],
+               "forbid": [{"label": "@label:thumbnail_frame_selector", "type": "Slider", "value": "@label:first_frame"}]},
+ "elements": {"back": {"id": "id.metadata.thumbnail_editor.back.button"},
+              "frame_selector": {"label": "@label:thumbnail_frame_selector", "type": "Slider"}},
+ "actions": {"back": {"tap": "back", "expect": "details"}}}

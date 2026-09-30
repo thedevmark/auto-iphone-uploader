@@ -1,0 +1,8 @@
+{"app": "youtube", "screen": "ai_use", "locale": "en", "bundle": "com.google.ios.youtube",
+ "signature": {"require": [{"id": "id.elements.components.metadata_editor.altered_content_settings"},
+                           {"label": "@label:ai_use", "type": "Other"}]},
+ "elements": {"yes": {"label": "@label:yes", "type": "Button"},
+              "no": {"label": "@label:no", "type": "Button"},
+              "back": {"label": "@label:back", "type": "Button"}},
+ "actions": {"choose_no": {"tap": "no", "expect": "ai_use"},
+             "back": {"tap": "back", "expect": "attributes"}}}

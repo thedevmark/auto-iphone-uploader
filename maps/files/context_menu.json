@@ -1,0 +1,8 @@
+{"app": "files", "screen": "context_menu", "locale": "en", "bundle": "com.apple.DocumentsApp",
+ "signature": {"require": [{"label": "@label:quick_look", "type": "Button"}, {"label": "@label:get_info", "type": "Button"},
+                           {"label": "@label:share", "type": "Button"}]},
+ "elements": {"share": {"label": "@label:share", "type": "Button"},
+              "copy": {"label": "@label:copy", "type": "Button"},
+              "quick_look": {"label": "@label:quick_look", "type": "Button"},
+              "get_info": {"label": "@label:get_info", "type": "Button"}},
+ "actions": {"open_share_sheet": {"tap": "share", "expect": "share_sheet"}}}

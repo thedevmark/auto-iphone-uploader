@@ -53,6 +53,30 @@ class MatcherTests(unittest.TestCase):
         loc = Locator(type="Image", relative_to=Locator(label="@label:kids_no"), side="left", within=80)
         self.assertEqual(find(snap, loc, LABELS).y, 412)
 
+    def test_value_filters_exactly_or_by_contains(self):
+        labels = Labels("en", {"first_frame": "Less than a second"})
+        slider = el("Slider", "Thumbnail frame selector", left=12, top=857, width=416, height=65,
+                    value="Less than a second")
+        snap = Snapshot(440, 956, (slider, el("PickerWheel", "", top=300, value="12 o’clock"),
+                                   el("PickerWheel", "", left=100, top=300, value="00 minutes")))
+        self.assertEqual(find(snap, Locator(type="Slider", value="@label:first_frame"), labels).element, slider)
+        self.assertEqual(find(snap, Locator(type="PickerWheel", value="minutes", contains=True), labels).x, 120)
+        moved = Snapshot(440, 956, (el("Slider", "Thumbnail frame selector", value="3 seconds"),))
+        self.assertFalse(present(moved, Locator(type="Slider", value="@label:first_frame"), labels))
+        with self.assertRaisesRegex(MatchError, "No match"):
+            find(snap, Locator(type="PickerWheel", value="minutes"), labels)
+
+    def test_inside_finds_the_control_within_its_row_only(self):
+        row = el("Switch", "Checked, Upload at highest quality, Always", left=0, top=545, width=440, height=110)
+        snap = Snapshot(440, 956, (el("Switch", "Not checked, Schedule this reel", left=0, top=468, width=440, height=77),
+                                   el("Switch", "", "igds-switch", left=361, top=483, width=63, height=29),
+                                   row, el("Switch", "", "igds-switch", left=361, top=559, width=63, height=29)))
+        loc = Locator(id="igds-switch", relative_to=Locator(label="Upload at highest quality", contains=True),
+                      side="inside")
+        self.assertEqual(find(snap, loc, LABELS).y, 573.5)
+        with self.assertRaisesRegex(MatchError, "2 matches"):
+            find(snap, Locator(id="igds-switch"), LABELS)
+
     def test_relative_icon_uses_screenshot_band(self):
         screen = Image.new("L", (440, 956), 30)
         ImageDraw.Draw(screen).ellipse((21, 403, 39, 421), outline=230, width=3)

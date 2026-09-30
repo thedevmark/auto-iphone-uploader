@@ -1,0 +1,11 @@
+{"app": "instagram", "screen": "also_share_on", "locale": "en", "bundle": "com.burbn.instagram",
+ "signature": {"require": [{"label": "@label:also_share_on", "type": "StaticText"}, {"id": "share-service-cell-switch"}]},
+ "elements": {"back": {"id": "BackButton"},
+              "threads_row": {"label": "@label:threads_crosspost", "type": "Cell", "contains": true},
+              "facebook_row": {"label": "@label:facebook_crosspost", "type": "Cell", "contains": true},
+              "threads_switch": {"id": "share-service-cell-switch", "side": "inside",
+                                 "relative_to": {"label": "@label:threads_crosspost", "type": "Cell", "contains": true}},
+              "facebook_switch": {"id": "share-service-cell-switch", "side": "inside",
+                                  "relative_to": {"label": "@label:facebook_crosspost", "type": "Cell", "contains": true}}},
+ "actions": {"turn_off_threads": {"tap": "threads_switch", "expect": "stop_sharing_popup"},
+             "back": {"tap": "back", "expect": "new_reel"}}}

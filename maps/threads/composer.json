@@ -1,0 +1,10 @@
+{"app": "threads", "screen": "composer", "locale": "en", "bundle": "com.burbn.barcelona",
+ "signature": {"require": [{"id": "composer-text-view"}, {"id": "composer-post-button"}]},
+ "elements": {"cancel": {"label": "@label:cancel", "type": "Button"},
+              "account": {"type": "Link", "relative_to": {"id": "composer-text-view"}, "side": "above", "within": 40},
+              "text": {"id": "composer-text-view"},
+              "add_media": {"label": "@label:add_media", "type": "Button"},
+              "post_options": {"label": "@label:post_options", "type": "Button"},
+              "post": {"id": "composer-post-button"}},
+ "actions": {"add_media": {"tap": "add_media", "expect": "photo_picker"},
+             "post": {"tap": "post", "expect": "posting", "irreversible": true}}}

@@ -1,0 +1,4 @@
+{"app": "instagram", "screen": "account_switcher", "locale": "en", "bundle": "com.burbn.instagram",
+ "signature": {"require": [{"id": "IdentitySwitcher_EntryPoint_AddInstagramAccount"}, {"id": "bottom_sheet_background"}]},
+ "elements": {"close": {"id": "bottom_sheet_background"},
+              "add_account": {"label": "@label:add_instagram_account", "type": "Button"}}}

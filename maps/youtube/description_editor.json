@@ -1,0 +1,6 @@
+{"app": "youtube", "screen": "description_editor", "locale": "en", "bundle": "com.google.ios.youtube",
+ "signature": {"require": [{"label": "@label:add_description", "type": "Other"},
+                           {"id": "id.elements.components.metadata_editor.description"}]},
+ "elements": {"text": {"type": "TextView"},
+              "back": {"label": "@label:back", "type": "Button"}},
+ "actions": {"back": {"tap": "back", "expect": "details"}}}

@@ -1,0 +1,8 @@
+{"app": "instagram", "screen": "share_extension", "locale": "en",
+ "signature": {"require": [{"label": "@label:sharing_as", "type": "StaticText", "contains": true},
+                           {"label": "@label:reel", "type": "StaticText"},
+                           {"label": "@label:story", "type": "StaticText"}]},
+ "elements": {"sharing_as": {"label": "@label:sharing_as", "type": "StaticText", "contains": true},
+              "reel": {"label": "@label:reel", "type": "StaticText"},
+              "post": {"label": "@label:post", "type": "StaticText"},
+              "story": {"label": "@label:story", "type": "StaticText"}}}

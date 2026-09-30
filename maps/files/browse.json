@@ -1,0 +1,4 @@
+{"app": "files", "screen": "browse", "locale": "en", "bundle": "com.apple.DocumentsApp",
+ "signature": {"require": [{"id": "DOC.sidebar.header.Locations"}, {"id": "DOC.browsingModeTabBar"}]},
+ "elements": {"onedrive": {"id": "DOC.sidebar.item.OneDrive"}},
+ "actions": {"open_onedrive": {"tap": "onedrive", "expect": "folder"}}}

@@ -33,10 +33,11 @@ def _own_filter(element: Element, locator: Locator, labels: Labels) -> bool:
         return False
     if locator.type and element.type != locator.type:
         return False
-    if locator.label:
-        wanted = labels.text(locator.label)
-        if not (wanted in element.label if locator.contains else element.label == wanted):
-            return False
+    for wanted, text in ((locator.label, element.label), (locator.value, element.value)):
+        if wanted:
+            wanted = labels.text(wanted)
+            if not (wanted in text if locator.contains else text == wanted):
+                return False
     return True
 
 
@@ -45,6 +46,8 @@ def candidates(snapshot: Snapshot, locator: Locator, labels: Labels) -> list[Ele
 
 
 def _band(anchor: Element, side: str, within: float) -> tuple[float, float, float, float]:
+    if side == "inside":
+        return anchor.left, anchor.top, anchor.left + anchor.width, anchor.top + anchor.height
     if side == "left":
         return anchor.left - within, anchor.top, anchor.left, anchor.top + anchor.height
     if side == "right":
