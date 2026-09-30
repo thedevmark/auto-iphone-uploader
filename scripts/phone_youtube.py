@@ -20,7 +20,7 @@ from pathlib import Path
 from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from video_drop.phone_ui import PhoneLayout, filled_radio, share_app_position, youtube_identity, youtube_page_account
+from video_drop.phone_ui import PhoneLayout, filled_radio, share_app_position, size_shown, youtube_identity, youtube_page_account
 from video_drop.youtube_nav import open_tabs
 from video_drop.phone_focus import FocusError, optional_focus
 from video_drop.core import Store
@@ -118,9 +118,17 @@ def assert_visible(label: str, *, exact: bool = True) -> None:
     wait(label, timeout=8, exact=exact)
 
 
-def youtube_header_account() -> str:
-    labels = [row["text"] for row in screen() if row.get("text")]
-    return youtube_page_account(labels)
+def youtube_header_account(timeout: float = 10) -> str:
+    """The You tab renders its channel handle after the header frame; wait for it."""
+    deadline = time.monotonic() + timeout
+    while True:
+        labels = [row["text"] for row in screen() if row.get("text")]
+        try:
+            return youtube_page_account(labels)
+        except ValueError:
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(0.5)
 
 
 def ensure_youtube_channel(expected: str) -> None:
@@ -151,8 +159,7 @@ def assert_share_sheet(data: dict, *, timeout: float = 180) -> None:
         if "shareSheet.activity.contentView" in labels:
             if data["filename"] not in labels:
                 raise PhoneUploadError("iOS share sheet has the wrong filename")
-            shown_size = f"{data['sizeBytes'] / 1_048_576:.1f} MB"
-            if not any(shown_size in label for label in labels):
+            if not size_shown(data["sizeBytes"], labels):
                 raise PhoneUploadError("iOS share sheet has the wrong file size")
             return
         if "ShareHVC.AppsAndActions.ScrollView" in labels and "More" in labels:
@@ -172,7 +179,6 @@ def scroll_to(label: str, *, exact: bool = True) -> None:
 def open_onedrive_file(data: dict) -> None:
     stage("onedrive_search")
     filename = data["filename"]
-    expected_megabytes = data["sizeBytes"] / 1_048_576
     onedrive_bundle = "com.microsoft.skydrive"
     # A prior iOS share extension can bounce a direct app launch back to YouTube.
     phone.press_home()
@@ -227,8 +233,11 @@ def open_onedrive_file(data: dict) -> None:
     assert_visible(stem, exact=False)
     tap("Share")
     assert_visible(filename)
-    shown_size = f"{expected_megabytes:.1f} MB"
-    assert_visible(shown_size)
+    deadline = time.monotonic() + 8
+    while not size_shown(data["sizeBytes"], [row["text"] for row in screen()]):
+        if time.monotonic() >= deadline:
+            raise PhoneUploadError("OneDrive share panel shows a different file size")
+        time.sleep(0.5)
     tap("More")
     assert_share_sheet(data)
     stage("ios_share_sheet")

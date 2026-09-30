@@ -115,3 +115,21 @@ def filled_radio(image: Image.Image, layout: PhoneLayout, x: float, y: float) ->
     if abs(center - background) + 40 < abs(center - ring):
         return False
     raise ValueError("YouTube radio pixels are ambiguous")
+
+
+def size_shown(size_bytes: int, labels) -> bool:
+    """True if any label shows this file size the way OneDrive or iOS rounds it.
+
+    OneDrive and the iOS share sheet use MB or GB, base 1000 or 1024, and 0-2
+    decimals ("271.2 MB", "258.6 MB", "1 GB", "1.1 GB"). A different size fails.
+    """
+    forms = set()
+    for base in (1_000, 1_024):
+        for unit, power in (("MB", 2), ("GB", 3)):
+            value = size_bytes / base ** power
+            if unit == "MB" and value >= base or unit == "GB" and value < 1:
+                continue
+            for digits in (0, 1, 2):
+                forms.add(f"{value:.{digits}f} {unit}")
+    pattern = re.compile(r"(?<![\d.])(" + "|".join(re.escape(form) for form in forms) + r")(?![\d])")
+    return any(pattern.search(label) for label in labels)
