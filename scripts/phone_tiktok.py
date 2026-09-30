@@ -63,6 +63,9 @@ SHEET_SETTLE = 6.0
 EDITOR_SETTLE = 10.0
 # Recorded post screen vs its source: first frame 2.7; frames 1-10 s into the same clip 10.5-13.8.
 COVER_LIMIT = 8.0
+# Keyboard-up Post pill: 56 pt wide, 16 pt from the trailing edge (recorded 2026-09-30).
+POST_PILL_WIDTH = 56.0
+POST_PILL_INSET = 16.0
 
 
 def release_input(store: Store, release_id: int) -> dict:
@@ -142,7 +145,7 @@ def cover_match(screenshot: Image.Image, frame: Image.Image, preview: Element, e
     return {"difference": round(score, 1), "card": [round(value, 1) for value in card]}
 
 
-def post_button(snapshot: Snapshot) -> Element:
+def post_button(snapshot: Snapshot, screenshot: Image.Image | None = None) -> Element:
     """The one Post button a finger can reach: on screen and not under the keyboard."""
     keyboards = [e for e in snapshot.elements if e.type == "Keyboard" and e.height > 0]
     keyboard_top = min((e.top for e in keyboards), default=snapshot.height)
@@ -150,9 +153,30 @@ def post_button(snapshot: Snapshot) -> Element:
              if e.type == "Button" and e.label == "Post"
              and 0 <= e.left and e.left + e.width <= snapshot.width
              and 0 <= e.top and e.top + e.height <= keyboard_top}
+    if not found and keyboards and screenshot is not None:
+        return keyboard_post_pill(snapshot, screenshot)
     if len(found) != 1:
         raise share.PhoneUploadError(f"Expected one reachable TikTok Post button, found {len(found)}; nothing was posted")
     return next(iter(found.values()))
+
+
+def keyboard_post_pill(snapshot: Snapshot, screenshot: Image.Image) -> Element:
+    """With the keyboard up, TikTok draws Post as a red pill on the Back row, outside the tree.
+
+    Recorded on 440 x 956 (fixtures/tiktok/post-keyboard-*): the pill spans 368-424 pt on
+    Back's row. It sits a fixed inset from the trailing edge, so it is placed from the live
+    Back button and proven by its red fill on both sides of the white "Post" text.
+    """
+    back = one(snapshot, "Back", "Button")
+    pill = Element("Button", "Post", "Post", "", snapshot.width - POST_PILL_INSET - POST_PILL_WIDTH,
+                   back.top, POST_PILL_WIDTH, back.height)
+    rgb = screenshot.convert("RGB")
+    sx, sy = screenshot.width / snapshot.width, screenshot.height / snapshot.height
+    for x in (pill.left + 6, pill.left + pill.width - 6):
+        r, g, b = rgb.getpixel((int(x * sx), int(pill.y * sy)))
+        if not (r > 200 and g < 110 and b < 140):
+            raise share.PhoneUploadError("TikTok's Post pill is not where it was recorded; nothing was posted")
+    return pill
 
 
 def one(snapshot: Snapshot, label: str, kind: str) -> Element:
@@ -166,7 +190,7 @@ def one(snapshot: Snapshot, label: str, kind: str) -> Element:
     return element
 
 
-def composer_ready(snapshot: Snapshot, caption: str) -> Element:
+def composer_ready(snapshot: Snapshot, caption: str, screenshot: Image.Image | None = None) -> Element:
     """The post screen with exactly the approved caption and one reachable Post button."""
     if snapshot.app != TIKTOK_BUNDLE:
         raise share.PhoneUploadError("TikTok is not in front; nothing was posted")
@@ -174,13 +198,17 @@ def composer_ready(snapshot: Snapshot, caption: str) -> Element:
     if field.value != caption:
         raise share.PhoneUploadError(f"TikTok description does not match the approved text: {field.value!r}")
     one(snapshot, "Edit cover", "Button")
-    return post_button(snapshot)
+    return post_button(snapshot, screenshot)
 
 
 def live() -> Snapshot:
     layout = share.layout()
     return Snapshot(layout.width, layout.height, elements_from_tree(phone.ui_tree()),
                     app=str(phone.current_app().get("bundleId", "")))
+
+
+def screen_image() -> Image.Image:
+    return Image.open(BytesIO(phone.screenshot()))
 
 
 def wait_for_post_screen(timeout: float = 30) -> Snapshot:
@@ -252,7 +280,7 @@ def compose(data: dict, frame: Image.Image, evidence_dir: Path) -> dict:
     time.sleep(1.5)
     phone.type_text(data["caption"])
     time.sleep(2)
-    composer_ready(live(), data["caption"])
+    composer_ready(live(), data["caption"], screen_image())
     return {**record, "evidence": str(stem.with_name(stem.name + "-cover.png"))}
 
 
@@ -287,11 +315,11 @@ def run(release_id: int, db: Path, *, commit: bool = False, not_after: datetime 
                 return {"kind": "ready", "platform": "tiktok", "releaseId": release_id, "cover": evidence["cover"]}
             if not_after is not None and utc_now() > not_after:
                 raise share.PhoneUploadError("The slot's posting window closed during preparation; nothing was posted")
-            composer_ready(live(), data["caption"])
+            composer_ready(live(), data["caption"], screen_image())
             # Record uncertainty before the final tap. A WDA timeout after this
             # point can mean a successful post, so the script cannot replay it.
             store.mark_unconfirmed(release_id, "tiktok", expected_revision=data["revisionHash"])
-            post = composer_ready(live(), data["caption"])
+            post = composer_ready(live(), data["caption"], screen_image())
             phone.tap(post.x, post.y)
             try:
                 # TikTok opens its playing feed after posting, which can freeze WDA; leave it.

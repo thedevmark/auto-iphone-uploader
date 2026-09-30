@@ -104,6 +104,19 @@ class TikTokScreenTests(unittest.TestCase):
         with self.assertRaisesRegex(Exception, "found 2"):
             post_button(post_screen(top_post))
 
+    def test_keyboard_post_pill_is_placed_from_back_and_proven_by_its_red_fill(self):
+        # Recorded 2026-09-30: with the keyboard up, Post is a red pill outside the tree.
+        keyboard = element("Keyboard", "", 0, 713, 440, 243)
+        back = element("Button", "Back", 6, 62, 44, 44)
+        screen = Image.new("RGB", (1320, 2868), (255, 255, 255))
+        ImageDraw.Draw(screen).rounded_rectangle((368 * 3, 68 * 3, 424 * 3, 100 * 3), 48, fill=(253, 44, 84))
+        pill = post_button(post_screen(keyboard, back), screen)
+        self.assertEqual((pill.x, pill.y), (396, 84))
+        with self.assertRaisesRegex(Exception, "not where it was recorded"):
+            post_button(post_screen(keyboard, back), Image.new("RGB", (1320, 2868), (255, 255, 255)))
+        with self.assertRaisesRegex(Exception, "found 0"):
+            post_button(post_screen(keyboard, back))
+
     def test_composer_needs_the_exact_caption_in_tiktok(self):
         self.assertEqual(composer_ready(post_screen(), CAPTION), POST)
         with self.assertRaisesRegex(Exception, "does not match"):
