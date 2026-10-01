@@ -137,11 +137,21 @@ jobs:
           echo "VirusTotal did not return a stable verdict in time" >&2
           exit 1
 
-      - name: Commit the new badge
+      - name: Publish the badge on the badges branch
+        # main only accepts merges whose tests passed, so the badge data lives on its own
+        # branch; the README's shields.io endpoint badge reads virustotal.json from there.
         run: |
-          python .github/scripts/update_virustotal_badge.py "$TAG" "$SHA" "$FLAGGED" "$ENGINES"
-          git diff --quiet && exit 0
           git config user.name "github-actions[bot]"
           git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
-          git commit -am "Point the VirusTotal badge at ${TAG} (${FLAGGED}/${ENGINES} flagged)"
-          git push origin HEAD:main
+          if git fetch --depth 1 origin badges; then
+            git worktree add badges-out FETCH_HEAD
+            git -C badges-out checkout -B badges
+          else
+            git worktree add --orphan -b badges badges-out
+          fi
+          python .github/scripts/update_virustotal_badge.py "$TAG" "$SHA" "$FLAGGED" "$ENGINES" badges-out
+          cd badges-out
+          git add virustotal.json virustotal.md
+          git diff --cached --quiet && exit 0
+          git commit -m "VirusTotal badge: ${TAG} (${FLAGGED}/${ENGINES} flagged)"
+          git push origin HEAD:badges
