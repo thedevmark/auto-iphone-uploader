@@ -47,6 +47,14 @@ def selected_instagram_account() -> str:
     if phone.current_app().get("bundleId") != "com.burbn.instagram":
         raise ValueError("Instagram is not foreground")
     elements = elements_from_tree(phone.ui_tree())
+    # Instagram can reopen inside a story viewer (seen 2026-10-01 02:40), which has no tab bar.
+    for _ in range(3):
+        dismiss = [e for e in elements if e.type == "Button" and e.name == "story-dismiss-button"]
+        if len(dismiss) != 1:
+            break
+        phone.tap(dismiss[0].x, dismiss[0].y)
+        time.sleep(1.5)
+        elements = elements_from_tree(phone.ui_tree())
     profile = [e for e in elements if e.type == "Button" and e.label == "Profile"]
     if len(profile) == 1:
         phone.tap(profile[0].x, profile[0].y)

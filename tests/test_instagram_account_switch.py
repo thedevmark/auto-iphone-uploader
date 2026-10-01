@@ -16,6 +16,7 @@ class FakeInstagram:
         self.active = active
         self.signed_in = signed_in
         self.switcher = False
+        self.story = False
         self.taps = []
 
     def open_app(self, bundle, wait_seconds=0):
@@ -28,6 +29,10 @@ class FakeInstagram:
         return {handle: (220, 541 + 64 * i) for i, handle in enumerate(self.signed_in)}
 
     def ui_tree(self):
+        if self.story:  # recorded 2026-10-01: the story viewer has no tab bar
+            return {"type": "XCUIElementTypeApplication", "children": [
+                node("Button", "story-header", 120, 88, "creator's story."),
+                node("Button", "story-dismiss-button", 420, 96, "Close stories to return to feed")]}
         if self.switcher:
             children = [node("Button", f"row-{h}", x, y, f"INSTAGRAM profile, {h}, 2 chats and 24 more",
                              "1" if h == self.active else "") for h, (x, y) in self.rows().items()]
@@ -38,6 +43,9 @@ class FakeInstagram:
 
     def tap(self, x, y):
         self.taps.append((x, y))
+        if self.story:
+            self.story = (x, y) != (420, 96)
+            return
         if self.switcher:
             for handle, point in self.rows().items():
                 if point == (x, y):
@@ -53,6 +61,13 @@ class AccountSwitchTests(unittest.TestCase):
         with patch.object(preflight, "phone", phone):
             self.assertEqual(preflight.ensure_instagram_account("@examplechannel"), "@examplechannel")
         self.assertNotIn((120, 70), phone.taps)
+
+    def test_a_story_viewer_is_closed_before_the_profile_is_read(self):
+        phone = FakeInstagram("examplechannel")
+        phone.story = True
+        with patch.object(preflight, "phone", phone):
+            self.assertEqual(preflight.ensure_instagram_account("@examplechannel"), "@examplechannel")
+        self.assertEqual(phone.taps[0], (420, 96))
 
     def test_the_wrong_account_is_switched_through_instagram_and_proven(self):
         # 2026-09-30, reference release: Instagram was on @secondchannel and the run stopped for a hand switch.

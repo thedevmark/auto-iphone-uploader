@@ -1,4 +1,5 @@
 Pillow==12.1.0
+numpy==2.4.4
 tzdata==2026.4
 requests==2.33.1
 # The suite is a pytest suite: tests/conftest.py pins the PC time zone and stubs

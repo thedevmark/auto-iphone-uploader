@@ -237,7 +237,7 @@ if ($CheckOnly) {
     # Windows PowerShell turns a native command's stderr into a terminating error under
     # ErrorActionPreference=Stop when it is redirected, so probe with Continue.
     $ErrorActionPreference = 'Continue'
-    & $pythonExe -c 'import PIL, requests, tzdata' 2>$null
+    & $pythonExe -c 'import PIL, numpy, requests, tzdata' 2>$null
     $packagesOk = ($LASTEXITCODE -eq 0)
     # Single quotes inside: Windows PowerShell strips embedded double quotes from native arguments.
     & $pythonExe -c "import importlib.util, sys; sys.exit(importlib.util.find_spec('pymobiledevice3') is None)" 2>$null
