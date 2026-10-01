@@ -300,7 +300,21 @@ PYMOBILEDEVICE3_MISSING = (
 )
 
 
+def _bundled_resign_python() -> Path | None:
+    """The re-sign tool's own interpreter that the Windows installer ships (python-resign folder), if any."""
+    exe = Path(__file__).resolve().parents[2] / "python-resign" / "python.exe"
+    return exe if exe.is_file() else None
+
+
+def _resign_python() -> str:
+    bundled = _bundled_resign_python()
+    return str(bundled) if bundled else sys.executable
+
+
 def _pymobiledevice3_installed() -> bool:
+    bundled = _bundled_resign_python()
+    if bundled:
+        return (bundled.parent / "Lib" / "site-packages" / "pymobiledevice3").is_dir()
     try:
         import importlib.util
 
@@ -323,7 +337,7 @@ def _device_profiles(udid: str | None) -> list[bytes]:
     with tempfile.TemporaryDirectory() as td:
         try:
             proc = subprocess.run(
-                [sys.executable, "-c", _MISAGENT_SCRIPT, udid or "", td],
+                [_resign_python(), "-c", _MISAGENT_SCRIPT, udid or "", td],
                 capture_output=True, text=True, timeout=120, creationflags=flags,
             )
         except (OSError, subprocess.TimeoutExpired) as exc:

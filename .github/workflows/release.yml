@@ -6,6 +6,9 @@ name: Release
 # signed build-provenance attestation. A failing test uploads nothing. Anyone can
 # check the zip came from this repository at that tag with
 # `gh attestation verify <zip> --repo thedevmark/auto-iphone-uploader`.
+# The windows-installer job then builds AutoiPhoneUploader-Setup-<tag>.exe (an Inno
+# Setup installer with its own pinned embeddable Python, so users need no Python),
+# attests it the same way and adds its SHA-256 to SHA256SUMS.txt.
 
 on:
   release:
@@ -102,6 +105,63 @@ jobs:
           github_token: ${{ github.token }}
           update_release_body: true
           files: ${{ env.ZIP }}
+
+  # The Windows installer. Runs after the source job so SHA256SUMS.txt already exists on the
+  # release and only one job ever rewrites it.
+  windows-installer:
+    needs: [tests, source]
+    runs-on: windows-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    env:
+      TAG: ${{ github.event.release.tag_name }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          persist-credentials: false
+
+      # The build Python must match the embeddable Python pinned in scripts/build_installer.ps1
+      # (3.14) and ships tcl/tk, which the file pickers need.
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.14'
+
+      # Inno Setup 6 is preinstalled on windows-latest; install it only if a runner image lacks it.
+      - name: Make sure Inno Setup is available
+        shell: pwsh
+        run: |
+          $iscc = Get-Command iscc -ErrorAction SilentlyContinue
+          if (-not $iscc -and -not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) {
+            choco install innosetup --no-progress -y
+          }
+
+      - name: Build the installer
+        shell: pwsh
+        run: ./scripts/build_installer.ps1 -Version $env:TAG -OutDir dist
+
+      - name: Sign build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/AutoiPhoneUploader-Setup-${{ github.event.release.tag_name }}.exe
+
+      - name: Attach the installer and add its checksum to SHA256SUMS.txt
+        shell: pwsh
+        run: |
+          $exe = "dist/AutoiPhoneUploader-Setup-$env:TAG.exe"
+          $hash = (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          gh release download $env:TAG --pattern SHA256SUMS.txt --dir dist --clobber --repo $env:GITHUB_REPOSITORY
+          if ($LASTEXITCODE -ne 0) { throw 'could not download SHA256SUMS.txt from the release' }
+          $sums = "dist/SHA256SUMS.txt"
+          $lines = @(Get-Content -LiteralPath $sums | Where-Object { $_ -and $_ -notmatch 'AutoiPhoneUploader-Setup-' })
+          $lines += "$hash  AutoiPhoneUploader-Setup-$env:TAG.exe"
+          [IO.File]::WriteAllText((Join-Path $PWD $sums), (($lines -join "`n") + "`n"))
+          Get-Content -LiteralPath $sums
+          gh release upload $env:TAG $exe $sums --clobber --repo $env:GITHUB_REPOSITORY
+          if ($LASTEXITCODE -ne 0) { throw 'could not upload the installer to the release' }
 
   # After a scan, point the README's VirusTotal badge at this release's result.
   badge:

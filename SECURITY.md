@@ -141,6 +141,14 @@ Or compare its hash with `SHA256SUMS.txt`:
 Get-FileHash auto-iphone-uploader-v1.0.0-rc.4.zip -Algorithm SHA256
 ```
 
+The Windows installer, `AutoiPhoneUploader-Setup-<version>.exe`, is built by
+the same workflow, attested the same way (`gh attestation verify` works on it)
+and listed in `SHA256SUMS.txt`. It is not code-signed, so SmartScreen warns
+the first time you run it. It is a per-user installer (no administrator
+rights) that carries the pinned official Windows embeddable Python and the
+packages from `requirements.txt` and `requirements-resign.txt`, and downloads
+go-ios and WebDriverAgent against the SHA-256 values below.
+
 The zip is plain Python, HTML and JSON with the third-party license texts in
 `third_party/`; it contains no compiled binaries, so you can read it before
 running it. The two binaries the installer fetches are verified against

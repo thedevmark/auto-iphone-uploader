@@ -136,6 +136,28 @@ verified live on the reference phone, and how to check each item yourself.
 
 ## Install (Windows, about fifteen minutes)
 
+**Easiest: the installer.** Download `AutoiPhoneUploader-Setup-<version>.exe`
+from the latest [release](https://github.com/thedevmark/auto-iphone-uploader/releases)
+and run it. It needs no Python and no administrator rights: it installs into
+`%LOCALAPPDATA%\Programs\Auto iPhone Uploader` with its own copy of Python,
+downloads the iPhone connector and the phone control app (each checked
+against a pinned SHA-256), adds Start menu and Desktop shortcuts and a
+start-at-sign-in entry, and offers to open the app. Then continue at step 3
+below. The Start menu entry **Auto iPhone Uploader setup (passcode, USB
+helper)** saves your iPhone passcode at a hidden prompt and installs the USB
+recovery helper. Uninstalling (Settings → Apps) removes the app and keeps your
+`.state` folder.
+
+The installer is **not code-signed**, so Windows SmartScreen shows "Windows
+protected your PC / unrecognized app" the first time. That is the honest
+state of a small open-source project, not a sign it was tampered with: click
+**More info → Run anyway**, after checking the download against
+`SHA256SUMS.txt` or with `gh attestation verify` ([how](SECURITY.md#verify-a-download)).
+The installer is built by GitHub Actions from the tagged commit.
+
+**Alternative: the zip and a PowerShell command** (you install Python 3.11 or
+newer yourself):
+
 1. Download `auto-iphone-uploader-<version>.zip` from the latest
    [release](https://github.com/thedevmark/auto-iphone-uploader/releases)
    ([check it was built by GitHub](SECURITY.md#verify-a-download)), unzip it

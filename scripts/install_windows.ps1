@@ -43,6 +43,15 @@
   Skip the checklist at the end (used by CI).
 .PARAMETER ReplaceShortcut
   Repoint an existing Desktop/Startup shortcut at this checkout.
+.PARAMETER Python
+  Use this python.exe instead of the one on PATH. The Windows installer
+  (AutoiPhoneUploader-Setup-<version>.exe) passes the Python it ships.
+.PARAMETER PackagesBundled
+  The packages are already installed inside the Python given with -Python (the Windows
+  installer ships them), so skip pip and only check they import. The re-sign tool is
+  then the separate interpreter in python-resign\ next to this folder's python\.
+.PARAMETER NoDesktopShortcut
+  Do not create the Desktop shortcut (the Windows installer creates it as an optional task).
 .PARAMETER DesktopDir, StartupDir
   Where to put the shortcuts; defaults to this user's Desktop and Startup folders.
 .PARAMETER InstallUsbHelper
@@ -63,6 +72,9 @@ param(
     [switch]$ReplaceShortcut,
     [switch]$InstallUsbHelper,
     [switch]$UninstallUsbHelper,
+    [switch]$PackagesBundled,
+    [switch]$NoDesktopShortcut,
+    [string]$Python = '',
     [string]$DesktopDir = '',
     [string]$StartupDir = ''
 )
@@ -254,11 +266,19 @@ if ($InstallUsbHelper -or $UninstallUsbHelper) {
 Say "Auto iPhone Uploader setup in $projectRoot"
 if ($CheckOnly) { Say '  check only: nothing is downloaded, written or asked.' }
 Step 1 'Python and the app''s packages'
-$pythonCommand = Get-Command python -ErrorAction SilentlyContinue
-if (-not $pythonCommand) {
-    throw 'Python was not found. Install Python 3.11 or newer from python.org (tick "Add python.exe to PATH"), open a new PowerShell window, then run this command again.'
+if ($Python -ne '') {
+    if (-not (Test-Path -LiteralPath $Python)) { throw "The Python given with -Python was not found at $Python. Pass the path to a python.exe, then run this command again." }
+    $pythonExe = (Resolve-Path -LiteralPath $Python).Path
+} else {
+    $pythonCommand = Get-Command python -ErrorAction SilentlyContinue
+    if (-not $pythonCommand) {
+        throw 'Python was not found. Install Python 3.11 or newer from python.org (tick "Add python.exe to PATH"), open a new PowerShell window, then run this command again.'
+    }
+    $pythonExe = $pythonCommand.Source
 }
-$pythonExe = $pythonCommand.Source
+# The Windows installer ships the re-sign tool in its own interpreter (never the app's).
+$resignPython = Join-Path $projectRoot 'python-resign\python.exe'
+$resignExe = if (Test-Path -LiteralPath $resignPython) { $resignPython } else { $pythonExe }
 $versionText = & $pythonExe -c 'import sys; print(str(sys.version_info.major)+chr(46)+str(sys.version_info.minor)); sys.exit(sys.version_info < (3, 11))'
 if ($LASTEXITCODE -ne 0) {
     throw "Python 3.11 or newer is required; this PC has $versionText at $pythonExe. Install a newer Python from python.org, then run this command again."
@@ -274,11 +294,21 @@ if ($CheckOnly) {
     & $pythonExe -c 'import PIL, numpy, requests, tzdata' 2>$null
     $packagesOk = ($LASTEXITCODE -eq 0)
     # Single quotes inside: Windows PowerShell strips embedded double quotes from native arguments.
-    & $pythonExe -c "import importlib.util, sys; sys.exit(importlib.util.find_spec('pymobiledevice3') is None)" 2>$null
+    & $resignExe -c "import importlib.util, sys; sys.exit(importlib.util.find_spec('pymobiledevice3') is None)" 2>$null
     $resignOk = ($LASTEXITCODE -eq 0)
     $ErrorActionPreference = 'Stop'
     if ($packagesOk) { Ok 'app packages installed' } else { Todo 'app packages missing: run this command without -CheckOnly' }
     if ($resignOk) { Ok 're-sign tool installed' } else { Todo 're-sign tool missing: run this command without -CheckOnly' }
+} elseif ($PackagesBundled) {
+    $ErrorActionPreference = 'Continue'
+    & $pythonExe -c 'import PIL, numpy, requests, tzdata' 2>$null
+    $packagesOk = ($LASTEXITCODE -eq 0)
+    & $resignExe -c "import importlib.util, sys; sys.exit(importlib.util.find_spec('pymobiledevice3') is None)" 2>$null
+    $resignOk = ($LASTEXITCODE -eq 0)
+    $ErrorActionPreference = 'Stop'
+    if (-not $packagesOk) { throw 'The packages that ship with this app are missing or damaged. Run the installer again to repair them.' }
+    if (-not $resignOk) { throw 'The re-sign tool that ships with this app is missing or damaged. Run the installer again to repair it.' }
+    Ok 'app packages and re-sign tool ship with this app'
 } else {
     Say '  installing the app''s packages (this can take a minute)...'
     & $pythonExe -m pip install --disable-pip-version-check -q -r (Join-Path $projectRoot 'requirements.txt')
@@ -382,11 +412,11 @@ $desktopShortcut = Join-Path $DesktopDir 'Auto iPhone Uploader.lnk'
 $startupShortcut = Join-Path $StartupDir 'Auto iPhone Uploader (background).lnk'
 $launchScript = '"' + (Join-Path $projectRoot 'launch_video_drop.py') + '"'
 if ($CheckOnly) {
-    if (Test-Path -LiteralPath $desktopShortcut) { Ok "Desktop shortcut: $desktopShortcut" } else { Todo 'Desktop shortcut not created yet' }
+    if (Test-Path -LiteralPath $desktopShortcut) { Ok "Desktop shortcut: $desktopShortcut" } elseif (-not $NoDesktopShortcut) { Todo 'Desktop shortcut not created yet' }
     if (Test-Path -LiteralPath $startupShortcut) { Ok "starts at sign-in: $startupShortcut" } elseif (-not $NoStartup) { Todo 'start-at-sign-in entry not created yet' }
 } else {
     if (-not $DesktopDir -or -not (Test-Path -LiteralPath $DesktopDir)) { throw 'Windows could not find your Desktop folder for the shortcut. Pass -DesktopDir <folder> and run this command again.' }
-    New-Shortcut $desktopShortcut $launcher $launchScript 'Open Auto iPhone Uploader'
+    if (-not $NoDesktopShortcut) { New-Shortcut $desktopShortcut $launcher $launchScript 'Open Auto iPhone Uploader' }
     if (-not $NoStartup) {
         if (-not $StartupDir -or -not (Test-Path -LiteralPath $StartupDir)) { throw 'Windows could not find your Startup folder. Pass -StartupDir <folder> or -NoStartup and run this command again.' }
         New-Shortcut $startupShortcut $launcher "$launchScript --no-browser" 'Start Auto iPhone Uploader and its iPhone connection at sign-in'

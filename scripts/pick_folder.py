@@ -2,7 +2,14 @@
 
 import argparse
 import json
+import os
+import sys
 from pathlib import Path
+
+# The installer's bundled Python keeps Tcl/Tk's script libraries next to python.exe.
+for _var, _dir in (("TCL_LIBRARY", "tcl8.6"), ("TK_LIBRARY", "tk8.6")):
+    if (Path(sys.executable).parent / _dir).is_dir():
+        os.environ.setdefault(_var, str(Path(sys.executable).parent / _dir))
 from tkinter import Tk, filedialog
 
 parser = argparse.ArgumentParser()

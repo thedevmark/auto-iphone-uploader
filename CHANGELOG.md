@@ -3,7 +3,7 @@
 All notable changes to Auto iPhone Uploader. Versions match the Git tags that
 [release.yml](.github/workflows/release.yml) builds release zips from.
 
-## 1.0.0 (current candidate 1.0.0-rc.4)
+## 1.0.0 (current candidate 1.0.0-rc.5)
 
 Post finished videos from a Windows PC through the real iPhone apps: YouTube
 Shorts with title, description and a first-frame thumbnail; Instagram Reels
@@ -14,6 +14,18 @@ and a setup checklist. The README's
 [Requirements and limits](README.md#requirements-and-limits) and
 [docs/launch-checklist.md](docs/launch-checklist.md) say what has been
 verified on the reference phone.
+
+### 1.0.0-rc.5 (2026-10-01)
+
+#### Added
+
+- `AutoiPhoneUploader-Setup-<version>.exe`, a Windows installer that needs no
+  Python: it installs per user without administrator rights, with its own
+  Python and packages (the re-sign tool in a separate interpreter), then
+  downloads go-ios and WebDriverAgent by pinned SHA-256. The release workflow
+  builds it, attests it and lists its checksum in `SHA256SUMS.txt`. It is not
+  code-signed, so SmartScreen warns once. `install_windows.ps1` gained
+  `-Python`, `-PackagesBundled` and `-NoDesktopShortcut` for it.
 
 ### 1.0.0-rc.4 (2026-10-01)
 

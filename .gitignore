@@ -26,3 +26,7 @@ wda/
 *.p12
 *.mobileprovision
 devimages/
+
+# Installer build output (scripts/build_installer.ps1)
+build/
+dist/
