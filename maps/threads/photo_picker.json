@@ -1,0 +1,7 @@
+{"app": "threads", "screen": "photo_picker", "locale": "en", "bundle": "com.burbn.barcelona",
+ "signature": {"require": [{"id": "photosView_content_scroll_view"}, {"label": "@label:collections", "type": "Button"}]},
+ "elements": {"cancel": {"label": "@label:cancel", "type": "Button"},
+              "done": {"label": "@label:done", "type": "Button"},
+              "search": {"label": "@label:search", "type": "Button"}},
+ "actions": {"done": {"tap": "done", "expect": "composer"},
+             "cancel": {"tap": "cancel", "expect": "composer"}}}

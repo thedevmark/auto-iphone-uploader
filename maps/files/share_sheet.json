@@ -1,0 +1,4 @@
+{"app": "files", "screen": "share_sheet", "locale": "en", "bundle": "com.apple.DocumentsApp",
+ "signature": {"require": [{"id": "ShareSheet.RemoteContainerView"}, {"id": "shareSheet.activity.contentView"}]},
+ "elements": {"file_name": {"id": "LP.CaptionBar.TopCaption"},
+              "file_details": {"id": "LP.CaptionBar.BottomCaption"}}}

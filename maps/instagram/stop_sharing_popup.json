@@ -1,0 +1,9 @@
+{"app": "instagram", "screen": "stop_sharing_popup", "locale": "en", "bundle": "com.burbn.instagram",
+ "signature": {"require": [{"label": "@label:stop_sharing_on", "type": "StaticText", "contains": true},
+                           {"label": "@label:dont_share_this_reel", "type": "Button"}]},
+ "elements": {"dont_share_this_reel": {"label": "@label:dont_share_this_reel", "type": "Button"},
+              "stop_sharing_all_reels": {"label": "@label:stop_sharing_all_reels", "type": "Button"},
+              "cancel": {"label": "@label:cancel", "type": "Button"}},
+ "actions": {"dont_share_this_reel": {"tap": "dont_share_this_reel", "expect": "also_share_on"},
+             "cancel": {"tap": "cancel", "expect": "also_share_on"},
+             "stop_sharing_all_reels": {"tap": "stop_sharing_all_reels", "expect": "also_share_on", "irreversible": true}}}

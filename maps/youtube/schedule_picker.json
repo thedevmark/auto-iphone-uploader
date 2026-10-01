@@ -1,0 +1,12 @@
+{"app": "youtube", "screen": "schedule_picker", "locale": "en", "bundle": "com.google.ios.youtube",
+ "signature": {"require": [{"type": "DatePicker"}, {"label": "@label:dismiss_alert", "type": "Button"}]},
+ "elements": {"previous_month": {"id": "DatePicker.PreviousMonth"},
+              "next_month": {"id": "DatePicker.NextMonth"},
+              "month": {"id": "DatePicker.Show"},
+              "time": {"type": "Button", "relative_to": {"label": "@label:time", "type": "StaticText"},
+                       "side": "right", "within": 300},
+              "ok": {"label": "@label:ok", "type": "Button"},
+              "cancel": {"label": "@label:cancel", "type": "Button"}},
+ "actions": {"open_time": {"tap": "time", "expect": "time_wheels"},
+             "ok": {"tap": "ok", "expect": "schedule"},
+             "cancel": {"tap": "cancel", "expect": "schedule"}}}

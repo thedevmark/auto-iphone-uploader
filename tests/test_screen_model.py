@@ -52,6 +52,16 @@ class ScreenModelTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Unknown locator key"):
             load_map(self.write({**GOOD, "elements": {"a": {"text": "Next"}}}))
 
+    def test_value_and_inside_are_accepted_and_value_may_be_a_marker(self):
+        screen = load_map(self.write({**GOOD, "signature": {"require": [{"type": "Slider", "value": "Less than a second"}]},
+                                      "elements": {"switch": {"id": "igds-switch", "relative_to": {"label": "Row"},
+                                                              "side": "inside"}}, "actions": {}}))
+        self.assertEqual(screen.require[0].value, "Less than a second")
+        self.assertEqual(screen.elements["switch"].side, "inside")
+        with self.assertRaisesRegex(ValueError, "side"):
+            load_map(self.write({**GOOD, "elements": {"s": {"id": "a", "relative_to": {"label": "R"}, "side": "under"}},
+                                 "actions": {}}))
+
     def test_signature_needs_at_least_one_required_marker(self):
         with self.assertRaisesRegex(ValueError, "require"):
             load_map(self.write({**GOOD, "signature": {"require": [], "forbid": []}}))

@@ -32,16 +32,18 @@ class MapsFolderTests(unittest.TestCase):
         for screen in load_maps(MAPS):
             for loc in (*screen.require, *screen.forbid, *screen.elements.values()):
                 for item in (loc, loc.relative_to, *loc.fallback):
-                    if item and item.label:
-                        with self.subTest(screen=screen.screen, label=item.label):
-                            labels.text(item.label)
+                    for text in (item.label, item.value) if item else ():
+                        if text:
+                            with self.subTest(screen=screen.screen, text=text):
+                                labels.text(text)
 
     def test_actions_expect_known_screens_and_upload_is_irreversible(self):
         maps = load_maps(MAPS)
-        names = {m.screen for m in maps if m.app == "youtube"}
         for screen in maps:
+            names = {m.screen for m in maps if m.app == screen.app}
             for action in screen.actions.values():
-                self.assertIn(action.expect, names | {"uploading"}, f"{screen.screen}.{action.name}")
+                # "uploading" is the unmapped state after a final tap; the runner reports it unconfirmed.
+                self.assertIn(action.expect, names | {"uploading"}, f"{screen.app}/{screen.screen}.{action.name}")
         details = next(m for m in maps if (m.app, m.screen) == ("youtube", "details"))
         self.assertTrue(details.actions["upload"].irreversible)
 

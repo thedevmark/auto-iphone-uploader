@@ -7,7 +7,7 @@ export type VideoPlatform = (typeof VIDEO_PLATFORMS)[number];
 /**
  * Lanes whose post is made by hand in the phone app. The phone encoder keeps
  * far more detail than either web composer, so Homebase never opens these
- * composers: it hands the clip and approved caption to Mark and then verifies
+ * composers: it hands the clip and approved caption to the owner and then verifies
  * the finished post by caption.
  */
 export const PHONE_HANDOFF_PLATFORMS: ReadonlySet<string> = new Set(["tiktok", "instagram"]);

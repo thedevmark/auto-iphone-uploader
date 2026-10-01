@@ -13,7 +13,6 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from video_drop.screens.icons import to_points  # noqa: E402
 from video_drop.screens.snapshot import Snapshot, capture, load_fixture, save_fixture  # noqa: E402
-from video_drop.sidetap_root import sidetap_root  # noqa: E402
 
 CONTROL_TYPES = {"Button", "Cell", "TextField", "TextView", "Switch", "Link", "MenuItem"}
 
@@ -49,11 +48,7 @@ def crop_icon(stem: Path, left: float, top: float, width: float, height: float, 
 
 
 def connect():
-    source = sidetap_root() / "src"
-    if not (source / "phone_harness").is_dir():
-        raise SystemExit(f"SideTap not found under {source}")
-    sys.path.insert(0, str(source))
-    from phone_harness import helpers
+    from video_drop.phone import helpers
     return helpers
 
 

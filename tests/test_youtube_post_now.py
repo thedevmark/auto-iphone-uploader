@@ -105,7 +105,7 @@ class YouTubePostNowTests(unittest.TestCase):
                     patch.object(phone_youtube, "optional_focus", return_value=nullcontext()), \
                     patch.object(phone_youtube, "layout", return_value=PhoneLayout(440, 956)), \
                     patch.object(phone_youtube, "ensure_youtube_channel"), \
-                    patch.object(phone_youtube, "open_onedrive_file"), \
+                    patch.object(phone_youtube, "open_source_file"), \
                     patch.object(phone_youtube, "prepare_youtube"), \
                     patch.object(phone_youtube, "tap"), \
                     patch.object(phone_youtube, "assert_visible"), \
@@ -163,7 +163,7 @@ class YouTubePostNowTests(unittest.TestCase):
                     patch.object(phone_youtube, "optional_focus", return_value=nullcontext()), \
                     patch.object(phone_youtube, "layout"), \
                     patch.object(phone_youtube, "ensure_youtube_channel"), \
-                    patch.object(phone_youtube, "open_onedrive_file"), \
+                    patch.object(phone_youtube, "open_source_file"), \
                     patch.object(phone_youtube, "prepare_youtube"), \
                     patch.object(phone_youtube, "screen", return_value=labels), \
                     patch.object(phone_youtube, "matches", return_value=[{"x": 1, "y": 2}]):

@@ -42,9 +42,16 @@ def assert_current_server(identity: dict) -> None:
         raise RuntimeError("The app server is running older code. Restart that server to load this update.")
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
+    """Start the server (and, through it, the phone link supervisor) and open the editor.
+
+    ``--no-browser`` is what the Startup entry passes: bring the server and the
+    link supervisor up at sign-in without opening a browser window.
+    """
     if sys.platform != "win32":
         raise SystemExit("Use python -m video_drop.server on this system")
+    args = sys.argv[1:] if argv is None else argv
+    open_browser = "--no-browser" not in args
     identity = running_server()
     if identity is None:
         python = Path(sys.executable).with_name("pythonw.exe")
@@ -73,7 +80,13 @@ def main() -> None:
         else:
             raise RuntimeError(f"Auto iPhone Uploader did not start. See {state / 'server.log'}")
     assert_current_server(identity)
-    webbrowser.open(URL)
+    # The server starts the supervisor itself; asking again is idempotent and
+    # covers a server that was already up with its supervisor gone.
+    from video_drop import link_supervisor
+
+    link_supervisor.ensure_running()
+    if open_browser:
+        webbrowser.open(URL)
 
 
 if __name__ == "__main__":

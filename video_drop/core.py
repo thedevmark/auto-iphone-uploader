@@ -4,13 +4,12 @@ import hashlib
 import json
 import re
 import sqlite3
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, tzinfo
 from pathlib import Path
-from zoneinfo import ZoneInfo
 from .analyze import safe_tag
 from .accounts import PLATFORMS
+from .timezones import pc_time_zone, zone
 
-NY = ZoneInfo("America/New_York")
 DESTINATIONS = PLATFORMS
 TIMED_DESTINATIONS = frozenset(DESTINATIONS)
 EDITABLE = ("draft", "reserved")
@@ -21,12 +20,83 @@ PHONE_CHECK_DEFAULTS = {
     "doNotDisturb": True,
     "youtubeQualityEveryUpload": False,
     "inspectPhoneOnOpen": True,
-    # After every destination has a native receipt: remove the Files download and move the
-    # Photos copy to Recently Deleted. Recently Deleted is never emptied automatically.
+    # Once Instagram has its native receipt, move the Edits project its 4K export left behind
+    # to Edits' Trash (recoverable there). Posts save nothing to Photos (measured 2026-10-01).
+    # video_drop/edits_cleanup.py + scripts/phone_cleanup.py.
     "removeAfterPost": True,
+    # Post now: Instagram's one upload turns on these "Also share on…" switches.
+    "crosspostFacebook": True,
+    "crosspostThreads": True,
+    # Post now with the Threads crosspost off: post Threads on its own in the Threads app.
+    "threadsSeparatePost": False,
+    # Post now starts YouTube, then Instagram, then TikTok, then a separate Threads post.
+    "postNowInOrder": True,
+    # Open OneDrive videos through the Files app like every other provider, instead of the OneDrive app.
+    "filesAppForOneDrive": False,
+    # After a final tap, look at the app's own profile a few times in the next hour (read-only)
+    # and record the receipt the phone shows (video_drop/receipt_sweep.py).
+    "readReceipts": True,
 }
 DELIVERY_MODES = ("schedule", "post_now")
 PLATFORM_HASHTAGS = {"youtube": "#shorts", "instagram": "#reels", "facebook": "#reels", "threads": "", "tiktok": "#fyp"}
+# Apps with no native scheduler on the operator's account: in Schedule mode this app posts
+# them itself at the slot, and only inside SLOT_GRACE after it. A later start is a missed slot.
+APP_POSTED_DESTINATIONS = frozenset({"tiktok"})
+SLOT_GRACE = timedelta(minutes=15)
+POST_ORDER = ("youtube", "instagram", "tiktok", "facebook", "threads")
+# Destinations Instagram's one upload can carry through its "Also share on…" switches, per
+# delivery mode. Instagram's scheduler turns the Threads crosspost off, so a scheduled video's
+# Threads post is its own native schedule in the Threads app. The crosspost settings pick which
+# are on; those have no final tap of their own, because Instagram's final tap claims them.
+CROSSPOSTED_BY_INSTAGRAM = {"post_now": ("facebook", "threads"), "schedule": ("facebook",)}
+CROSSPOST_SETTINGS = {"facebook": "crosspostFacebook", "threads": "crosspostThreads"}
+RECEIPT_CHOICES = ("posted", "scheduled")
+# A user saying "I checked it on the phone", or a hand-started post, is a hand fix.
+MANUAL_EVENTS = frozenset({"receipt_manual", "manual_intervention"})
+# Receipts the app read back from the native app itself.
+APP_RECEIPT_EVENTS = frozenset({"native_schedule_observed", "native_post_observed"})
+# Receipts scripts/phone_receipts.py reads back from the native apps and hands to
+# Store.record_receipt as an evidence JSON, keyed by (platform, choice). Each value is the
+# evidence's "verification" (video_drop/receipts.py). Facebook's crosspost is confirmed the
+# same way once its Meta Business Suite screens are recorded (receipts.ROUTES): a carried
+# crosspost keeps its own receipt, in Post now and in Schedule.
+NATIVE_RECEIPT_VERIFICATIONS = {
+    ("instagram", "posted"): frozenset({"instagram_profile_count_newest_tile_first_frame"}),
+    ("threads", "posted"): frozenset({"threads_profile_newest_caption"}),
+    ("facebook", "posted"): frozenset({"facebook_page_reels_newest_caption_first_frame"}),
+    ("facebook", "scheduled"): frozenset({"facebook_page_reels_scheduled_caption_slot"}),
+}
+STREAK_GOAL = 20
+RECEIPT_WINDOW = timedelta(hours=1)
+
+
+def threads_post_refusal(release: dict) -> str | None:
+    """Why this release gets no separate, immediate Threads post, or None when it may.
+
+    ``release`` comes from Store.release, which adds instagramCrossposts and threadsSeparatePost.
+    """
+    if release["threadsSeparatePost"]:
+        return None
+    if release["delivery_mode"] == "post_now":
+        if "threads" in release["instagramCrossposts"]:
+            return ("Post now shares Threads through Instagram's “Also share on…” Threads switch in the same "
+                    "upload; there is no separate Threads post. Nothing was posted.")
+        return ("The Threads crosspost is off and “Post Threads separately” is off in Settings, so this app "
+                "does not post Threads. Nothing was posted.")
+    return ("A scheduled video's Threads post is scheduled natively in the Threads app (its + composer with "
+            "the clip in Photos, then Schedule), because Instagram's scheduler turns its Threads crosspost off. "
+            "Native Threads scheduling is not built yet, and Threads is never posted immediately. "
+            "Nothing was posted.")
+
+
+def crosspost_refusal(platform: str, release: dict) -> str | None:
+    """A reason this destination cannot be claimed on its own, or None when it can."""
+    if platform == "threads" and release["delivery_mode"] == "post_now":
+        return threads_post_refusal(release)
+    if platform in release["instagramCrossposts"]:
+        return (f"{platform.title()} goes out with Instagram's upload through its “Also share on…” switch; "
+                "it has no final tap of its own. Nothing was posted.")
+    return None
 
 
 def caption_with_title(caption: str, title: str) -> str:
@@ -82,17 +152,20 @@ def validate_slots(slots: list[str] | tuple[str, ...]) -> tuple[str, ...]:
     return tuple(sorted(slots))
 
 
-def next_slot(now: datetime, occupied: set[str], slots: tuple[str, ...] = DEFAULT_SLOTS) -> datetime:
+def next_slot(now: datetime, occupied: set[str], slots: tuple[str, ...] = DEFAULT_SLOTS,
+              zone_info: tzinfo | None = None) -> datetime:
+    """The first free posting time after ``now``, as wall-clock time in ``zone_info`` (default: this PC's zone)."""
     if now.tzinfo is None:
         raise ValueError("now must include a timezone")
     slots = validate_slots(slots)
-    local = now.astimezone(NY)
+    zone_info = zone_info or pc_time_zone()
+    local = now.astimezone(zone_info)
     for day in range(366):
         date = local.date() + timedelta(days=day)
         for time in slots:
             hour, minute = map(int, time.split(":"))
-            slot = datetime(date.year, date.month, date.day, hour, minute, tzinfo=NY)
-            if slot.astimezone(timezone.utc).astimezone(NY).replace(tzinfo=None) != slot.replace(tzinfo=None):
+            slot = datetime(date.year, date.month, date.day, hour, minute, tzinfo=zone_info)
+            if slot.astimezone(timezone.utc).astimezone(zone_info).replace(tzinfo=None) != slot.replace(tzinfo=None):
                 continue
             slot_utc = slot.astimezone(timezone.utc)
             if slot_utc > now.astimezone(timezone.utc) + timedelta(minutes=1) and slot_utc.isoformat() not in occupied:
@@ -100,9 +173,10 @@ def next_slot(now: datetime, occupied: set[str], slots: tuple[str, ...] = DEFAUL
     raise ValueError("no_video_slot_available")
 
 
-def chosen_slot(at: datetime, now: datetime, occupied: set[str], slots: tuple[str, ...]) -> datetime:
+def chosen_slot(at: datetime, now: datetime, occupied: set[str], slots: tuple[str, ...],
+                zone_info: tzinfo | None = None) -> datetime:
     """Validate one operator-chosen posting time against the configured daily times."""
-    local = at.astimezone(NY)
+    local = at.astimezone(zone_info or pc_time_zone())
     if local.strftime("%H:%M") not in validate_slots(slots) or local.second or local.microsecond:
         raise ValueError(f"{local:%I:%M %p} is not one of the posting times")
     slot_utc = local.astimezone(timezone.utc)
@@ -219,7 +293,26 @@ class Store:
             raise ValueError("Video not found")
         result = dict(row)
         result["destinations"] = [dict(item) for item in self.db.execute("SELECT * FROM destination WHERE release_id=? ORDER BY id", (release_id,))]
+        checks = self.phone_checks()
+        result["instagramCrossposts"] = self._instagram_crossposts(result, checks)
+        result["threadsSeparatePost"] = (result["delivery_mode"] == "post_now" and checks["threadsSeparatePost"]
+                                         and "threads" not in result["instagramCrossposts"])
         return result
+
+    def _instagram_crossposts(self, release: dict, checks: dict) -> list[str]:
+        """The "Also share on…" switches Instagram's upload turns on for this release.
+
+        Once Instagram's final tap is recorded this is what that tap carried, so a later
+        settings change never rewrites history. Before it, the crosspost settings decide.
+        """
+        instagram = next((d for d in release["destinations"] if d["platform"] == "instagram"), None)
+        if instagram and instagram["status"] != "pending":
+            row = self.db.execute("""SELECT json_extract(payload,'$.crossposts') FROM event WHERE release_id=?
+                AND platform='instagram' AND kind='unconfirmed' ORDER BY id DESC LIMIT 1""", (release["id"],)).fetchone()
+            if row and row[0] is not None:
+                return json.loads(row[0])
+        return [platform for platform in CROSSPOSTED_BY_INSTAGRAM.get(release["delivery_mode"], ())
+                if checks[CROSSPOST_SETTINGS[platform]]]
 
     def current(self) -> dict | None:
         row = self.db.execute("SELECT id FROM release WHERE status='draft' ORDER BY id LIMIT 1").fetchone()
@@ -238,6 +331,31 @@ class Store:
             self.db.execute("INSERT INTO setting(key,value) VALUES('posting_slots',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
                             (json.dumps(valid),))
         return valid
+
+    def time_zone_setting(self) -> str:
+        """The chosen IANA zone, or "" to follow this PC's own time zone."""
+        row = self.db.execute("SELECT value FROM setting WHERE key='time_zone'").fetchone()
+        return json.loads(row[0]) if row else ""
+
+    def set_time_zone(self, name: str) -> str:
+        """Override the posting-time zone; "" goes back to this PC's zone. Held slots keep their moment."""
+        if not isinstance(name, str):
+            raise ValueError("Choose a time zone")
+        with self.db:
+            if name.strip():
+                self.db.execute("INSERT INTO setting(key,value) VALUES('time_zone',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                                (json.dumps(zone(name).key),))
+            else:
+                self.db.execute("DELETE FROM setting WHERE key='time_zone'")
+        return self.time_zone_setting()
+
+    def time_zone(self) -> tzinfo:
+        """The zone posting times are read in: the setting if it is still valid, else this PC's zone."""
+        name = self.time_zone_setting()
+        try:
+            return zone(name) if name else pc_time_zone()
+        except ValueError:
+            return pc_time_zone()
 
     def phone_checks(self) -> dict:
         row = self.db.execute("SELECT value FROM setting WHERE key='phone_checks'").fetchone()
@@ -258,6 +376,17 @@ class Store:
             self.db.execute("INSERT INTO setting(key,value) VALUES('phone_checks',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
                             (json.dumps(checks),))
         return checks
+
+    def setup_completed_at(self) -> str:
+        row = self.db.execute("SELECT value FROM setting WHERE key='setup_completed_at'").fetchone()
+        return json.loads(row[0]) if row else ""
+
+    def complete_setup(self) -> str:
+        """Record the first time every required setup item passed; later passes keep that time."""
+        with self.db:
+            self.db.execute("INSERT INTO setting(key,value) VALUES('setup_completed_at',?) ON CONFLICT(key) DO NOTHING",
+                            (json.dumps(utc_now().isoformat()),))
+        return self.setup_completed_at()
 
     def set_delivery_mode(self, release_id: int, mode: str) -> dict:
         if mode not in DELIVERY_MODES:
@@ -457,6 +586,7 @@ class Store:
         """Atomically hold successive local times for reviewed clips in queue order.
 
         `at` picks one specific configured posting time for a single clip instead of the next free one.
+        It also moves a clip's future held time, but only while no destination has been attempted.
         """
         now = now or utc_now()
         if now.tzinfo is None:
@@ -503,14 +633,19 @@ class Store:
             occupied = {row[0] for row in self.db.execute(
                 "SELECT scheduled_at FROM release WHERE scheduled_at IS NOT NULL AND status != 'discarded'")}
             slots = self.posting_slots()
+            zone_info = self.time_zone()
             for release_id in release_ids:
                 fresh = self.release(release_id)
                 validate(fresh)
                 if slot_is_future(fresh["scheduled_at"]):
-                    continue
+                    if at is None or datetime.fromisoformat(fresh["scheduled_at"]) == at:
+                        continue
+                    if any(d["status"] != "pending" for d in fresh["destinations"]):
+                        raise ValueError("The posting time cannot move after an app has the video; check its receipts")
                 if fresh["scheduled_at"]:
                     occupied.discard(fresh["scheduled_at"])
-                slot = next_slot(now, occupied, slots) if at is None else chosen_slot(at, now, occupied, slots)
+                slot = (next_slot(now, occupied, slots, zone_info) if at is None
+                        else chosen_slot(at, now, occupied, slots, zone_info))
                 slot_utc = slot.astimezone(timezone.utc).isoformat()
                 occupied.add(slot_utc)
                 status = "needs_check" if fresh["status"] == "needs_check" else "reserved"
@@ -525,10 +660,19 @@ class Store:
         return [self.release(release_id) for release_id in release_ids]
 
     def mark_unconfirmed(self, release_id: int, platform: str, *, expected_revision: str | None = None) -> dict:
+        """Record that a final tap is about to happen, so it is never replayed.
+
+        Instagram's final tap also claims the destinations its "Also share on…" switches
+        carry (the release's instagramCrossposts); each keeps its own receipt. Those
+        destinations cannot be claimed on their own. In Post now every carried destination
+        must be approved and untouched, since its switch is on.
+        """
         release = self.release(release_id)
         def can_start(item: dict) -> bool:
             return (item["status"] in {"reserved", "scheduled", "uploading", "partial", "needs_check"}
                     or (item["status"] == "draft" and item["delivery_mode"] == "post_now"))
+        if refusal := crosspost_refusal(platform, release):
+            raise ValueError(refusal)
         if not can_start(release):
             raise ValueError("No platform action is in progress")
         if platform in TIMED_DESTINATIONS and release["delivery_mode"] == "schedule" and not release["scheduled_at"]:
@@ -553,11 +697,27 @@ class Store:
                 raise ValueError("Destination text changed after phone preparation")
             if not can_start(fresh):
                 raise ValueError("No platform action is in progress")
+            if refusal := crosspost_refusal(platform, fresh):
+                raise ValueError(refusal)
             if platform in TIMED_DESTINATIONS and fresh["delivery_mode"] == "schedule" and not fresh["scheduled_at"]:
                 raise ValueError("Reserve a posting time before scheduling this destination")
             self.db.execute("UPDATE destination SET status='unconfirmed',updated_at=? WHERE id=?", (utc_now().isoformat(), dest["id"]))
             self.db.execute("UPDATE release SET status='needs_check',updated_at=? WHERE id=?", (utc_now().isoformat(), release_id))
-            self._event(release_id, platform, "unconfirmed", {})
+            carried = fresh["instagramCrossposts"] if platform == "instagram" else []
+            self._event(release_id, platform, "unconfirmed", {"crossposts": carried} if platform == "instagram" else {})
+            if platform == "instagram":
+                for follower in fresh["destinations"]:
+                    if follower["platform"] not in carried:
+                        continue
+                    ready = follower["status"] == "pending" and follower["revision_hash"]
+                    if fresh["delivery_mode"] == "post_now" and not ready:
+                        # Post now always crossposts, so its switches are on: each must be claimable.
+                        raise ValueError(f"Post now crossposts to {follower['platform'].title()}; approve its text "
+                                         "and check it has no earlier attempt first. Nothing was posted.")
+                    if ready:
+                        self.db.execute("UPDATE destination SET status='unconfirmed',updated_at=? WHERE id=?",
+                                        (utc_now().isoformat(), follower["id"]))
+                        self._event(release_id, follower["platform"], "unconfirmed", {"via": "instagram_crosspost"})
             self.db.commit()
         except Exception:
             self.db.rollback()
@@ -565,7 +725,80 @@ class Store:
         return self.release(release_id)
 
     def record_receipt(self, release_id: int, platform: str, url: str) -> dict:
-        raise ValueError("Provider receipt verification is not connected yet")
+        """Record a receipt the phone read back from the native app itself.
+
+        ``url`` is the ``file:`` URI of scripts/phone_receipts.py's evidence JSON, kept under
+        the state directory. Its release, platform, account, choice and verification type must
+        match an unconfirmed destination (a crossposted Facebook or Threads included). The
+        destination becomes posted or scheduled like a manual receipt, but the event is an app
+        receipt (native_post_observed, or native_schedule_observed for a scheduled one), so it
+        counts toward the unattended streak.
+        """
+        from urllib.parse import urlsplit
+        from urllib.request import url2pathname
+        if not any(key[0] == platform for key in NATIVE_RECEIPT_VERIFICATIONS):
+            raise ValueError(f"Native receipt verification is not connected for {platform} yet")
+        parts = urlsplit(url) if isinstance(url, str) else None
+        if parts is None or parts.scheme != "file" or parts.netloc not in {"", "localhost"}:
+            raise ValueError("Receipt evidence must be the file: URI of the receipt runner's evidence JSON")
+        try:
+            evidence_path = Path(url2pathname(parts.path)).resolve(strict=True)
+        except OSError as exc:
+            raise ValueError("Receipt evidence file is missing") from exc
+        if (not evidence_path.is_relative_to(self.path.parent.resolve()) or evidence_path.suffix != ".json"
+                or not evidence_path.is_file() or evidence_path.stat().st_size == 0):
+            raise ValueError("Receipt evidence must be a JSON file under this app's state folder")
+        try:
+            evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            raise ValueError("Receipt evidence is not readable JSON") from exc
+        if not isinstance(evidence, dict):
+            raise ValueError("Receipt evidence must be a JSON object")
+        if evidence.get("releaseId") != release_id or evidence.get("platform") != platform:
+            raise ValueError("Receipt evidence is for another release or app")
+        choice = evidence.get("choice")
+        if choice not in RECEIPT_CHOICES:
+            raise ValueError("Receipt evidence must say posted or scheduled")
+        verification = evidence.get("verification")
+        if verification not in NATIVE_RECEIPT_VERIFICATIONS.get((platform, choice), ()):
+            raise ValueError(f"Receipt evidence has no accepted {platform} {choice} verification")
+        screenshot = evidence.get("screenshot")
+        if screenshot is not None:
+            shot = evidence_path.parent / str(screenshot)
+            if Path(str(screenshot)).name != screenshot or not shot.is_file() or shot.stat().st_size == 0:
+                raise ValueError("Receipt evidence names a screenshot that is not beside it")
+        self.db.execute("BEGIN IMMEDIATE")
+        try:
+            release = self.release(release_id)
+            destination = next((d for d in release["destinations"] if d["platform"] == platform), None)
+            if destination is None:
+                raise ValueError("Unknown destination")
+            if destination["status"] != "unconfirmed":
+                raise ValueError("Only a destination with a recorded final tap can take a native receipt")
+            if choice == "scheduled" and release["delivery_mode"] != "schedule":
+                raise ValueError("A Post now video cannot have a scheduled receipt")
+            def handle(value: object) -> str:
+                return str(value or "").strip().lstrip("@").casefold()
+            if not handle(evidence.get("account")) or handle(evidence.get("account")) != handle(destination["account"]):
+                raise ValueError("Receipt evidence account does not match this destination's account")
+            now = utc_now().isoformat()
+            self.db.execute("UPDATE destination SET status=?,updated_at=? WHERE id=?", (choice, now, destination["id"]))
+            included = [d for d in self._included(release) if d["id"] != destination["id"]]
+            included.append({**destination, "status": choice})
+            remaining = [d for d in included if d["status"] not in RECEIPT_CHOICES]
+            status = ("partial" if remaining else
+                      "posted" if all(d["status"] == "posted" for d in included) else "scheduled")
+            self.db.execute("UPDATE release SET status=?,updated_at=? WHERE id=?", (status, now, release_id))
+            self._event(release_id, platform, "native_post_observed" if choice == "posted" else "native_schedule_observed", {
+                "choice": choice, "account": evidence["account"], "verification": verification,
+                "via": "instagram_crosspost" if platform in release["instagramCrossposts"] else "own_post",
+                "evidence": evidence_path.name, "evidence_sha256": digest(evidence_path), "confirmed_at": now,
+            })
+            self.db.commit()
+        except Exception:
+            self.db.rollback()
+            raise
+        return self.release(release_id)
 
     def record_observed_schedule(self, release_id: int, platform: str, *, account: str,
                                  native_rows: list[dict], device_time_zone: str,
@@ -623,6 +856,111 @@ class Store:
             self.db.rollback()
             raise
         return self.release(release_id)
+
+    @staticmethod
+    def _included(release: dict) -> list[dict]:
+        """Destinations this release actually targets: approved text, or work already started."""
+        return [d for d in release["destinations"] if d["revision_hash"] or d["status"] != "pending"]
+
+    def record_manual_receipt(self, release_id: int, platform: str, choice: str) -> dict:
+        """Record the user's own phone check as the receipt. It is never a native verification."""
+        if choice not in RECEIPT_CHOICES:
+            raise ValueError("Choose Posted or Scheduled")
+        self.db.execute("BEGIN IMMEDIATE")
+        try:
+            release = self.release(release_id)
+            if release["status"] == "discarded":
+                raise ValueError("This video was discarded")
+            destination = next((d for d in release["destinations"] if d["platform"] == platform), None)
+            if not destination:
+                raise ValueError("Unknown destination")
+            if destination["status"] not in {"pending", "unconfirmed"}:
+                raise ValueError("This destination already has a receipt")
+            now = utc_now().isoformat()
+            self.db.execute("UPDATE destination SET status=?,updated_at=? WHERE id=?", (choice, now, destination["id"]))
+            included = [d for d in self._included(release) if d["id"] != destination["id"]]
+            included.append({**destination, "status": choice})
+            remaining = [d for d in included if d["status"] not in RECEIPT_CHOICES]
+            status = ("partial" if remaining else
+                      "posted" if all(d["status"] == "posted" for d in included) else "scheduled")
+            self.db.execute("UPDATE release SET status=?,updated_at=? WHERE id=?", (status, now, release_id))
+            self._event(release_id, platform, "receipt_manual", {
+                "choice": choice, "previous": destination["status"], "confirmed_at": now,
+                "verification": "user_checked_phone",
+            })
+            self.db.commit()
+        except Exception:
+            self.db.rollback()
+            raise
+        return self.release(release_id)
+
+    def record_manual_intervention(self, release_id: int, platform: str, action: str) -> None:
+        with self.db:
+            self._event(release_id, platform, "manual_intervention", {"action": action})
+
+    def slot_post_releases(self) -> list[dict]:
+        """Schedule-mode releases that hold a slot and may still need the app to post."""
+        rows = self.db.execute("""SELECT id FROM release WHERE delivery_mode='schedule' AND scheduled_at IS NOT NULL
+            AND status IN ('reserved','scheduled','uploading','partial','needs_check') ORDER BY scheduled_at, id""")
+        return [self.release(row[0]) for row in rows.fetchall()]
+
+    def slot_post_marks(self) -> dict[tuple[int, str, str], set[str]]:
+        """Persisted scheduler marks, keyed by (release, platform, slot) so a replanned slot starts fresh."""
+        marks: dict[tuple[int, str, str], set[str]] = {}
+        for row in self.db.execute("""SELECT release_id, platform, kind, json_extract(payload,'$.slot') FROM event
+                WHERE kind IN ('slot_armed','slot_post_queued','slot_post_failed')"""):
+            marks.setdefault((row[0], row[1], row[3]), set()).add(row[2])
+        return marks
+
+    def mark_slot_post(self, release_id: int, platform: str, slot: str, kind: str, **details) -> bool:
+        """Write one scheduler mark once. Returns False if that mark already exists."""
+        if kind not in {"slot_armed", "slot_post_queued", "slot_post_failed"}:
+            raise ValueError("Unknown slot mark")
+        self.db.execute("BEGIN IMMEDIATE")
+        try:
+            exists = self.db.execute("""SELECT 1 FROM event WHERE release_id=? AND platform=? AND kind=?
+                AND json_extract(payload,'$.slot')=?""", (release_id, platform, kind, slot)).fetchone()
+            if not exists:
+                self._event(release_id, platform, kind, {"slot": slot, **details})
+            self.db.commit()
+        except Exception:
+            self.db.rollback()
+            raise
+        return not exists
+
+    def unattended_streak(self, now: datetime | None = None) -> dict:
+        """Consecutive most-recent Schedule releases that reached every app with no hand fix.
+
+        Releases still inside their receipt window are skipped. A manual receipt or intervention,
+        a missed slot, a receipt the app did not read itself, or a receipt still missing an hour
+        after the slot ends the streak. Post now releases are started by hand and are not counted.
+        """
+        now = now or utc_now()
+        kinds: dict[int, set[tuple[str | None, str]]] = {}
+        for row in self.db.execute("SELECT release_id, platform, kind FROM event"):
+            kinds.setdefault(row[0], set()).add((row[1], row[2]))
+        count = 0
+        rows = self.db.execute("""SELECT id FROM release WHERE delivery_mode='schedule' AND status NOT IN ('draft','discarded')
+            ORDER BY COALESCE(scheduled_at, created_at) DESC, id DESC""").fetchall()
+        for row in rows:
+            release = self.release(row[0])
+            events = kinds.get(release["id"], set())
+            included = self._included(release)
+            if not included:
+                continue
+            if any(kind in MANUAL_EVENTS for _, kind in events):
+                break
+            if all(d["status"] in RECEIPT_CHOICES for d in included):
+                if all(any((d["platform"], kind) in events for kind in APP_RECEIPT_EVENTS) for d in included):
+                    count += 1
+                    continue
+                break
+            slot = datetime.fromisoformat(release["scheduled_at"]) if release["scheduled_at"] else None
+            if slot is None or now < slot + SLOT_GRACE:
+                continue
+            if now >= slot + RECEIPT_WINDOW or any(d["status"] == "pending" for d in included):
+                break
+        return {"count": count, "goal": STREAK_GOAL}
 
     def discard(self, release_id: int) -> dict:
         release = self.release(release_id)

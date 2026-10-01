@@ -1,0 +1,7 @@
+{"app": "youtube", "screen": "time_wheels", "locale": "en", "bundle": "com.google.ios.youtube",
+ "signature": {"require": [{"type": "PickerWheel", "value": "@label:wheel_minutes", "contains": true},
+                           {"id": "PopoverDismissRegion"}]},
+ "elements": {"hours": {"type": "PickerWheel", "value": "@label:wheel_hours", "contains": true},
+              "minutes": {"type": "PickerWheel", "value": "@label:wheel_minutes", "contains": true},
+              "meridiem": {"type": "PickerWheel", "side": "right", "within": 120,
+                           "relative_to": {"type": "PickerWheel", "value": "@label:wheel_minutes", "contains": true}}}}

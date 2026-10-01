@@ -1,0 +1,8 @@
+{"app": "youtube", "screen": "schedule", "locale": "en", "bundle": "com.google.ios.youtube",
+ "signature": {"require": [{"label": "@label:set_visibility"}, {"label": "@label:schedule", "type": "Button"}],
+               "forbid": [{"label": "@label:public", "type": "Button", "contains": true}]},
+ "elements": {"publish_now": {"label": "@label:publish_now", "type": "Button"},
+              "schedule": {"label": "@label:schedule", "type": "Button"},
+              "back": {"label": "@label:back", "type": "Button"}},
+ "actions": {"choose_publish_now": {"tap": "publish_now", "expect": "visibility"},
+             "back": {"tap": "back", "expect": "details"}}}

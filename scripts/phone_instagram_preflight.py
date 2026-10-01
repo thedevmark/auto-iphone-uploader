@@ -10,50 +10,96 @@ import json
 import os
 import re
 import sys
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from video_drop.media_color import edits_color_mode  # noqa: E402
-from video_drop.phone_ui import PhoneLayout  # noqa: E402
+from video_drop.screens.snapshot import elements_from_tree  # noqa: E402
 from video_drop.core import Store, digest  # noqa: E402
 from video_drop.accounts import load_targets, require_target  # noqa: E402
-from video_drop.sidetap_root import sidetap_root  # noqa: E402
+from video_drop.phone import helpers as phone_helpers  # noqa: E402
 
-SIDETAP = sidetap_root()
 phone = None
 
 
 def connect_sidetap() -> None:
+    """Bind the app's own phone driver (video_drop/phone). The name is historical."""
     global phone
-    source = SIDETAP / "src"
-    if not source.is_dir():
-        raise ValueError(f"SideTap source missing: {source}")
-    if str(source) not in sys.path:
-        sys.path.insert(0, str(source))
-    try:
-        from phone_harness import helpers
-    except ImportError as exc:
-        raise ValueError(f"SideTap cannot load: {exc}") from exc
-    phone = helpers
+    phone = phone_helpers
+
+
+def profile_handle(elements) -> str:
+    """The active account from the profile header's account-switcher button.
+
+    Instagram 2026-09 names it user-switch-title-button and labels it with the
+    handle; its position moved between releases, so position is not trusted.
+    """
+    found = {e.label for e in elements if e.type == "Button" and e.name == "user-switch-title-button"}
+    if len(found) != 1 or not re.fullmatch(r"[A-Za-z0-9._]+", next(iter(found))):
+        raise ValueError("Instagram profile header is missing or ambiguous; stop before Edits export")
+    return "@" + next(iter(found)).casefold()
 
 
 def selected_instagram_account() -> str:
     phone.open_app("com.burbn.instagram", wait_seconds=2)
     if phone.current_app().get("bundleId") != "com.burbn.instagram":
         raise ValueError("Instagram is not foreground")
-    rows = phone.compact(phone.ocr())
-    profile = [row for row in rows if row["text"] == "Profile" and row.get("type") == "Button"]
+    elements = elements_from_tree(phone.ui_tree())
+    # Instagram can reopen inside a story viewer (seen 2026-10-01 02:40), which has no tab bar.
+    for _ in range(3):
+        dismiss = [e for e in elements if e.type == "Button" and e.name == "story-dismiss-button"]
+        if len(dismiss) != 1:
+            break
+        phone.tap(dismiss[0].x, dismiss[0].y)
+        time.sleep(1.5)
+        elements = elements_from_tree(phone.ui_tree())
+    profile = [e for e in elements if e.type == "Button" and e.label == "Profile"]
     if len(profile) == 1:
-        phone.tap(profile[0]["x"], profile[0]["y"])
-        rows = phone.compact(phone.ocr())
-    layout = PhoneLayout.from_info(phone.screen_info())
-    handles = [row["text"] for row in rows if row.get("type") == "Button"
-               and layout.relative_band(row, left=0.3, right=0.7, top=0.06, bottom=0.12)
-               and re.fullmatch(r"[A-Za-z0-9._]+", row["text"])]
-    if len(handles) != 1:
+        phone.tap(profile[0].x, profile[0].y)
+        time.sleep(1.5)
+        elements = elements_from_tree(phone.ui_tree())
+    return profile_handle(elements)
+
+
+def switcher_row(elements, handle: str):
+    """The account switcher's row for ``handle``. Recorded 2026-10-01: each signed-in account is
+    a Button labelled "INSTAGRAM profile, <handle>[, <activity>]"; the active one has value 1."""
+    pattern = re.compile(r"instagram profile, " + re.escape(handle.lstrip("@").casefold()) + r"(,|$)")
+    rows = {(e.x, e.y): e for e in elements if e.type == "Button" and pattern.match(e.label.casefold())}
+    if len(rows) != 1:
+        raise ValueError(f"Instagram account switcher shows {len(rows)} rows for {handle}; "
+                         "sign that account in on the phone first")
+    return next(iter(rows.values()))
+
+
+def ensure_instagram_account(expected: str) -> str:
+    """Open the profile, and switch to ``expected`` through Instagram's own account switcher
+    when another signed-in account is active. The header must then read ``expected``."""
+    actual = selected_instagram_account()
+    if actual == expected.casefold():
+        return actual
+    elements = elements_from_tree(phone.ui_tree())
+    header = [e for e in elements if e.type == "Button" and e.name == "user-switch-title-button"]
+    if len(header) != 1:
         raise ValueError("Instagram profile header is missing or ambiguous; stop before Edits export")
-    return "@" + handles[0].casefold()
+    phone.tap(header[0].x, header[0].y)
+    time.sleep(1.5)
+    row = switcher_row(elements_from_tree(phone.ui_tree()), expected)
+    phone.tap(row.x, row.y)
+    deadline = time.monotonic() + 15
+    while True:
+        time.sleep(1.5)
+        try:
+            actual = profile_handle(elements_from_tree(phone.ui_tree()))
+        except ValueError:
+            actual = ""
+        if actual == expected.casefold():
+            return actual
+        if time.monotonic() >= deadline:
+            raise ValueError(f"Instagram did not switch to {expected} (shows {actual or 'nothing'}); "
+                             "nothing was exported")
 
 
 def main() -> None:
@@ -93,9 +139,7 @@ def main() -> None:
     color = edits_color_mode(source)
     connect_sidetap()
     phone.unlock()
-    actual = selected_instagram_account()
-    if actual != account.casefold():
-        raise ValueError(f"Instagram has {actual}; expected {account}. Switch before Edits export")
+    actual = ensure_instagram_account(account)
     print(json.dumps({"source": str(source.resolve()), "instagramAccount": actual,
                       "editsColorMode": color, "readyForEditsExport": True}))
 

@@ -1,0 +1,5 @@
+{"app": "instagram", "screen": "schedule_date", "locale": "en", "bundle": "com.burbn.instagram",
+ "signature": {"require": [{"id": "DatePicker.NextMonth"}, {"id": "PopoverDismissRegion"}]},
+ "elements": {"previous_month": {"id": "DatePicker.PreviousMonth"},
+              "next_month": {"id": "DatePicker.NextMonth"},
+              "month": {"id": "DatePicker.Show"}}}

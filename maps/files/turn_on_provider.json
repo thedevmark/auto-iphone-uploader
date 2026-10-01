@@ -1,0 +1,5 @@
+{"app": "files", "screen": "turn_on_provider", "locale": "en", "bundle": "com.apple.DocumentsApp",
+ "signature": {"require": [{"type": "Alert"}, {"label": "@label:turn_on", "type": "Button"}]},
+ "elements": {"turn_on": {"label": "@label:turn_on", "type": "Button"},
+              "cancel": {"label": "@label:cancel", "type": "Button"}},
+ "actions": {"turn_on": {"tap": "turn_on", "expect": "folder", "irreversible": true}}}

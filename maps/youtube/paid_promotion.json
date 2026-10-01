@@ -1,0 +1,8 @@
+{"app": "youtube", "screen": "paid_promotion", "locale": "en", "bundle": "com.google.ios.youtube",
+ "signature": {"require": [{"label": "@label:paid_promotion", "type": "Other"},
+                           {"id": "paid_product_placement_setting_no"}]},
+ "elements": {"yes": {"id": "paid_product_placement_setting_notify", "label": "@label:yes"},
+              "no": {"id": "paid_product_placement_setting_no", "label": "@label:no"},
+              "back": {"label": "@label:back", "type": "Button"}},
+ "actions": {"choose_no": {"tap": "no", "expect": "paid_promotion"},
+             "back": {"tap": "back", "expect": "details"}}}

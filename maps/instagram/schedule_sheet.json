@@ -1,0 +1,5 @@
+{"app": "instagram", "screen": "schedule_sheet", "locale": "en", "bundle": "com.burbn.instagram",
+ "signature": {"require": [{"label": "@label:schedule_reel", "type": "StaticText"},
+                           {"id": "ig-partial-modal-sheet-view-controller-content"}]},
+ "elements": {"done": {"label": "@label:done", "type": "Button"}},
+ "actions": {"done": {"tap": "done", "expect": "more_options"}}}

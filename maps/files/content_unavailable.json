@@ -1,0 +1,6 @@
+{"app": "files", "screen": "content_unavailable", "locale": "en", "bundle": "com.apple.DocumentsApp",
+ "signature": {"require": [{"label": "@label:content_unavailable", "type": "StaticText"},
+                           {"label": "@label:try_again", "type": "Button"}]},
+ "elements": {"try_again": {"label": "@label:try_again", "type": "Button"},
+              "back": {"id": "BackButton"}},
+ "actions": {"try_again": {"tap": "try_again", "expect": "folder"}}}

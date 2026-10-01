@@ -15,16 +15,17 @@ the ignored .state/ directory.
   can be signed into different accounts.
 - Verify the active TikTok and YouTube accounts in each composer. Keep the For
   You feed out of the upload route when its accessibility tree is unavailable.
-- SideTap normally lives under the Windows LOCALAPPDATA directory. Its viewer
-  runs on localhost port 8770. Run phone-harness doctor after connection
-  changes; a device listed by ios list does not prove screen capture or input.
+- The phone driver is built in (`video_drop/phone/`); the link supervisor owns
+  the tunnel, WDA runner and forwards, and the app's setup check is the doctor.
+  SideTap's viewer (localhost 8770) is optional and the supervisor stands by
+  while it runs. A device listed by ios list does not prove screen capture or
+  input.
 - Native upload runners must use `video_drop.phone_focus.upload_focus` around
   the entire composer and final-tap phase. It verifies Do Not Disturb in
   Control Center before media work starts, preserves an already active Do Not
   Disturb state, and restores Focus after the run. An unfamiliar Control Center
-  state stops the run before upload. This is wired to the YouTube preparation
-  and Threads runner; Instagram/Edits and TikTok upload automation is not yet
-  connected, so manual phone posts are outside this guard.
+  state stops the run before upload. This is wired to the YouTube, Instagram
+  (via Edits) and TikTok runners; manual phone posts are outside this guard.
 
 ## OneDrive to Edits to Instagram
 
@@ -46,17 +47,34 @@ the ignored .state/ directory.
    assuming the preview is the cover. Choose Instagram directly from Edits.
 6. In Instagram, verify the account, Reel composer, exact authorized caption,
    first-frame cover, and any crossposting targets before the final action.
+   Post now turns on the "Also share on…" Facebook and Threads switches (the
+   crosspost settings, both on by default), so one Instagram upload covers all
+   three. Recording Instagram's final tap as unconfirmed marks the crossposted
+   Facebook and Threads destinations unconfirmed with it; each still needs its
+   own receipt. Instagram's scheduler turns the Threads crosspost off, so a
+   scheduled Reel carries Facebook only.
 
-## OneDrive to Threads
+## Threads
 
-Threads posts immediately for approved releases. Run `python scripts/phone_threads.py
-<release-id>` to prepare a native composer from the exact OneDrive file; add
-`--commit` only for an approved live run. The script checks the stored source
-hash, approved text revision, @deutschmarkonline account, attached video, and
-the full pasted caption. A final tap is recorded as unconfirmed before it
-happens, so a dropped connection never triggers another post automatically.
-Check the native account for a receipt before clearing that state. Threads is
-not assigned the release's future YouTube/Instagram slot.
+Post now never runs a separate Threads post: Threads goes out with Instagram's
+upload through its "Also share on…" Threads switch. The Threads Post now
+button and `/api/releases/<id>/threads-post` refuse with that reason, and
+nothing is posted.
+
+In Schedule mode Threads must be scheduled natively in the Threads app (clip
+in Photos, the **+** composer, the exact caption, then Schedule for the
+release's slot), because Instagram's scheduler turns the Threads crosspost off.
+That route is not built yet. `scripts/phone_threads.py` refuses scheduled
+releases before touching the phone; it never posts one immediately.
+
+The only separate Threads post is opt-in: Post now with "Crosspost to Threads
+from Instagram" off and "Post Threads separately when not crossposted" on (off
+by default). Then `python scripts/phone_threads.py <release-id>` prepares the
+native composer from the exact OneDrive file (add `--commit` only for an
+approved live run), after checking the source hash, approved text revision,
+intended account, attached video, and the full pasted caption. Its
+final tap is recorded as unconfirmed first, so a dropped connection never
+triggers another post automatically.
 
 ## OneDrive to TikTok and YouTube
 
@@ -78,7 +96,12 @@ The local control path has no paid per-run model or API dependency. A free
 Apple ID WebDriverAgent signature expires after seven days and needs renewal;
 network access and app accounts are still required.
 
-SideTap and go-ios can lose their route while USB still lists the phone. Check
-screen capture and WDA separately with phone-harness doctor. If its recovery
-cannot restore the connection, stop the batch with a clear status. Do not
-infer a schedule or publication from a lost connection.
+SideTap and go-ios can lose their route while USB still lists the phone. The
+app's link supervisor (`video_drop/link_supervisor.py`, started by the server)
+owns recovery: read its verdict in the Phone panel or `.state/link-status.json`
+and its decisions in `.state/link-events.jsonl` before running `phone-harness
+up` by hand — a second restarter fights it. "Unplug and replug the phone" is
+shown only after one daemon restart failed with the phone still on USB. If
+recovery cannot restore the connection, stop the batch with a clear status. Do
+not infer a schedule or publication from a lost connection. Root causes and
+the PC-side USB fixes: `docs/phone-link-reliability.md`.

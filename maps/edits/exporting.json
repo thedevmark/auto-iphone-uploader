@@ -1,0 +1,3 @@
+{"app": "edits", "screen": "exporting", "locale": "en", "bundle": "com.burbn.basel",
+ "signature": {"require": [{"id": "bsl_export_progress_label"}]},
+ "elements": {"progress": {"id": "bsl_export_progress_label"}}}

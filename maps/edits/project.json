@@ -1,0 +1,9 @@
+{"app": "edits", "screen": "project", "locale": "en", "bundle": "com.burbn.basel",
+ "signature": {"require": [{"id": "project_navigation_export_button"}, {"id": "project_navigation_video_quality_button"}],
+               "forbid": [{"id": "video_quality_segment_2_4K"}]},
+ "elements": {"close": {"id": "project_navigation_close_button"},
+              "quality": {"id": "project_navigation_video_quality_button"},
+              "export": {"id": "project_navigation_export_button"},
+              "time": {"id": "playback_time_label"}},
+ "actions": {"open_quality": {"tap": "quality", "expect": "quality"},
+             "export": {"tap": "export", "expect": "exporting"}}}
