@@ -325,6 +325,30 @@ class RunnerOwnershipTests(unittest.TestCase):
             self.assertEqual(spawned[0][1], state / "phone" / "tunnel.log")
             self.assertEqual(runner.runner_error(), "")
 
+    def test_a_tick_asks_for_each_process_status_once(self):
+        # proc_status is one `tasklist` spawn per process; observe() asked for four and the status
+        # payload asked for the same four again, eight spawns every 5 s tick.
+        from unittest import mock
+        from video_drop.phone import device
+
+        with TemporaryDirectory() as tmp:
+            state = Path(tmp)
+            runner = self.runner(state)
+            asked = []
+            runner.wda_state = lambda timeout: "up"
+            runner.device_present = lambda: True
+            runner.tunnel_entry = lambda: {"udid": "X", "address": "fd11::1", "rsdPort": 1, "userspaceTun": True}
+            runner.route_ok = lambda timeout=15: True
+            runner.activity_landed = lambda: False
+            runner.helper_available = lambda refresh=False: False
+            runner.viewer_running = lambda: False
+            with mock.patch.object(device, "proc_status", lambda name: asked.append(name) or "running"):
+                decision = runner.tick()
+            self.assertEqual(decision.state, READY)
+            self.assertEqual(sorted(asked), ["forward8100", "forward9100", "runwda", "tunnel"])
+            status = json.loads((state / "link-status.json").read_text(encoding="utf-8"))
+            self.assertEqual(status["pids"], {name: "running" for name in asked})
+
     def test_only_the_supervisor_can_start_a_go_ios_process(self):
         from video_drop.phone import device
 

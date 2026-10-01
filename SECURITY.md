@@ -132,13 +132,13 @@ build-provenance attestation. Check that your zip was built from this
 repository:
 
 ```powershell
-gh attestation verify auto-iphone-uploader-v1.0.0-rc.2.zip --repo thedevmark/auto-iphone-uploader
+gh attestation verify auto-iphone-uploader-v1.0.0-rc.3.zip --repo thedevmark/auto-iphone-uploader
 ```
 
 Or compare its hash with `SHA256SUMS.txt`:
 
 ```powershell
-Get-FileHash auto-iphone-uploader-v1.0.0-rc.2.zip -Algorithm SHA256
+Get-FileHash auto-iphone-uploader-v1.0.0-rc.3.zip -Algorithm SHA256
 ```
 
 The zip is plain Python, HTML and JSON with the third-party license texts in

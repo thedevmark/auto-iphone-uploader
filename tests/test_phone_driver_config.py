@@ -109,3 +109,12 @@ def test_package_imports_spawn_nothing():
     done = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=60,
                           cwd=str(Path(config.__file__).parents[2]))
     assert done.returncode == 0, done.stderr
+
+
+def test_video_guard_app_list_and_its_empty_off_switch(reloaded, tmp_path):
+    cfg = reloaded()
+    assert cfg.AX_VIDEO_APPS == frozenset({"com.zhiliaoapp.musically"})
+    cfg = reloaded(AX_VIDEO_APPS="com.zhiliaoapp.musically, com.burbn.instagram")
+    assert cfg.AX_VIDEO_APPS == frozenset({"com.zhiliaoapp.musically", "com.burbn.instagram"})
+    cfg = reloaded(AX_VIDEO_APPS="")  # the ax-shallow arm: guard off
+    assert cfg.AX_VIDEO_APPS == frozenset()

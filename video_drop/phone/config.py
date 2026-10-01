@@ -136,9 +136,9 @@ MJPEG_SETTINGS = (get("MJPEG_SETTINGS", "1") or "1").lower() not in ("0", "false
 # the chipset USB port, video alone was clean for 9.4 min and one /source of TikTok's feed
 # killed the whole USB data pipe in 37 s; on any port that /source hangs WDA >=30 s, TikTok
 # serves it on its main thread until FrontBoard's watchdog kills the app. Empty = guard off.
-AX_VIDEO_APPS = frozenset(
-    x.strip() for x in (get("AX_VIDEO_APPS", "com.zhiliaoapp.musically") or "").split(",") if x.strip()
-)
+# An EMPTY process-env value switches the guard off (get() would fall through to the default).
+_ax_video_apps = os.environ["AX_VIDEO_APPS"] if "AX_VIDEO_APPS" in os.environ     else (get("AX_VIDEO_APPS", "com.zhiliaoapp.musically") or "")
+AX_VIDEO_APPS = frozenset(x.strip() for x in _ax_video_apps.split(",") if x.strip())
 
 # Accessibility snapshot timeout (seconds). Added upstream in WDA #1214
 # (appium/WebDriverAgent#1214) to avoid indefinite hangs on apps with busy main

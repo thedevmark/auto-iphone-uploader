@@ -157,7 +157,8 @@ def _render(items: tuple[Item, ...], device: Device) -> bytes:
         _glyph(ImageDraw.Draw(patch_), item.glyph, box, sx * ss)
         canvas.paste(patch_.resize((w, h), Image.BOX).convert("RGB"), (x0, y0))
     buffer = io.BytesIO()
-    canvas.save(buffer, "PNG")
+    # Lossless either way; the default compress_level=6 spent ~14 s of the suite encoding retina canvases.
+    canvas.save(buffer, "PNG", compress_level=1)
     return buffer.getvalue()
 
 
@@ -173,7 +174,8 @@ def scale_snapshot(snapshot: Snapshot, device: Device) -> Snapshot:
     shot = None
     if snapshot.screenshot:
         buffer = io.BytesIO()
-        Image.open(io.BytesIO(snapshot.screenshot)).convert("RGB").resize(device.size, Image.LANCZOS).save(buffer, "PNG")
+        Image.open(io.BytesIO(snapshot.screenshot)).convert("RGB").resize(device.size, Image.LANCZOS).save(
+            buffer, "PNG", compress_level=1)
         shot = buffer.getvalue()
     return Snapshot(device.width, device.height, scaled, shot, snapshot.app, snapshot.app_version)
 

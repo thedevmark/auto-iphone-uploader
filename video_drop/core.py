@@ -20,8 +20,9 @@ PHONE_CHECK_DEFAULTS = {
     "doNotDisturb": True,
     "youtubeQualityEveryUpload": False,
     "inspectPhoneOnOpen": True,
-    # After every destination has a native receipt: remove the Files download and move the
-    # Photos copy to Recently Deleted. Recently Deleted is never emptied automatically.
+    # Once Instagram has its native receipt, move the Edits project its 4K export left behind
+    # to Edits' Trash (recoverable there). Posts save nothing to Photos (measured 2026-10-01).
+    # video_drop/edits_cleanup.py + scripts/phone_cleanup.py.
     "removeAfterPost": True,
     # Post now: Instagram's one upload turns on these "Also share on…" switches.
     "crosspostFacebook": True,

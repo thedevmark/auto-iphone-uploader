@@ -1,34 +1,42 @@
 <#
 .SYNOPSIS
-  Set up Auto iPhone Uploader on this Windows PC.
+  Set up Auto iPhone Uploader on this Windows PC: one command, then sign once.
 
 .DESCRIPTION
-  Idempotent: run it as often as you like. Each step is skipped when it is
-  already done. It never touches the iPhone and never reads or prints your
-  passcode. Steps:
+  Run it as often as you like: every step is skipped when it is already done.
+  It never touches the iPhone and never reads or prints your passcode. Steps:
 
     1. Python 3.11+ check, then the pinned packages from requirements.txt and
        the separate re-sign tool from requirements-resign.txt (pymobiledevice3,
        GPL-3.0, run only as a separate process; see third_party/NOTICE.md).
-    2. go-ios 1.3.2 (MIT): the official Windows release zip is downloaded from
-       GitHub, its SHA-256 checked against the value pinned below, and ios.exe
-       unpacked into tools\go-ios\. Nothing is installed system-wide.
-    3. WebDriverAgent 16.12.9 (BSD-3): the official UNSIGNED runner zip is
-       downloaded, its SHA-256 checked, and repacked as wda\WebDriverAgent.ipa.
-       You sign it with your own Apple ID in Sideloadly (the setup checklist
-       has the steps); a signed build is never redistributed.
+    2. The iPhone connector, go-ios 1.3.2 (MIT): the official Windows release
+       zip is downloaded from GitHub, its SHA-256 checked against the value
+       pinned below, and ios.exe unpacked into tools\go-ios\. Nothing is
+       installed system-wide.
+    3. The phone control app, WebDriverAgent 16.12.9 (BSD-3): the official
+       UNSIGNED runner zip is downloaded, its SHA-256 checked, and repacked as
+       wda\WebDriverAgent.ipa. You sign it once with your own Apple ID in
+       Sideloadly (the app walks you through it); a signed build is never
+       redistributed.
     4. .env: GO_IOS_PATH and WDA_IPA point at those files. Other keys are kept.
+       When no passcode is saved yet, it offers to save one now (hidden prompt,
+       scripts\set_passcode.py).
     5. A Desktop shortcut that opens the app, and a Startup entry that brings
-       the app server and the phone link supervisor up at sign-in without
-       opening a browser window.
-    6. A read-only look at whether the USB recovery helper is installed; it is
-       installed only on request (-InstallUsbHelper, administrator rights once).
-    7. The setup checklist (python -m video_drop.setup_report).
+       the app and the iPhone connection up at sign-in without opening a
+       browser window.
+    6. The USB recovery helper: read-only check, then an offer to install it
+       (recommended; Windows asks for administrator rights once).
+    7. The setup checklist (python -m video_drop.setup_report), then the app
+       opens so you can finish the one-time signing from its first-run screens.
 
 .PARAMETER CheckOnly
-  Report what is installed and run the checklist. Downloads nothing, writes nothing.
+  Report what is installed and run the checklist. Downloads nothing, writes nothing, asks nothing.
 .PARAMETER SkipDownloads
   Do everything except the two downloads (offline). Existing files are still verified.
+.PARAMETER NoPrompt
+  Never ask anything (passcode, USB helper): skip those offers and list them at the end.
+.PARAMETER NoLaunch
+  Do not open the app when setup finishes.
 .PARAMETER NoStartup
   Do not create the Startup entry (the app then starts only from the shortcut).
 .PARAMETER NoChecklist
@@ -48,6 +56,8 @@
 param(
     [switch]$CheckOnly,
     [switch]$SkipDownloads,
+    [switch]$NoPrompt,
+    [switch]$NoLaunch,
     [switch]$NoStartup,
     [switch]$NoChecklist,
     [switch]$ReplaceShortcut,
@@ -81,10 +91,21 @@ $wdaZip      = Join-Path $wdaDir 'WebDriverAgentRunner-Runner.zip'
 $wdaIpa      = Join-Path $wdaDir 'WebDriverAgent.ipa'
 $envFile     = Join-Path $projectRoot '.env'
 $problems    = New-Object System.Collections.Generic.List[string]
+$StepCount   = 7
+# Questions are asked only in an interactive window; scripts and CI get the same run without them.
+$interactive = -not $NoPrompt -and -not $CheckOnly -and [Environment]::UserInteractive
 
 function Say([string]$text) { Write-Host $text }
+function Step([int]$number, [string]$title) { Write-Host ''; Write-Host "[$number/$StepCount] $title" }
 function Ok([string]$text) { Write-Host "  [ok]      $text" }
 function Todo([string]$text) { Write-Host "  [to do]   $text"; $script:problems.Add($text) }
+function Note([string]$text) { Write-Host "            $text" }
+
+function Ask([string]$question) {
+    # Yes unless the user types n. Only called when $interactive.
+    $answer = Read-Host "  $question [Y/n]"
+    return ($answer.Trim() -eq '' -or $answer.Trim().ToLowerInvariant().StartsWith('y'))
+}
 
 function Get-Sha256([string]$path) {
     return (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToUpperInvariant()
@@ -97,18 +118,22 @@ function Test-Pinned([string]$path, [string]$sha256, [long]$size) {
     return (Get-Sha256 $path) -eq $sha256
 }
 
-function Get-Download([string]$url, [string]$dest, [string]$sha256, [long]$size) {
+function Get-Download([string]$what, [string]$url, [string]$dest, [string]$sha256, [long]$size) {
     # Download to a temp name, verify, then move into place. A bad file is deleted, never kept.
     $temp = "$dest.download"
     New-Item -ItemType Directory -Force -Path (Split-Path -Parent $dest) | Out-Null
     if (Test-Path -LiteralPath $temp) { Remove-Item -LiteralPath $temp -Force }
-    Say "  downloading $url"
+    Say "  downloading $what ($([math]::Round($size / 1MB, 1)) MB) from $url"
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-    Invoke-WebRequest -Uri $url -OutFile $temp -UseBasicParsing
+    try {
+        Invoke-WebRequest -Uri $url -OutFile $temp -UseBasicParsing
+    } catch {
+        throw "Could not download $what. Check that this PC is online (a proxy or firewall can block GitHub), then run this command again. ($($_.Exception.Message))"
+    }
     if (-not (Test-Pinned $temp $sha256 $size)) {
         $got = if (Test-Path -LiteralPath $temp) { Get-Sha256 $temp } else { 'missing' }
         Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue
-        throw "Downloaded file does not match the pinned SHA-256.`n  expected $sha256`n  got      $got`nNothing was installed. Check your connection or a proxy, then run this script again."
+        throw "The downloaded $what is not the file this app expects, so it was deleted and nothing was installed.`n  expected SHA-256 $sha256`n  got               $got`nCheck your connection or a proxy, then run this command again."
     }
     Move-Item -LiteralPath $temp -Destination $dest -Force
 }
@@ -159,8 +184,8 @@ function New-Shortcut([string]$path, [string]$target, [string]$arguments, [strin
             Ok "shortcut already current: $path"
             return
         }
-        Say "  existing shortcut preserved (points elsewhere): $path"
-        Say '  run with -ReplaceShortcut to point it at this checkout.'
+        Say "  existing shortcut kept (it points at another copy of the app): $path"
+        Note 'run with -ReplaceShortcut to point it at this folder.'
         return
     }
     $shortcut = $shell.CreateShortcut($path)
@@ -170,7 +195,7 @@ function New-Shortcut([string]$path, [string]$target, [string]$arguments, [strin
     $shortcut.IconLocation = (Join-Path $projectRoot 'web\logo.ico') + ',0'
     $shortcut.Description = $description
     $shortcut.Save()
-    Ok "shortcut written: $path"
+    Ok "shortcut created: $path"
 }
 
 # ---- 0. USB recovery helper (optional, elevated once) --------------------------
@@ -195,7 +220,7 @@ function Invoke-UsbHelperInstaller([string]$mode) {
     $isAdmin = (New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())).IsInRole(
         [Security.Principal.WindowsBuiltInRole]::Administrator)
     if ($isAdmin) {
-        Say "  running the helper installer ($mode) in this administrator session"
+        Say "  running the helper installer ($mode) in this administrator window"
         & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $usbHelperScript @modeArgs
         $code = $LASTEXITCODE
     } else {
@@ -204,16 +229,20 @@ function Invoke-UsbHelperInstaller([string]$mode) {
             -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$usbHelperScript`" $($modeArgs -join ' ')"
         $code = $proc.ExitCode
     }
-    if ($code -ne 0) { throw "the USB recovery helper $mode step failed (exit $code); see the elevated window's output" }
+    if ($code -ne 0) { throw "The USB recovery helper could not be ${mode}ed (exit $code); read the administrator window's output, then try again." }
+}
+
+function Install-UsbHelperNow {
+    Invoke-UsbHelperInstaller 'install'
+    if (Test-UsbHelperInstalled) { Ok 'USB recovery helper installed (a stalled iPhone connection now fixes itself)' }
+    else { throw 'The helper installer finished but the helper is not in place; run it again and read its output.' }
 }
 
 if ($InstallUsbHelper -or $UninstallUsbHelper) {
     Say "Auto iPhone Uploader USB recovery helper ($projectRoot)"
-    if ($InstallUsbHelper -and $UninstallUsbHelper) { throw 'pass either -InstallUsbHelper or -UninstallUsbHelper' }
+    if ($InstallUsbHelper -and $UninstallUsbHelper) { throw 'Pass either -InstallUsbHelper or -UninstallUsbHelper, not both.' }
     if ($InstallUsbHelper) {
-        Invoke-UsbHelperInstaller 'install'
-        if (Test-UsbHelperInstalled) { Ok 'USB recovery helper installed (task \AutoIphoneUploader\UsbRecovery, runs as SYSTEM on demand)' }
-        else { throw 'the helper installer finished but the helper is not in place; run it again and read its output' }
+        Install-UsbHelperNow
     } else {
         Invoke-UsbHelperInstaller 'uninstall'
         if (-not (Test-UsbHelperInstalled)) { Ok 'USB recovery helper removed' }
@@ -223,11 +252,16 @@ if ($InstallUsbHelper -or $UninstallUsbHelper) {
 
 # ---- 1. Python ---------------------------------------------------------------
 Say "Auto iPhone Uploader setup in $projectRoot"
-$pythonCommand = Get-Command python -ErrorAction Stop
+if ($CheckOnly) { Say '  check only: nothing is downloaded, written or asked.' }
+Step 1 'Python and the app''s packages'
+$pythonCommand = Get-Command python -ErrorAction SilentlyContinue
+if (-not $pythonCommand) {
+    throw 'Python was not found. Install Python 3.11 or newer from python.org (tick "Add python.exe to PATH"), open a new PowerShell window, then run this command again.'
+}
 $pythonExe = $pythonCommand.Source
 $versionText = & $pythonExe -c 'import sys; print(str(sys.version_info.major)+chr(46)+str(sys.version_info.minor)); sys.exit(sys.version_info < (3, 11))'
 if ($LASTEXITCODE -ne 0) {
-    throw "Python 3.11 or newer is required. Found $versionText at $pythonExe."
+    throw "Python 3.11 or newer is required; this PC has $versionText at $pythonExe. Install a newer Python from python.org, then run this command again."
 }
 Ok "Python $versionText at $pythonExe"
 $pythonw = Join-Path (Split-Path -Parent $pythonExe) 'pythonw.exe'
@@ -243,86 +277,105 @@ if ($CheckOnly) {
     & $pythonExe -c "import importlib.util, sys; sys.exit(importlib.util.find_spec('pymobiledevice3') is None)" 2>$null
     $resignOk = ($LASTEXITCODE -eq 0)
     $ErrorActionPreference = 'Stop'
-    if ($packagesOk) { Ok 'Python packages from requirements.txt are installed' } else { Todo 'Python packages missing: run this script without -CheckOnly' }
-    if ($resignOk) { Ok 're-sign tool (pymobiledevice3) is installed' } else { Todo 're-sign tool missing: pip install -r requirements-resign.txt' }
+    if ($packagesOk) { Ok 'app packages installed' } else { Todo 'app packages missing: run this command without -CheckOnly' }
+    if ($resignOk) { Ok 're-sign tool installed' } else { Todo 're-sign tool missing: run this command without -CheckOnly' }
 } else {
-    Say 'Installing Python packages (requirements.txt)...'
-    & $pythonExe -m pip install --disable-pip-version-check -r (Join-Path $projectRoot 'requirements.txt')
-    if ($LASTEXITCODE -ne 0) { throw 'Python dependency installation failed. Resolve the pip error above and run this script again.' }
-    Say 'Installing the re-sign tool (requirements-resign.txt, separate process only)...'
-    & $pythonExe -m pip install --disable-pip-version-check -r (Join-Path $projectRoot 'requirements-resign.txt')
-    if ($LASTEXITCODE -ne 0) { throw 'pymobiledevice3 installation failed. Resolve the pip error above and run this script again.' }
-    Ok 'Python packages installed'
+    Say '  installing the app''s packages (this can take a minute)...'
+    & $pythonExe -m pip install --disable-pip-version-check -q -r (Join-Path $projectRoot 'requirements.txt')
+    if ($LASTEXITCODE -ne 0) { throw 'The app''s packages did not install. Read the pip error above (usually no network or an old pip: python -m pip install --upgrade pip), then run this command again.' }
+    Say '  installing the re-sign tool (used only as a separate process)...'
+    & $pythonExe -m pip install --disable-pip-version-check -q -r (Join-Path $projectRoot 'requirements-resign.txt')
+    if ($LASTEXITCODE -ne 0) { throw 'The re-sign tool did not install. Read the pip error above, then run this command again.' }
+    Ok 'app packages and re-sign tool installed'
 }
 
 # ---- 2. go-ios ---------------------------------------------------------------
+Step 2 'iPhone connector (go-ios 1.3.2, checked by SHA-256)'
 $goIosOk = (Get-GoIosVersion $goIosExe) -eq $GoIosVersion
 if ($goIosOk) {
-    Ok "go-ios $GoIosVersion at $goIosExe"
+    Ok "iPhone connector $GoIosVersion at $goIosExe"
 } elseif ($CheckOnly -or $SkipDownloads) {
-    Todo "go-ios $GoIosVersion is not at $goIosExe (run the script without -SkipDownloads to fetch it)"
+    Todo "iPhone connector $GoIosVersion is not at $goIosExe (the install command fetches it)"
 } else {
     if (-not (Test-Pinned $goIosZip $GoIosSha256 $GoIosSize)) {
-        Get-Download $GoIosUrl $goIosZip $GoIosSha256 $GoIosSize
+        Get-Download 'the iPhone connector' $GoIosUrl $goIosZip $GoIosSha256 $GoIosSize
     }
-    Ok "go-ios-win.zip verified (SHA-256 $GoIosSha256)"
+    Ok "download verified (SHA-256 $GoIosSha256)"
     $unpack = Join-Path $toolsDir 'unpack'
     if (Test-Path -LiteralPath $unpack) { Remove-Item -LiteralPath $unpack -Recurse -Force }
     Expand-Archive -LiteralPath $goIosZip -DestinationPath $unpack -Force
     $found = Get-ChildItem -LiteralPath $unpack -Recurse -Filter 'ios.exe' | Select-Object -First 1
-    if (-not $found) { throw "go-ios-win.zip did not contain ios.exe" }
+    if (-not $found) { throw 'The connector download did not contain ios.exe. Delete tools\go-ios and run this command again.' }
     Copy-Item -LiteralPath $found.FullName -Destination $goIosExe -Force
     Remove-Item -LiteralPath $unpack -Recurse -Force
     Copy-Item -LiteralPath (Join-Path $projectRoot 'third_party\LICENSE-go-ios') -Destination (Join-Path $toolsDir 'LICENSE') -Force
     $got = Get-GoIosVersion $goIosExe
-    if ($got -ne $GoIosVersion) { throw "Unpacked ios.exe reports version '$got', expected $GoIosVersion" }
+    if ($got -ne $GoIosVersion) { throw "The unpacked connector reports version '$got', expected $GoIosVersion. Delete tools\go-ios and run this command again." }
     $goIosOk = $true
-    Ok "go-ios $GoIosVersion unpacked to $goIosExe"
+    Ok "iPhone connector $GoIosVersion unpacked to $goIosExe"
 }
 
 # ---- 3. WebDriverAgent (unsigned) ---------------------------------------------
+Step 3 'Phone control app (WebDriverAgent 16.12.9, unsigned, checked by SHA-256)'
 $wdaZipOk = Test-Pinned $wdaZip $WdaSha256 $WdaSize
 $wdaOk = $wdaZipOk -and (Test-Path -LiteralPath $wdaIpa)
 if ($wdaOk) {
-    Ok "WebDriverAgent $WdaVersion (unsigned) at $wdaIpa"
+    Ok "control app $WdaVersion ready to sign at $wdaIpa"
 } elseif ($CheckOnly -or $SkipDownloads) {
     if ((Test-Path -LiteralPath $wdaZip) -and -not $wdaZipOk) {
-        Todo "$wdaZip is not the pinned WebDriverAgent $WdaVersion runner (SHA-256 mismatch); it will be replaced on a run without -SkipDownloads"
+        Todo "$wdaZip is not the pinned control app $WdaVersion (SHA-256 mismatch); the install command replaces it"
     } else {
-        Todo "WebDriverAgent $WdaVersion is not at $wdaIpa (run the script without -SkipDownloads to fetch it)"
+        Todo "control app $WdaVersion is not at $wdaIpa (the install command fetches it)"
     }
 } else {
     if (-not $wdaZipOk) {
-        Get-Download $WdaUrl $wdaZip $WdaSha256 $WdaSize
+        Get-Download 'the phone control app' $WdaUrl $wdaZip $WdaSha256 $WdaSize
     }
-    Ok "WebDriverAgentRunner-Runner.zip verified (SHA-256 $WdaSha256)"
+    Ok "download verified (SHA-256 $WdaSha256)"
     # The release zip holds WebDriverAgentRunner-Runner.app at its root; an .ipa is the
     # same app under Payload/. Repacked by video_drop/wda_ipa.py so entry names keep
     # forward slashes (Compress-Archive on older PowerShell writes backslashes).
     Push-Location $projectRoot
     try { & $pythonExe -m video_drop.wda_ipa $wdaZip "$wdaIpa.tmp" } finally { Pop-Location }
-    if ($LASTEXITCODE -ne 0) { throw 'Could not repack WebDriverAgent into an .ipa' }
+    if ($LASTEXITCODE -ne 0) { throw 'The control app could not be repacked for Sideloadly. Read the error above, then run this command again.' }
     Move-Item -LiteralPath "$wdaIpa.tmp" -Destination $wdaIpa -Force
     Copy-Item -LiteralPath (Join-Path $projectRoot 'third_party\LICENSE-WebDriverAgent') -Destination (Join-Path $wdaDir 'LICENSE') -Force
     $wdaOk = $true
-    Ok "WebDriverAgent $WdaVersion repacked (unsigned) to $wdaIpa"
+    Ok "control app $WdaVersion ready to sign at $wdaIpa"
 }
 
 # ---- 4. .env -----------------------------------------------------------------
+Step 4 'App settings (.env)'
 $keys = Get-EnvKeys $envFile
 if ($CheckOnly) {
     foreach ($name in 'GO_IOS_PATH', 'WDA_IPA') {
-        if ($keys[$name]) { Ok "$name is set in .env" } else { Todo "$name is not set in .env" }
+        if ($keys[$name]) { Ok "$name is set" } else { Todo "$name is not set in .env" }
     }
 } else {
-    if ($goIosOk) { Set-EnvKey $envFile 'GO_IOS_PATH' $goIosExe; Ok 'GO_IOS_PATH written to .env' }
-    if ($wdaOk) { Set-EnvKey $envFile 'WDA_IPA' $wdaIpa; Ok 'WDA_IPA written to .env' }
+    if ($goIosOk) { Set-EnvKey $envFile 'GO_IOS_PATH' $goIosExe; Ok 'connector path saved' }
+    if ($wdaOk) { Set-EnvKey $envFile 'WDA_IPA' $wdaIpa; Ok 'control app path saved' }
     $keys = Get-EnvKeys $envFile
 }
-if ($keys['PHONE_PASSCODE']) { Ok 'PHONE_PASSCODE is set in .env (never shown)' }
-else { Todo "PHONE_PASSCODE is not set: add the line PHONE_PASSCODE=<your iPhone passcode> to $envFile so the app can unlock the phone by itself" }
+if ($keys['PHONE_PASSCODE']) {
+    Ok 'iPhone passcode saved (never shown)'
+} else {
+    $saved = $false
+    if ($interactive) {
+        Say '  The app unlocks the iPhone before each post, so it needs the passcode. It is typed only on the'
+        Say '  lock screen and never shown or logged.'
+        if (Ask 'Save your iPhone passcode now?') {
+            $ErrorActionPreference = 'Continue'
+            & $pythonExe (Join-Path $projectRoot 'scripts\set_passcode.py')
+            $saved = ($LASTEXITCODE -eq 0)
+            $ErrorActionPreference = 'Stop'
+        }
+    }
+    if ($saved) { Ok 'iPhone passcode saved (never shown)' }
+    else { Todo 'save your iPhone passcode: python scripts\set_passcode.py (hidden prompt, never shown)' }
+}
 
 # ---- 5. shortcuts --------------------------------------------------------------
+Step 5 'Desktop shortcut and start at sign-in'
 if ($DesktopDir -eq '') { $DesktopDir = [Environment]::GetFolderPath('DesktopDirectory') }
 if ($StartupDir -eq '') { $StartupDir = [Environment]::GetFolderPath('Startup') }
 $desktopShortcut = Join-Path $DesktopDir 'Auto iPhone Uploader.lnk'
@@ -330,33 +383,54 @@ $startupShortcut = Join-Path $StartupDir 'Auto iPhone Uploader (background).lnk'
 $launchScript = '"' + (Join-Path $projectRoot 'launch_video_drop.py') + '"'
 if ($CheckOnly) {
     if (Test-Path -LiteralPath $desktopShortcut) { Ok "Desktop shortcut: $desktopShortcut" } else { Todo 'Desktop shortcut not created yet' }
-    if (Test-Path -LiteralPath $startupShortcut) { Ok "Startup entry: $startupShortcut" } elseif (-not $NoStartup) { Todo 'Startup entry not created yet' }
+    if (Test-Path -LiteralPath $startupShortcut) { Ok "starts at sign-in: $startupShortcut" } elseif (-not $NoStartup) { Todo 'start-at-sign-in entry not created yet' }
 } else {
-    if (-not $DesktopDir -or -not (Test-Path -LiteralPath $DesktopDir)) { throw 'Windows could not locate the Desktop folder for the shortcut.' }
-    New-Shortcut $desktopShortcut $launcher $launchScript 'Open the local video review and phone upload app'
+    if (-not $DesktopDir -or -not (Test-Path -LiteralPath $DesktopDir)) { throw 'Windows could not find your Desktop folder for the shortcut. Pass -DesktopDir <folder> and run this command again.' }
+    New-Shortcut $desktopShortcut $launcher $launchScript 'Open Auto iPhone Uploader'
     if (-not $NoStartup) {
-        if (-not $StartupDir -or -not (Test-Path -LiteralPath $StartupDir)) { throw 'Windows could not locate the Startup folder.' }
-        New-Shortcut $startupShortcut $launcher "$launchScript --no-browser" 'Start Auto iPhone Uploader and its phone link supervisor at sign-in'
+        if (-not $StartupDir -or -not (Test-Path -LiteralPath $StartupDir)) { throw 'Windows could not find your Startup folder. Pass -StartupDir <folder> or -NoStartup and run this command again.' }
+        New-Shortcut $startupShortcut $launcher "$launchScript --no-browser" 'Start Auto iPhone Uploader and its iPhone connection at sign-in'
     }
 }
 
 # ---- 6. USB recovery helper (read-only here; installed on request) ---------------
-if (Test-UsbHelperInstalled) { Ok 'USB recovery helper installed' }
-else { Todo 'USB recovery helper not installed: run this script with -InstallUsbHelper (asks for administrator rights once) so a stalled USB link never needs a replug' }
+Step 6 'USB recovery helper (recommended)'
+if (Test-UsbHelperInstalled) {
+    Ok 'USB recovery helper installed'
+} else {
+    $installed = $false
+    if ($interactive) {
+        Say '  When the iPhone''s USB connection stalls mid-upload, this small helper restarts Apple''s driver and'
+        Say '  resets the port by itself instead of asking you to replug. Windows asks for administrator rights once.'
+        if (Ask 'Install the USB recovery helper now?') {
+            try { Install-UsbHelperNow; $installed = $true } catch { Say "  $($_.Exception.Message)" }
+        }
+    }
+    if (-not $installed) { Todo 'USB recovery helper (recommended): run this command again with -InstallUsbHelper' }
+}
 
 # ---- 7. checklist -------------------------------------------------------------
+Step 7 'Setup checklist (read-only; the same rows the app shows)'
+$checklistReady = $true
 if (-not $NoChecklist) {
-    Say ''
-    Say 'Setup checklist (read-only; the same rows the app shows):'
+    $ErrorActionPreference = 'Continue'
     & $pythonExe -m video_drop.setup_report
-    if ($LASTEXITCODE -ne 0) { $problems.Add('the setup checklist has rows to do (see above)') }
+    $checklistReady = ($LASTEXITCODE -eq 0)
+    $ErrorActionPreference = 'Stop'
+    if (-not $checklistReady) { $problems.Add('the setup checklist has rows to do (see above); the app walks you through them') }
 }
 
 Say ''
 if ($problems.Count -eq 0) {
-    Say 'Everything is in place. Double-click the Desktop shortcut to open the app.'
+    Say 'Everything is in place. Double-click the Desktop shortcut whenever you want the app.'
 } else {
     Say "Still to do ($($problems.Count)):"
     foreach ($p in $problems) { Say "  - $p" }
-    if (-not $CheckOnly) { Say 'Fix these, then run the script again; finished steps are skipped.' }
+    if (-not $CheckOnly) { Say 'Finished steps are skipped when you run this command again.' }
+}
+if (-not $CheckOnly -and -not $NoLaunch) {
+    Say ''
+    Say 'Opening Auto iPhone Uploader. Its first-run screens take you through connecting the iPhone and the'
+    Say 'one-time signing with your Apple ID (Sideloadly), the one step Apple does not let a script do.'
+    Start-Process -FilePath $launcher -ArgumentList $launchScript -WorkingDirectory $projectRoot | Out-Null
 }

@@ -30,6 +30,7 @@ class FakePhone:
         self.swipes = getattr(self, "swipes", 0) + 1
 
     def ui_tree(self):
+        self.reads = getattr(self, "reads", 0) + 1
         if getattr(self, "stuck_menu", False):
             return {"type": "XCUIElementTypeApplication",
                     "children": [node("Other", "focus-modes-ui", 220, 400)]}
@@ -117,6 +118,19 @@ class PhoneFocusTests(unittest.TestCase):
             self.assertEqual(phone.focus, "Streaming")
         self.assertIn((220, 790), phone.taps)
         self.assertFalse(phone.stuck_menu)
+
+    def test_control_center_is_proven_by_one_tree_read_when_the_module_is_up(self):
+        # Every open used to read the tree twice (leftover-menu check, then the module wait);
+        # a Post now toggles DND on and off per platform, so each read is ~1 s of WDA time saved.
+        from video_drop.phone_focus import open_control_center
+        phone = FakePhone("Do Not Disturb")
+        elements = open_control_center(phone)
+        self.assertEqual(phone.reads, 1)
+        self.assertEqual(focus_state(elements), "dnd")
+        stuck = FakePhone("Streaming")
+        stuck.stuck_menu = True
+        open_control_center(stuck)
+        self.assertEqual(stuck.reads, 2)  # the menu read, then the one read after closing it
 
     def test_state_reads_the_recorded_module_value(self):
         module = lambda value: (Element("Button", "Focus", "focus-module", value, 46, 412, 166, 76),)

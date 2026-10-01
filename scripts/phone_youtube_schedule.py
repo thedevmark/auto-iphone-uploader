@@ -34,6 +34,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
+from video_drop import phone_lock  # noqa: E402
 
 from video_drop import native_schedule as ns  # noqa: E402
 from video_drop.accounts import load_targets  # noqa: E402
@@ -223,6 +224,7 @@ def release_input(store: Store, release_id: int, now: datetime) -> tuple[dict, d
     return data, moment
 
 
+@phone_lock.locked("YouTube scheduling")
 def run(release: str | int, db: Path, *, commit: bool = False, now=None) -> dict:
     if commit and os.environ.get("VIDEO_DROP_TEST_MODE") == "1":
         raise Stop("Posting is disabled in this test session")
@@ -275,7 +277,7 @@ def run(release: str | int, db: Path, *, commit: bool = False, now=None) -> dict
                     raise Stop(f"Phone link failed after 3 preparation attempts: {exc}") from exc
                 yt.stage("recover_phone_link")
                 if not yt.recover_link():
-                    raise Stop("SideTap could not restore the phone link; nothing was scheduled") from exc
+                    raise Stop("The phone link could not be restored; nothing was scheduled") from exc
                 time.sleep(1)
     raise Stop("YouTube schedule preparation did not finish")
 

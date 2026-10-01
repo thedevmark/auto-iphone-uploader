@@ -66,8 +66,11 @@ Around every run:
   only what died, and recovers a stalled USB link by restarting Apple's USB
   service and resetting the phone's USB port, asking for a replug only when
   that fails ([docs/phone-link-reliability.md](docs/phone-link-reliability.md)).
-- **A setup checklist** that turns each requirement green and says exactly
-  what to fix when one is not.
+- **Cleans up after itself.** Once Instagram confirms a post, the Edits
+  project its 4K export left behind (often over a gigabyte) goes to Edits'
+  Trash, where you can still restore it. Nothing is saved to Photos.
+- **A short first-run setup**: five calm screens, one task each, that move on
+  by themselves; light, dark or system theme.
 
 Everything runs on your own PC. The editor is a page at
 `http://127.0.0.1:4748` that only your computer can open. There is no account
@@ -131,102 +134,52 @@ verified live on the reference phone, and how to check each item yourself.
   The models run on your own PC; no text or video leaves it. Without Ollama you
   write the text yourself.
 
-## Install
+## Install (Windows, about fifteen minutes)
 
 1. Download `auto-iphone-uploader-<version>.zip` from the latest
-   [release](https://github.com/thedevmark/auto-iphone-uploader/releases) and,
-   if you like, [check it was built by GitHub](SECURITY.md#verify-a-download).
-2. Unzip it somewhere you will keep it, for example `Documents\Auto iPhone Uploader`.
-3. Open the folder, click the address bar, type `powershell` and press Enter.
-4. Read `scripts\install_windows.ps1` first (its header says everything it
-   does), then run:
+   [release](https://github.com/thedevmark/auto-iphone-uploader/releases)
+   ([check it was built by GitHub](SECURITY.md#verify-a-download)), unzip it
+   somewhere you will keep it, open the folder, type `powershell` in the
+   address bar and press Enter.
+2. Paste one command:
 
    ```powershell
-   powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install_windows.ps1
+   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install_windows.ps1
    ```
 
-   It checks your Python version, installs the pinned packages, downloads
-   go-ios 1.3.2 and the unsigned WebDriverAgent 16.12.9 runner from their
-   official GitHub releases (each checked against a SHA-256 pinned in the
-   script), writes their paths into `.env`, puts an **Auto iPhone Uploader**
-   shortcut on your Desktop and a Startup entry that brings the app and its
-   phone link up at sign-in, and ends with the setup checklist. Run it again
-   any time; finished steps are skipped. `-CheckOnly` reports without
-   downloading or writing anything. The `Bypass` applies to that one run only.
-   It installs no drivers or services and does not touch your phone.
-5. Install the USB recovery helper (the checklist asks for it), so a stalled
-   USB link is recovered without unplugging the phone:
+   It installs the Python packages, downloads the iPhone connector (go-ios
+   1.3.2) and the phone control app (WebDriverAgent 16.12.9), each checked
+   against a pinned SHA-256, adds a Desktop shortcut and a start-at-sign-in
+   entry, offers to save your iPhone passcode at a hidden prompt, and opens
+   the app. Re-run it any time; finished steps are skipped. `-CheckOnly` only
+   reports. [docs/setup-windows.md](docs/setup-windows.md) explains every step.
+3. Follow the app's first-run screens: **Connect your iPhone → Let your PC
+   control it → Pick your video folder → Check your apps → You're ready.**
+   Each screen shows one thing to do and moves on by itself when it's done.
 
-   ```powershell
-   powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install_windows.ps1 -InstallUsbHelper
-   ```
+The one step Apple doesn't let a script do: sign the control app with your
+own Apple ID in [Sideloadly](https://sideloadly.io) (drag
+`wda\WebDriverAgent.ipa` onto it, click Start, then trust your Apple ID on the
+iPhone under Settings → General → VPN & Device Management), then run
+`python scripts\phone_resign.py`. Apple's password prompts appear in
+Sideloadly, never in this app. A free Apple ID's signing lasts seven days; the
+app counts down and the same command renews it.
 
-   Windows asks for administrator rights once. It registers one on-demand
-   scheduled task, running as SYSTEM, that can do exactly two things: restart
-   Apple Mobile Device Service and reset the iPhone's USB port. The app itself
-   never runs elevated. `-UninstallUsbHelper` removes it.
-   [docs/usb-recovery-helper.md](docs/usb-recovery-helper.md) has the design
-   and the threat model.
-6. Double-click the Desktop shortcut. The editor opens in your browser.
+Tell the app which account each platform posts to in `.state\accounts.json`,
+for example `{"youtube": "@your-channel", "instagram": "@you", "threads": "@you",
+"tiktok": "@you"}`. Every run stops before posting if the signed-in account
+differs (Instagram switches to the right one by itself).
 
-Prefer not to run the script? `python -m pip install -r requirements.txt` then
-`python launch_video_drop.py` starts the app; you then fetch go-ios and the
-WebDriverAgent runner yourself and set `GO_IOS_PATH` and `WDA_IPA` in `.env`
-(`.env.example` lists every key).
+**Extras** (Settings → setup checklist): the USB recovery helper (recovers a
+stalled USB link without a replug; one administrator prompt, then an
+on-demand task that can only restart Apple's USB service and reset the
+iPhone's port, see [docs/usb-recovery-helper.md](docs/usb-recovery-helper.md)),
+local AI captions with Ollama, and advice on USB ports and charging.
 
-## First run: the setup checklist
-
-The first time the editor opens it shows **Set up Auto iPhone Uploader**. You
-can reopen it any time from **Settings → Open setup checklist**, or print it
-in a terminal with `python -m video_drop.setup_report`. Each row turns green
-when it is ready, and tells you exactly what to do when it is not:
-
-| Row | What it checks |
-|---|---|
-| Phone driver | The built-in driver loads and go-ios is where `.env` says |
-| iPhone connected | Exactly one iPhone is plugged in over USB |
-| Phone link | The PC can control the iPhone's screen |
-| Phone details | Screen size and which social apps are installed. Click **Check phone**; it opens YouTube on the iPhone to read the channel, so don't touch the phone while it runs |
-| iPhone free space | Room for the video and its Photos copy (5 GB recommended). Measured before every upload; this row is advisory |
-| Local AI (Ollama) | Ollama is running with both models (recommended, not required) |
-| Video folder | Your export folder is inside OneDrive, and **Watch folder** is on |
-| Signed WebDriverAgent on the iPhone | The driver is on the phone and how many days its signature has left, with the Sideloadly steps when it is missing or expiring |
-| Passcode saved for automation | `PHONE_PASSCODE` is set in the app's `.env`, so the app can unlock the phone before a post. The checklist never reads or shows the value |
-| Apple Mobile Device Service running | Windows has Apple's USB service and it is running |
-| USB power saving off | Windows will not switch off the iPhone's USB port mid-upload |
-| USB recovery helper installed | The helper from install step 5 is in place, so a stalled USB link is recovered before you are asked to replug |
-| iPhone USB path | Which USB controller and hubs the phone hangs off; warns about an AMD chipset controller or a hub (advice only) |
-| iPhone charging over USB | One battery reading over USB: warns when the port cannot keep the phone charged under load, or the battery is low (advice only) |
-| Screen text reader (Windows OCR) | Windows' built-in OCR engine has an English language, for the YouTube rows it reads from a screenshot |
-
-Every check only reads. None of them taps the phone, except **Check phone**,
-which you start yourself. Click **Check again** after fixing something.
-
-### Signing the driver (once, then every 7 days on a free Apple ID)
-
-The **Signed WebDriverAgent** row walks you through it: open Sideloadly, drag
-`wda\WebDriverAgent.ipa` from the app folder onto it, pick your iPhone, sign
-in with your Apple ID (Apple's password and 2FA prompts appear in Sideloadly,
-never in this app), click Start, then on the phone trust your Apple ID under
-Settings → General → VPN & Device Management. Finally, in the app folder:
-
-```powershell
-python scripts\phone_resign.py
-```
-
-Sideloadly leaves part of the driver unsigned; this re-signs it with go-ios so
-taps work, and starts the driver. It reads the signature Apple made back off
-the phone, so renewing before the 7 days are up usually needs no Sideloadly
-click at all.
-
-Then tell the app which account each platform must post to, in
-`.state\accounts.json` inside the app folder, for example:
-
-```json
-{"youtube": "@your-channel", "instagram": "@you", "threads": "@you", "tiktok": "@you"}
-```
-
-Every phone run stops before posting if the signed-in account is different.
+Prefer not to run the script? `python -m pip install -r requirements.txt`,
+then `python launch_video_drop.py`; fetch go-ios and the WebDriverAgent runner
+yourself and set `GO_IOS_PATH` and `WDA_IPA` in `.env` (`.env.example` lists
+every key).
 
 ## Everyday use
 

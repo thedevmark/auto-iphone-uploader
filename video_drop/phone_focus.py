@@ -67,14 +67,17 @@ def open_control_center(phone, *, retry: bool = True) -> tuple[Element, ...]:
     time.sleep(0.8)
     phone.swipe(layout.width * .92, 1, layout.width * .92, layout.height * .30, .3)
     time.sleep(1.0)
-    if retry and any(e.name == "focus-modes-ui" for e in _elements(phone)):
+    # Not under the shallow media profile: depth 15 hid the Focus module (2026-09-30 23:44).
+    elements = _elements(phone)
+    if any(e.type == "Button" and e.name == MODULE for e in elements):
+        return elements  # the usual case: one read proves Control Center, no second read
+    if retry and any(e.name == "focus-modes-ui" for e in elements):
         # A run that stopped mid-check left the Focus menu up (2026-10-01 00:33); the swipe then
         # shows the menu, not Control Center. Home does not close it (measured 2026-10-01);
         # a tap on the empty area below the modes does. Then open Control Center once more.
         phone.tap(*layout.reference_point(220, 790))
         time.sleep(1.0)
         return open_control_center(phone, retry=False)
-    # Not under the shallow media profile: depth 15 hid the Focus module (2026-09-30 23:44).
     return _settle(phone, MODULE)
 
 

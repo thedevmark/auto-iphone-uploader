@@ -40,6 +40,7 @@ from PIL import Image, ImageChops, ImageStat
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
+from video_drop import phone_lock  # noqa: E402
 
 from video_drop import native_schedule as ns  # noqa: E402
 from video_drop import receipts  # noqa: E402
@@ -569,6 +570,7 @@ def schedule_and_submit(store: Store, data: dict, cover: dict, *, commit: bool, 
                        f"{shown['date']} {shown['time']} before any retry"}
 
 
+@phone_lock.locked("Instagram via Edits")
 def run(release_id: int, db: Path, *, commit: bool = False, now=None) -> dict:
     if commit and os.environ.get("VIDEO_DROP_TEST_MODE") == "1":
         raise share.PhoneUploadError("Posting is disabled in this test session")
@@ -592,6 +594,13 @@ def run(release_id: int, db: Path, *, commit: bool = False, now=None) -> dict:
                 receipts.save_baseline(db.parent, release_id, "instagram", receipts.instagram_profile(elements()))
             except Exception as exc:  # the receipt then fails closed; posting is not blocked
                 share.stage(f"instagram_baseline_unread: {type(exc).__name__}")
+            if commit and store.phone_checks()["removeAfterPost"]:
+                # The project this upload creates in Edits is the one cleanup may trash later.
+                try:
+                    from scripts import phone_cleanup
+                    phone_cleanup.note_projects(db.parent, release_id)
+                except Exception as exc:  # cleanup then skips this release; posting is not blocked
+                    share.stage(f"edits_projects_unread: {type(exc).__name__}")
             leave_to_home()
             share.layout(refresh=True)
             share.open_source_file(data)

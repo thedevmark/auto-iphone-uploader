@@ -657,11 +657,6 @@ def write_status(state: Path, decision: Decision, *, since: str, extra: dict | N
     replace_file(tmp, state / STATUS_FILE)
 
 
-def log_event(state: Path, event: dict) -> None:
-    with (state / EVENTS_FILE).open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps({"ts": _now_iso(), **event}) + "\n")
-
-
 def read_busy(state: Path, now: float | None = None) -> str | None:
     """The reason a script declared the phone busy, or None once its window passed."""
     try:
@@ -822,6 +817,9 @@ class Runner:
         self.last_activity_mtime = 0.0
         self.viewer_warned = False
         self.last_pipe: dict | None = None  # the raw pipe probe behind the latest observation
+        # proc_status per go-ios process from the latest observe(): each is one `tasklist` spawn
+        # (~50-100 ms on Windows), so the status payload reuses them instead of asking again.
+        self.last_pids: dict[str, str] = {}
         self._helper: tuple[float, bool] = (0.0, False)  # (checked at, installed)
         self.helper_check_interval = 300.0
 
@@ -1024,15 +1022,18 @@ class Runner:
         # WDA first: a wedge has ~39s before iOS kills the runner, and nothing
         # slow may run ahead of the probe that detects it.
         wda = self.wda_state(self.policy.wda_timeout)
-        runwda_alive = self.proc_alive("runwda")
+        pids = {name: self.device.proc_status(name) for name in ("tunnel", "runwda", *self.forward_names)}
+        runwda_alive = pids["runwda"] == "running"
         if self.tunnel_mode == "pmd3":
             tunnel_alive = self.pmd3_alive()
         else:
-            tunnel_alive = self.proc_alive("tunnel")
+            tunnel_alive = pids["tunnel"] == "running"
             # A daemon someone else started is adopted in every mode (pid file only). In
             # kernel mode that is the whole point; it is never started or killed from here.
             if not tunnel_alive and not self.observe_only and self._adopt_unmanaged_tunnel():
                 tunnel_alive = True
+                pids["tunnel"] = self.device.proc_status("tunnel")
+        self.last_pids = pids
         present = self.device_present()
         if present is False:
             wda = "down"
@@ -1060,7 +1061,7 @@ class Runner:
         return Observation(device_present=present, tunnel_alive=tunnel_alive, tunnel_entry=entry is not None,
                            tunnel_listening=listening,
                            route_ok=route, runwda_alive=runwda_alive,
-                           forwards_alive=all(self.proc_alive(name) for name in self.forward_names),
+                           forwards_alive=all(pids[name] == "running" for name in self.forward_names),
                            wda=wda, activity_landed=self.activity_landed(), busy=busy,
                            runner_error="" if runwda_alive else self.runner_error(),
                            pipe=pipe, helper_available=self.helper_available(refresh=pipe == "stalled"
@@ -1267,7 +1268,8 @@ class Runner:
             self.last_state = decision.state
         payload = {"state": decision.state, "message": decision.message, "detail": decision.detail,
                    "since": self.since, "updatedAt": _now_iso(), "busy": read_busy(self.state),
-                   "pids": {n: self.device.proc_status(n) for n in ("tunnel", "runwda", *self.forward_names)},
+                   "pids": {n: self.last_pids[n] if n in self.last_pids else self.device.proc_status(n)
+                            for n in ("tunnel", "runwda", *self.forward_names)},
                    "supervisorPid": os.getpid(), "observeOnly": self.observe_only, "standby": standby,
                    "tunnelMode": self.tunnel_mode, "mjpegForward": self.mjpeg_forward,
                    "modeMismatch": self.mode_mismatch, "usbHelper": self._helper[1],

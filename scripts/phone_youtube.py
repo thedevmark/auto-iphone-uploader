@@ -20,6 +20,8 @@ from pathlib import Path
 from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from video_drop import phone_lock  # noqa: E402
+from video_drop.phone import capture as phone_capture  # noqa: E402
 from video_drop.phone_ui import (PhoneLayout, filled_radio, first_frame_point, share_app_position, share_rail_y,
                                   size_shown, youtube_identity, youtube_page_account)
 from video_drop.screens.labels import Labels
@@ -35,7 +37,7 @@ from video_drop.accounts import load_targets
 from video_drop.phone import device as phone_device
 from video_drop.phone import helpers as phone_helpers
 from video_drop.phone.wda_client import WDAError
-from video_drop.phone_link import busy, pixels, recover, release_frozen_app, upload_linger
+from video_drop.phone_link import busy, recover, release_frozen_app, upload_linger
 from video_drop import setup_check, source_route
 from video_drop.files_app import FilesApp, FilesError
 
@@ -51,7 +53,7 @@ def connect_sidetap() -> None:
     """Bind the app's own phone driver (video_drop/phone). The name is historical."""
     global phone, pixel_source
     phone = phone_helpers
-    pixel_source = lambda: pixels(phone_device.ios_path())  # noqa: E731
+    pixel_source = phone_capture.pixels_png  # go-ios, or WDA's AX-free /screenshot if go-ios's service wedges
 
 
 _layout: PhoneLayout | None = None
@@ -596,6 +598,7 @@ def inspect_native_schedule(data: dict, db: Path) -> dict:
             "message": "Native Schedule controls captured; no upload or schedule was submitted"}
 
 
+@phone_lock.locked("YouTube")
 def run(release: str, db: Path, *, commit: bool = False, resume_share: bool = False,
         inspect_schedule: bool = False) -> dict:
     if commit and inspect_schedule:
@@ -667,7 +670,7 @@ def run(release: str, db: Path, *, commit: bool = False, resume_share: bool = Fa
                     raise PhoneUploadError(f"Phone link failed after 3 preparation attempts: {exc}") from exc
                 stage("recover_phone_link")
                 if not recover_link():
-                    raise PhoneUploadError("SideTap could not restore the phone link; no upload was submitted") from exc
+                    raise PhoneUploadError("The phone link could not be restored; no upload was submitted") from exc
                 time.sleep(1)
     raise PhoneUploadError("YouTube preparation did not finish")
 

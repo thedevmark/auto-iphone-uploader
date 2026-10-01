@@ -23,7 +23,7 @@ from .accounts import load_targets
 from .watch import WatchFolder, complete_video, eligible
 from .runtime_identity import source_fingerprint
 from .phone_space import ensure_room, free_bytes
-from . import link_supervisor, phone_link, receipt_sweep, release_run, setup_check, timezones
+from . import edits_cleanup, link_supervisor, phone_link, phone_lock, receipt_sweep, release_run, setup_check, timezones
 
 ROOT = Path(__file__).resolve().parent.parent
 phone_free_bytes = free_bytes
@@ -365,6 +365,8 @@ def queue_phone_post(release_id: int, platform: str, *, slot: SlotPost | None = 
     with PHONE_ACTION_LOCK:
         if PHONE_ACTION_RUNNING:
             raise PhoneBusy("A phone action is already running")
+        if (other := phone_lock.holder(STATE)) is not None:  # a hand-run flow, soak or operator session
+            raise PhoneBusy(f"The iPhone is in use by {other}; try again when it finishes")
         if slot is not None:
             with PHONE_LOCK:
                 if PHONE_RUNNING:
@@ -464,6 +466,8 @@ def queue_release_run(release_id: int, mode: str) -> dict:
     with PHONE_ACTION_LOCK:
         if PHONE_ACTION_RUNNING:
             raise PhoneBusy("A phone action is already running; wait for it to finish")
+        if (other := phone_lock.holder(STATE)) is not None:
+            raise PhoneBusy(f"The iPhone is in use by {other}; try again when it finishes")
         with PHONE_LOCK:
             if PHONE_RUNNING:
                 raise PhoneBusy("The phone check is running; try again when it finishes")
@@ -633,8 +637,11 @@ def receipt_sweep_tick(now: datetime | None = None) -> list[tuple[int, str]]:
             return []
         checks = receipt_sweep.due(receipt_sweep.unconfirmed(store.db), receipt_sweep.load_done(STATE), now)
     # phone.lock: a soak, link experiment or operator session holds the phone; a background read
-    # would land in the middle of it.
-    if not checks or (STATE / "phone.lock").exists() or link_supervisor.read_status(STATE).get("state") != "ready":
+    # would land in the middle of it. A declared busy window (phone-busy.json) is a posting
+    # script's upload or export, hand-run or not: an upload that is still running cannot show a
+    # receipt, and a read on top of it would spend the attempt for nothing.
+    if (not checks or phone_lock.holder(STATE) is not None or link_supervisor.read_busy(STATE) is not None
+            or link_supervisor.read_status(STATE).get("state") != "ready"):
         return []
     with PHONE_ACTION_LOCK:
         if PHONE_ACTION_RUNNING:
@@ -671,6 +678,79 @@ def run_receipt_checks(checks: list[tuple[int, str, str]], now: datetime) -> lis
             PHONE_ACTION_RUNNING = False
 
 
+CLEANUP_ATTEMPTS_FILE = "edits-cleanup-attempts.json"
+CLEANUP_MAX_ATTEMPTS = 3
+
+
+def cleanup_due() -> list[int]:
+    """Releases whose Edits project may go to Trash now: noted before upload, not settled,
+    Instagram confirmed, and fewer than CLEANUP_MAX_ATTEMPTS failed tries."""
+    try:
+        attempts = json.loads((STATE / CLEANUP_ATTEMPTS_FILE).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        attempts = {}
+    due = []
+    with Store(STATE / "video-drop.sqlite", load_targets(STATE)) as store:
+        if not store.phone_checks()["removeAfterPost"]:
+            return []
+        for note in sorted((STATE / "receipts").glob("release*-edits-before.json")):
+            try:
+                data = json.loads(note.read_text(encoding="utf-8"))
+                release_id = int(data["releaseId"])
+                if data.get("cleanup") or attempts.get(str(release_id), 0) >= CLEANUP_MAX_ATTEMPTS:
+                    continue
+                if edits_cleanup.ready(store.release(release_id)):
+                    due.append(release_id)
+            except (OSError, ValueError, KeyError, TypeError):
+                continue
+    return due
+
+
+def cleanup_tick() -> list[int]:
+    """Start due Edits cleanups on the phone worker, under the same guards as receipt reads."""
+    global PHONE_ACTION_RUNNING
+    if TEST_MODE:
+        return []
+    due = cleanup_due()
+    if (not due or phone_lock.holder(STATE) is not None or link_supervisor.read_busy(STATE) is not None
+            or link_supervisor.read_status(STATE).get("state") != "ready"):
+        return []
+    with PHONE_ACTION_LOCK:
+        if PHONE_ACTION_RUNNING:
+            return []
+        with PHONE_LOCK:
+            if PHONE_RUNNING:
+                return []
+        PHONE_ACTION_RUNNING = True
+    PHONE_POOL.submit(run_cleanups, due)
+    return due
+
+
+def run_cleanups(release_ids: list[int]) -> list[dict]:
+    """The phone worker's half of cleanup_tick. Callers hold PHONE_ACTION_RUNNING."""
+    global PHONE_ACTION_RUNNING
+    from scripts import phone_cleanup
+
+    results = []
+    try:
+        for release_id in release_ids:
+            try:
+                results.append(phone_cleanup.run(release_id, STATE / "video-drop.sqlite"))
+            except Exception as exc:  # counted; after CLEANUP_MAX_ATTEMPTS the release is left alone
+                path = STATE / CLEANUP_ATTEMPTS_FILE
+                try:
+                    attempts = json.loads(path.read_text(encoding="utf-8"))
+                except (OSError, ValueError):
+                    attempts = {}
+                attempts[str(release_id)] = attempts.get(str(release_id), 0) + 1
+                path.write_text(json.dumps(attempts), encoding="utf-8")
+                results.append({"releaseId": release_id, "kind": "error", "message": str(exc)[:200]})
+        return results
+    finally:
+        with PHONE_ACTION_LOCK:
+            PHONE_ACTION_RUNNING = False
+
+
 def slot_post_loop(stop: threading.Event) -> None:
     while not stop.is_set():
         try:
@@ -681,6 +761,10 @@ def slot_post_loop(stop: threading.Event) -> None:
             receipt_sweep_tick()
         except Exception as exc:
             print(f"Receipt reads: {exc}", file=sys.stderr, flush=True)
+        try:
+            cleanup_tick()
+        except Exception as exc:
+            print(f"Edits cleanup: {exc}", file=sys.stderr, flush=True)
         stop.wait(SLOT_POST_INTERVAL)
 
 

@@ -70,7 +70,7 @@ class AccountSwitchTests(unittest.TestCase):
         self.assertEqual(phone.taps[0], (420, 96))
 
     def test_the_wrong_account_is_switched_through_instagram_and_proven(self):
-        # 2026-09-30, reference release: Instagram was on @secondchannel and the run stopped for a hand switch.
+        # 2026-09-30 reference release: Instagram was on @secondchannel and the run stopped for a hand switch.
         phone = FakeInstagram("secondchannel")
         with patch.object(preflight, "phone", phone):
             self.assertEqual(preflight.ensure_instagram_account("@examplechannel"), "@examplechannel")

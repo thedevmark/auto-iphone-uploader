@@ -32,8 +32,20 @@ APP_NAMES = {"onedrive": "OneDrive", "youtube": "YouTube", "edits": "Edits", "in
 SOCIAL_APPS = ("youtube", "instagram", "facebook", "threads", "tiktok")
 # What a local model adds; setup finishes without one.
 LLM_ADDS = ("Recommended, not required: setup finishes without it. A local model drafts titles and captions "
-            "from each video, and the calibration run for a new iPhone will use it. Without one, you write "
-            "the copy yourself.")
+            "from each video; without one, you write them yourself.")
+# The first-run flow groups the rows into these screens, in this order. ``why`` is the one line
+# the screen shows under its title; every row carries the ``step`` key it belongs to.
+STEPS = (
+    {"key": "connect", "title": "Connect your iPhone",
+     "why": "A USB cable to a port on the PC itself. Keep the iPhone unlocked while you set up."},
+    {"key": "control", "title": "Let your PC control it",
+     "why": "A one-time signing with your Apple ID, then the passcode so posts can run while you are away."},
+    {"key": "folder", "title": "Pick your video folder",
+     "why": "A folder that syncs to the iPhone. Every finished export in it becomes a draft here."},
+    {"key": "apps", "title": "Check your apps",
+     "why": "One read of the iPhone's apps and your YouTube channel, so posts go to the right place."},
+)
+INSTALL_COMMAND = "powershell -NoProfile -ExecutionPolicy Bypass -File scripts\\install_windows.ps1"
 # OneDrive videos open in the iPhone's OneDrive app; every other provider's open through Apple's
 # Files app, where the provider's app appears as a location once it is installed and turned on.
 PROVIDERS = "OneDrive, Google Drive, Dropbox or iCloud Drive"
@@ -79,9 +91,33 @@ class SetupProbes:
 
 
 def item(key: str, status: str, title: str, detail: str, fix: str = "", *,
-         required: bool = True, **extra: object) -> dict:
-    return {"key": key, "status": status, "title": title, "detail": detail, "fix": fix,
-            "required": required, **extra}
+         required: bool = True, step: str = "connect", steps: tuple[str, ...] | list[str] = (),
+         commands: tuple[str, ...] | list[str] = (), run_in: str = "", commands_first: bool = True,
+         more: str = "", gives: str = "", **extra: object) -> dict:
+    """One checklist row, calm by construction. ``title`` is at most five words; ``detail`` says what is
+    wrong in one line; ``fix`` is the one plain sentence a first-run screen shows (what to do, no
+    jargon, no warnings). Everything technical sits behind "Show me how": ``more`` (why, consequences,
+    alternatives), ``steps`` (numbered sentences) and ``commands`` (a console block, one per line,
+    under the ``run_in`` label). ``gives`` is the one line an optional row says about what it adds.
+    The UI never parses prose for any of it."""
+    row = {"key": key, "status": status, "title": title, "detail": detail, "fix": fix,
+           "required": required, "step": step, **extra}
+    if more:
+        row["more"] = more
+    if gives:
+        row["gives"] = gives
+    if steps:
+        row["steps"] = list(steps)
+    if commands:
+        row["commands"] = list(commands)
+        row["runIn"] = run_in or IN_APP_FOLDER
+        if steps:
+            row["commandsFirst"] = commands_first  # False: the numbered steps lead up to the command
+    return row
+
+
+IN_APP_FOLDER = "PowerShell, in the app folder"
+AS_ADMIN = "PowerShell as administrator"
 
 
 LEGACY_ENV_NOTE = ("still read from SideTap's .env; copy {keys} into this app's .env to finish the move away from "
@@ -90,17 +126,19 @@ LEGACY_ENV_NOTE = ("still read from SideTap's .env; copy {keys} into this app's 
 
 def driver_item(driver: dict) -> dict:
     """The app's own phone driver (video_drop/phone): it must import, and go-ios must be on this PC."""
-    title = "Phone driver"
+    title = "App files in place"
     error = str(driver.get("importError") or "")
     if error:
-        return item("driver", "action", title, f"The phone driver could not load: {error[:160]}",
-                    "Run pip install -r requirements.txt in the app folder, then check again.")
+        return item("driver", "action", title, f"Part of the app could not load: {error[:160]}",
+                    "Run the install command once more.", commands=[INSTALL_COMMAND],
+                    more="It reinstalls the app's packages; finished steps are skipped.")
     go_ios = driver.get("goIos")
     if not go_ios:
-        return item("driver", "action", title, "go-ios (ios.exe), the USB connector for the iPhone, is not installed.",
-                    "Install Node.js, run npm install -g go-ios, then check again. Or set GO_IOS_PATH in .env "
-                    "to the full path of ios.exe.")
-    detail = f"Built in · go-ios at {go_ios}"
+        return item("driver", "action", title, "The iPhone connector is missing from the app folder.",
+                    "Run the install command once more.", commands=[INSTALL_COMMAND],
+                    more="It downloads the connector and checks it. Or set GO_IOS_PATH in .env to an ios.exe you "
+                         "already have.")
+    detail = f"Installed · iPhone connector at {go_ios}"
     legacy = [str(key) for key in driver.get("legacyKeys") or []]
     if legacy:
         detail += " · " + LEGACY_ENV_NOTE.format(keys=", ".join(legacy))
@@ -110,18 +148,18 @@ def driver_item(driver: dict) -> dict:
 def phone_item(ios: dict, driver_ok: bool) -> dict:
     title = "iPhone connected"
     if not ios.get("found"):
-        return item("phone", "blocked", title, "Waiting for the phone driver.", "Fix the phone driver first.")
+        return item("phone", "blocked", title, "Waiting for the app files.", "Finish the app files step first.")
     error = str(ios.get("error", ""))
     if error:
         if re.search(r"27015|usbmux", error, re.IGNORECASE):
-            return item("phone", "action", title, "Windows cannot talk to iPhones yet.",
-                        "Install Apple Devices from the Microsoft Store, then reconnect the iPhone and check again.")
+            return item("phone", "action", title, "Windows cannot see iPhones yet.",
+                        "Install Apple Devices from the Microsoft Store, then plug the iPhone in again.")
         return item("phone", "action", title, f"The iPhone check failed: {error[:160]}",
-                    "Unplug the iPhone, plug it back in, unlock it, then check again.")
+                    "Unplug the iPhone, plug it back in and unlock it.")
     count = int(ios.get("count", 0))
     if count == 0:
         return item("phone", "action", title, "No iPhone found over USB.",
-                    "Connect the iPhone with a USB cable, unlock it, and tap Trust if it asks.")
+                    "Plug the iPhone in with a USB cable, unlock it, and tap Trust if it asks.")
     if count > 1:
         return item("phone", "action", title, f"{count} iPhones are connected.",
                     "Unplug the others so only the iPhone you post from stays connected.")
@@ -130,24 +168,23 @@ def phone_item(ios: dict, driver_ok: bool) -> dict:
 
 def link_item(wda: dict | None, phone_ok: bool, wda_bundle: str | None = "") -> dict:
     """``wda_bundle`` is the WebDriverAgent runner found on the phone (None = not installed)."""
-    title = "Phone link"
+    title = "PC controls the iPhone"
     if not phone_ok:
-        return item("link", "blocked", title, "Waiting for the iPhone.", "Connect the iPhone first.")
+        return item("link", "blocked", title, "Waiting for the iPhone.", "Connect the iPhone first.", step="control")
     value = wda.get("value") if isinstance(wda, dict) else None
     if not isinstance(value, dict) or value.get("ready") is False:
         if wda_bundle is None:
-            return item("link", "action", title, "WebDriverAgent, the input driver, is not installed on the iPhone.",
-                        "Sign and install WebDriverAgent on the iPhone with Sideloadly (a free Apple ID works; "
-                        "re-sign every 7 days), then check again.")
-        return item("link", "action", title, "The iPhone is connected, but the app cannot control it yet.",
-                    "Unlock the iPhone and tap Trust if it asks. The app's link supervisor starts the driver by "
-                    "itself; if it stays down, unplug and replug the iPhone, then check again.")
+            return item("link", "blocked", title, "Waiting for the one-time signing.",
+                        "It answers once the signing is done.", step="control")
+        return item("link", "action", title, "The iPhone is connected, but it is not answering taps yet.",
+                    "Unlock the iPhone and tap Trust if it asks.", step="control",
+                    more="The app starts the control app by itself. If it stays quiet, unplug and replug the iPhone.")
     version = value.get("os", {}).get("version", "") if isinstance(value.get("os"), dict) else ""
-    return item("link", "ok", title, f"Touch control is answering{' on iOS ' + version if version else ''}.")
+    return item("link", "ok", title, f"Answering taps{' on iOS ' + version if version else ''}.", step="control")
 
 
 def inventory_item(inspection: dict, link_ok: bool) -> dict:
-    title = "Phone details"
+    title = "Apps on the iPhone"
     status = inspection.get("status", "idle")
     if status == "ready" and isinstance(inspection.get("screenPoints"), dict):
         screen = inspection["screenPoints"]
@@ -159,18 +196,20 @@ def inventory_item(inspection: dict, link_ok: bool) -> dict:
             detail += f" · not installed: {', '.join(missing)}"
         if not any(name in installed for name in SOCIAL_APPS):
             return item("inventory", "action", title, detail,
-                        "Install the apps you post to from the App Store, then check the phone again.",
-                        action="inspect")
-        return item("inventory", "ok", title, detail, action="inspect")
+                        "Install the apps you post to from the App Store.", action="inspect", step="apps")
+        return item("inventory", "ok", title, detail, action="inspect", step="apps")
     if status == "inspecting":
         return item("inventory", "blocked", title, "Reading the iPhone now…",
-                    "Leave the iPhone alone until the check finishes.")
+                    "Leave the iPhone alone until the check finishes.", step="apps")
     if not link_ok:
-        return item("inventory", "blocked", title, "Not read yet.", "Get the phone link working first.")
+        return item("inventory", "blocked", title, "Not read yet.", "Let your PC control the iPhone first.",
+                    step="apps")
     error = str(inspection.get("error", "")).strip()
-    return item("inventory", "action", title, f"The last check failed: {error[:160]}" if error else "Not read yet.",
-                "Click Check phone. It opens YouTube on the iPhone to read the screen size and channel; "
-                "don't touch the phone while it runs.", action="inspect")
+    return item("inventory", "action", title,
+                f"The last read did not finish: {error[:160]}" if error else "Not read yet.",
+                "Let the app read which apps are on the iPhone.", action="inspect", step="apps",
+                more="Check phone opens YouTube on the iPhone to read the screen size and channel. Leave the phone "
+                     "alone while it runs.")
 
 
 def space_item(space: dict | None) -> dict:
@@ -178,32 +217,38 @@ def space_item(space: dict | None) -> dict:
     free = space.get("freeBytes") if isinstance(space, dict) else None
     if not isinstance(free, int):
         return item("space", "blocked", title, "Not measured yet.",
-                    "Nothing to do now. The app measures free space before every upload.", required=False)
+                    "Nothing to do now. The app measures free space before every upload.", required=False,
+                    step="apps", gives=SPACE_GIVES)
     detail = f"{free / GB:.1f} GB free"
     if space.get("checkedAt"):
         detail += f" when last measured ({str(space['checkedAt'])[:10]})"
     if free < COMFORTABLE_FREE:
-        return item("space", "action", title, detail,
-                    f"Free up space on the iPhone. Keep at least {COMFORTABLE_FREE / GB:.0f} GB free so a video "
-                    "and its Photos copy both fit.", required=False)
-    return item("space", "ok", title, detail, required=False)
+        return item("space", "action", title, detail, "Free up some space on the iPhone.", required=False,
+                    step="apps", gives=SPACE_GIVES,
+                    more=f"Keep at least {COMFORTABLE_FREE / GB:.0f} GB free so a video and its Photos copy both fit.")
+    return item("space", "ok", title, detail, required=False, step="apps", gives=SPACE_GIVES)
 
 
-USB_SUSPEND_FIX = (
-    "Windows is allowed to switch off USB ports to save power, and it cut this iPhone off mid-upload "
-    "(Windows logs it as \"surprise removed\"). In an administrator PowerShell run: "
-    "powercfg /setacvalueindex SCHEME_CURRENT 2a737441-1930-4402-8d77-b2bebba308a3 "
-    "48e6b7a6-50f5-4782-a5d4-53bb8f07e226 0 ; powercfg /setactive SCHEME_CURRENT. "
-    "Then in Device Manager, open each USB Root Hub, Power Management, and untick "
-    "\"Allow the computer to turn off this device to save power\". Plug the phone into a port on the PC itself, "
-    "not a hub.")
+SPACE_GIVES = "Room on the iPhone for the next video."
+
+
+USB_SUSPEND_FIX = "Keep the iPhone's USB port powered while it uploads."
+USB_SUSPEND_MORE = ("Windows is allowed to switch USB ports off to save power, which can interrupt a long upload; "
+                    "this turns that off for the port the iPhone uses.")
+USB_SUSPEND_COMMANDS = ("powercfg /setacvalueindex SCHEME_CURRENT 2a737441-1930-4402-8d77-b2bebba308a3 "
+                        "48e6b7a6-50f5-4782-a5d4-53bb8f07e226 0",
+                        "powercfg /setactive SCHEME_CURRENT")
+USB_SUSPEND_STEPS = ("Open Device Manager and expand Universal Serial Bus controllers.",
+                     "Open each USB Root Hub, then its Power Management tab.",
+                     "Untick \"Allow the computer to turn off this device to save power\".")
 
 
 def usb_power_item(power: dict | None) -> dict:
     """Windows USB power saving drops a busy iPhone off the bus (Kernel-PnP 1010, 2026-09-30)."""
     title = "USB power saving off"
     if not isinstance(power, dict):
-        return item("usbPower", "blocked", title, "Could not read Windows power settings.", USB_SUSPEND_FIX)
+        return item("usbPower", "blocked", title, "Could not read Windows power settings.", USB_SUSPEND_FIX,
+                    commands=USB_SUSPEND_COMMANDS, run_in=AS_ADMIN, steps=USB_SUSPEND_STEPS, more=USB_SUSPEND_MORE)
     problems = []
     if power.get("selectiveSuspend"):
         problems.append("USB selective suspend is on")
@@ -211,23 +256,27 @@ def usb_power_item(power: dict | None) -> dict:
     if hubs:
         problems.append(f"{hubs} USB hub{'s' if hubs != 1 else ''} may be switched off to save power")
     if problems:
-        return item("usbPower", "action", title, "; ".join(problems) + ".", USB_SUSPEND_FIX)
+        return item("usbPower", "action", title, "; ".join(problems) + ".", USB_SUSPEND_FIX,
+                    commands=USB_SUSPEND_COMMANDS, run_in=AS_ADMIN, steps=USB_SUSPEND_STEPS, more=USB_SUSPEND_MORE)
     return item("usbPower", "ok", title, "Windows keeps the iPhone's USB port powered.")
 
 
 # WebDriverAgent is signed by the user with their own Apple ID; a free ID's signature lasts 7 days.
+SIGNING_FIX = "Sign it with your Apple ID, once."
+SIGNING_MORE = ("Apple requires the control app to be signed with your own Apple ID (free, about five minutes). "
+                "A free Apple ID's signing lasts 7 days; the same command renews it.")
 SIDELOADLY_STEPS = (
-    "1. Install Sideloadly from sideloadly.io. "
-    "2. Plug in the iPhone and unlock it. "
-    "3. In Sideloadly, drag wda\\WebDriverAgent.ipa from the app folder onto the window, pick the iPhone, type your "
-    "Apple ID and click Start. Apple asks for the password and a 2FA code inside Sideloadly, never in this app. "
-    "4. On the iPhone: Settings > General > VPN & Device Management > tap your Apple ID > Trust. "
-    "5. In the app folder run: python scripts\\phone_resign.py. It re-signs the part Sideloadly leaves unsigned "
-    "(the nested test bundle) so taps work, and asks the link supervisor to start the driver. "
-    "A free Apple ID's signature lasts 7 days: run step 5 again before it expires (it asks for step 3 only when "
-    "the phone holds no valid signature).")
-RESIGN_STEPS = ("Run python scripts\\phone_resign.py in the app folder and click Start in Sideloadly when it asks "
-                "(Sideloadly: wda\\WebDriverAgent.ipa, your iPhone, your Apple ID). Then check again.")
+    "Install Sideloadly from sideloadly.io.",
+    "Plug in the iPhone and unlock it.",
+    "In Sideloadly, drag wda\\WebDriverAgent.ipa from the app folder onto the window, pick the iPhone, type your "
+    "Apple ID and click Start. Apple asks for your password and a code inside Sideloadly, never in this app.",
+    "On the iPhone: Settings > General > VPN & Device Management > tap your Apple ID > Trust.",
+    "Run the command below; it finishes the signing so taps work.")
+RESIGN_FIX = "Sign it again with your Apple ID."
+RESIGN_MORE = ("Run the command, and click Start in Sideloadly when it asks (wda\\WebDriverAgent.ipa, your iPhone, "
+               "your Apple ID).")
+RESIGN_COMMAND = "python scripts\\phone_resign.py"
+RESIGN_IN = "PowerShell, in the app folder, once Sideloadly has finished"
 RESIGN_SOON_DAYS = 2
 
 
@@ -246,75 +295,85 @@ def _parse_expiry(value: object) -> datetime | None:
 
 def signature_item(signature: dict | None, phone_ok: bool, installed: bool, now: datetime | None = None) -> dict:
     """Days left on the WebDriverAgent signature, read off the phone; never a guess from a local file alone."""
-    title = "Signed WebDriverAgent on the iPhone"
+    title = "Sign the control app"
     if not phone_ok:
-        return item("signature", "blocked", title, "Waiting for the iPhone.", "Connect the iPhone first.")
+        return item("signature", "blocked", title, "Waiting for the iPhone.", "Connect the iPhone first.",
+                    step="control")
     if not installed:
-        return item("signature", "action", title, "WebDriverAgent, the input driver, is not on the iPhone yet.",
-                    SIDELOADLY_STEPS)
+        return item("signature", "action", title, "The control app is not on the iPhone yet.", SIGNING_FIX,
+                    step="control", steps=SIDELOADLY_STEPS, commands=[RESIGN_COMMAND], run_in=RESIGN_IN,
+                    commands_first=False, more=SIGNING_MORE)
     signature = signature if isinstance(signature, dict) else {}
     expires = _parse_expiry(signature.get("expires"))
     if expires is None:
         error = str(signature.get("error") or "").strip()
         why = ("install the re-sign tool with pip install -r requirements-resign.txt so the app can read the "
-               "signature date off the phone" if "pymobiledevice3" in error else
+               "signing date off the phone" if "pymobiledevice3" in error else
                (error[:160] if error else "the phone did not hand over its signing profile"))
-        return item("signature", "ok", title, f"Installed · days left unknown: {why}.")
+        return item("signature", "ok", title, f"Signed · days left unknown: {why}.", step="control")
     now = now or datetime.now(timezone.utc)
     left = (expires - now).total_seconds() / 86400
     when = expires.astimezone().strftime("%Y-%m-%d %H:%M")
     if left <= 0:
-        return item("signature", "action", title, f"The signature expired on {when}; taps will not work.", RESIGN_STEPS)
+        return item("signature", "action", title, f"The signing ran out on {when}.", RESIGN_FIX,
+                    step="control", commands=[RESIGN_COMMAND], run_in=RESIGN_IN, more=RESIGN_MORE)
     if left < 1:
-        return item("signature", "action", title, f"The signature expires today ({when}).", RESIGN_STEPS)
+        return item("signature", "action", title, f"The signing runs out today ({when}).", RESIGN_FIX, step="control",
+                    commands=[RESIGN_COMMAND], run_in=RESIGN_IN, more=RESIGN_MORE)
     days = int(left)
     detail = f"Signed · {days} day{'s' if days != 1 else ''} left (until {when})"
     if left <= RESIGN_SOON_DAYS:
-        detail += " · re-sign soon: " + RESIGN_STEPS
-    return item("signature", "ok", title, detail)
+        return item("signature", "ok", title, detail + " · re-sign soon", RESIGN_FIX, step="control",
+                    commands=[RESIGN_COMMAND], run_in=RESIGN_IN, more=RESIGN_MORE)
+    return item("signature", "ok", title, detail, step="control")
 
 
 def passcode_item(passcode: dict | None) -> dict:
     """Whether PHONE_PASSCODE is saved so the app can unlock the phone; the value itself is never read here."""
-    title = "Passcode saved for automation"
+    title = "Passcode saved"
     passcode = passcode if isinstance(passcode, dict) else {}
     env_path = str(passcode.get("envPath") or ".env")
     if not passcode.get("set"):
-        return item("passcode", "action", title,
-                    "No passcode is saved, so the app cannot unlock the iPhone by itself before a post.",
-                    f"Open (or create) the file {env_path} in a text editor and add one line: "
-                    "PHONE_PASSCODE=your iPhone passcode. The app types it only on the lock screen, refuses to type "
-                    "it anywhere else, and never shows or logs it. Save the file, then check again.")
+        return item("passcode", "action", title, "No passcode is saved yet.",
+                    "Save your iPhone passcode so posts can run while you're away.", step="control",
+                    commands=["python scripts\\set_passcode.py"],
+                    more=f"You type it at a hidden prompt; it is saved to {env_path}, typed only on the lock screen, "
+                         "and never shown or logged.")
     if passcode.get("source") == "legacy":
         return item("passcode", "ok", title,
                     "Read from the installed SideTap's .env for now · " + LEGACY_ENV_NOTE.format(keys="PHONE_PASSCODE")
-                    + f" ({env_path}).")
-    return item("passcode", "ok", title, f"Saved in {env_path} (never shown).")
+                    + f" ({env_path}).", step="control")
+    return item("passcode", "ok", title, f"Saved in {env_path} (never shown).", step="control")
 
 
 def apple_service_item(service: dict | None) -> dict:
     """Apple Mobile Device Service is the Windows USB driver go-ios talks to (usbmuxd on port 27015)."""
-    title = "Apple Mobile Device Service running"
+    title = "Apple's iPhone driver"
     if not isinstance(service, dict):
         return item("appleService", "blocked", title, "Could not read Windows services.",
                     "Open Services (services.msc) and look for Apple Mobile Device Service; it must be Running.")
     if not service.get("installed"):
-        return item("appleService", "action", title, "Windows has no Apple USB driver for iPhones.",
-                    "Install Apple Devices from the Microsoft Store (or iTunes from apple.com), then reconnect the "
-                    "iPhone, unlock it, tap Trust, and check again.")
+        return item("appleService", "action", title, "Windows has no Apple driver for iPhones yet.",
+                    "Install Apple Devices from the Microsoft Store.",
+                    more="It is the driver Windows needs to see an iPhone.",
+                    steps=("Install Apple Devices from the Microsoft Store (or iTunes from apple.com).",
+                           "Plug the iPhone in again, unlock it and tap Trust."))
     if not service.get("running"):
-        return item("appleService", "action", title, "The service is installed but not running.",
-                    "Open Services (services.msc), start Apple Mobile Device Service and set its Startup type to "
-                    "Automatic. If it will not start, reinstall Apple Devices from the Microsoft Store. Then check again.")
-    return item("appleService", "ok", title, "Running.")
+        return item("appleService", "action", title, "Apple Mobile Device Service is installed but not running.",
+                    "Start Apple Mobile Device Service in Windows Services.",
+                    more="It is the driver Windows needs to see an iPhone.",
+                    steps=("Open Services (services.msc).",
+                           "Start Apple Mobile Device Service and set its Startup type to Automatic.",
+                           "If it will not start, reinstall Apple Devices from the Microsoft Store."))
+    return item("appleService", "ok", title, "Apple Mobile Device Service is running.")
 
 
-USB_HELPER_FIX = (
-    "In PowerShell in the app folder run: powershell -NoProfile -ExecutionPolicy Bypass -File "
-    "scripts\\install_windows.ps1 -InstallUsbHelper and accept the administrator prompt once. It registers a small "
-    "on-demand task (runs as SYSTEM) that can do exactly two things for Apple devices: restart Apple Mobile Device "
-    "Service and reset the iPhone's USB port. The app itself keeps running without administrator rights "
-    "(docs/usb-recovery-helper.md has the details and the security notes).")
+USB_HELPER_FIX = "Install it once with the command below."
+USB_HELPER_GIVES = "A stalled USB connection fixes itself instead of asking you to replug."
+USB_HELPER_MORE = ("The helper can do exactly two things: restart Apple's iPhone driver and reset the iPhone's USB "
+                   "port. The app itself never runs with administrator rights (docs/usb-recovery-helper.md).")
+USB_HELPER_COMMAND = f"{INSTALL_COMMAND} -InstallUsbHelper"
+USB_HELPER_IN = "PowerShell, in the app folder; accept the administrator prompt once"
 
 
 def usb_helper_item(helper: dict | None) -> dict:
@@ -322,25 +381,30 @@ def usb_helper_item(helper: dict | None) -> dict:
 
     Recommended, not required: posting works without it, and it asks for one administrator prompt.
     """
-    title = "USB recovery helper installed"
+    title = "USB recovery helper"
     if not isinstance(helper, dict):
-        return item("usbHelper", "blocked", title, "Could not read the helper's state.", USB_HELPER_FIX, required=False)
+        return item("usbHelper", "blocked", title, "Could not read the helper's state.", USB_HELPER_FIX, required=False,
+                    commands=[USB_HELPER_COMMAND], run_in=USB_HELPER_IN, more=USB_HELPER_MORE, gives=USB_HELPER_GIVES)
     if not helper.get("supported", True):
-        return item("usbHelper", "ok", title, "Not needed on this system (Windows only).", required=False)
+        return item("usbHelper", "ok", title, "Not needed on this system (Windows only).", required=False,
+                    gives=USB_HELPER_GIVES)
     if helper.get("installed"):
         stale = str(helper.get("detail") or "")
         if "version" in stale:
             return item("usbHelper", "action", title, f"Installed, but {stale}.",
-                        "Run the install command again to update it: " + USB_HELPER_FIX, required=False)
+                        "Run the install command again to update it.", required=False,
+                        commands=[USB_HELPER_COMMAND], run_in=USB_HELPER_IN, more=USB_HELPER_MORE, gives=USB_HELPER_GIVES)
         return item("usbHelper", "ok", title,
-                    "Installed. When the phone's USB link stalls, the app restarts Apple's USB service and resets "
-                    "the phone's USB port by itself before ever asking for a replug.", required=False)
+                    "Installed. When the iPhone's USB connection stalls, the app restarts Apple's driver and resets "
+                    "the USB port by itself before ever asking for a replug.", required=False, gives=USB_HELPER_GIVES)
     partial = str(helper.get("detail") or "")
     if helper.get("script") or helper.get("task"):
-        return item("usbHelper", "action", title, f"Installed incompletely ({partial}).", USB_HELPER_FIX, required=False)
+        return item("usbHelper", "action", title, f"Installed incompletely ({partial}).", USB_HELPER_FIX, required=False,
+                    commands=[USB_HELPER_COMMAND], run_in=USB_HELPER_IN, more=USB_HELPER_MORE, gives=USB_HELPER_GIVES)
     return item("usbHelper", "action", title,
-                "Not installed. Without it, a stalled USB link can only be fixed by unplugging and replugging the "
-                "phone by hand.", USB_HELPER_FIX, required=False)
+                "Not installed: a stalled USB connection can only be fixed by unplugging and replugging the iPhone "
+                "by hand.", USB_HELPER_FIX, required=False, commands=[USB_HELPER_COMMAND], run_in=USB_HELPER_IN,
+                more=USB_HELPER_MORE, gives=USB_HELPER_GIVES)
 
 
 # Host controllers by PCI vendor/device id: what the phone's USB path ends in and what that means.
@@ -360,9 +424,12 @@ USB_HUB_VENDORS = {"2109": "VIA", "0BDA": "Realtek", "05E3": "Genesys", "1A40": 
                    "2188": "CalDigit", "8087": "Intel"}
 PCI_ID = re.compile(r"PCI\\VEN_([0-9A-F]{4})&DEV_([0-9A-F]{4})", re.IGNORECASE)
 USB_ID = re.compile(r"USB\\VID_([0-9A-F]{4})&PID_([0-9A-F]{4})", re.IGNORECASE)
-USB_PATH_FIX = ("Plug the iPhone straight into a rear port on the PC's own (CPU) USB controller: no hub, no "
-                "front-panel port, no dock. Use the cable that came with the phone or a USB-A-to-C cable. Then check "
-                "again: this row should read 'CPU USB controller, no hub'.")
+USB_PATH_FIX = "Plug the iPhone straight into a rear port on the PC, with no hub or dock."
+USB_PATH_MORE = ("Use a port on the PC's own (CPU) USB controller rather than a front-panel port or a dock, with the "
+                 "cable that came with the phone or a USB-A-to-C cable; this row then reads 'CPU USB controller, "
+                 "no hub'.")
+USB_PATH_GIVES = "Fewer dropped connections during long uploads."
+USB_PATH_TITLE = "iPhone on a direct port"
 
 
 def describe_usb_path(path: dict) -> dict:
@@ -388,15 +455,15 @@ def describe_usb_path(path: dict) -> dict:
 
 def usb_path_item(path: dict | None, phone_ok: bool) -> dict:
     """Which controller and hubs the iPhone hangs off: the chipset controller and any hub are known drop causes."""
-    title = "iPhone USB path"
+    title = USB_PATH_TITLE
     if not phone_ok:
-        return item("usbPath", "blocked", title, "Waiting for the iPhone.", "Connect the iPhone first.", required=False)
+        return item("usbPath", "blocked", title, "Waiting for the iPhone.", "Connect the iPhone first.", required=False, gives=USB_PATH_GIVES, more=USB_PATH_MORE)
     if not isinstance(path, dict):
         return item("usbPath", "blocked", title, "Could not read the phone's USB path from Windows.", USB_PATH_FIX,
-                    required=False)
+                    required=False, gives=USB_PATH_GIVES, more=USB_PATH_MORE)
     if not path.get("found"):
         return item("usbPath", "blocked", title, "Windows does not list an iPhone USB device right now.",
-                    "Reconnect the iPhone, then check again.", required=False)
+                    "Reconnect the iPhone.", required=False, gives=USB_PATH_GIVES, more=USB_PATH_MORE)
     described = describe_usb_path(path)
     hops = ["iPhone", *described["hubs"], "root hub", described["controller"] or "unknown controller"]
     detail = " -> ".join(hops)
@@ -408,10 +475,10 @@ def usb_path_item(path: dict | None, phone_ok: bool) -> dict:
         problems.append(f"the phone goes through {count} hub{'s' if count != 1 else ''}")
     if problems:
         return item("usbPath", "action", title, f"{detail} · {'; '.join(problems)}.", USB_PATH_FIX, required=False,
-                    controller=described["controllerId"], hubs=len(described["hubs"]))
+                    controller=described["controllerId"], hubs=len(described["hubs"]), gives=USB_PATH_GIVES, more=USB_PATH_MORE)
     note = "CPU USB controller, no hub" if described["verdict"] == "ok" else "no hub; controller not in the known list"
     return item("usbPath", "ok", title, f"{detail} · {note}.", required=False, controller=described["controllerId"],
-                hubs=0)
+                hubs=0, gives=USB_PATH_GIVES, more=USB_PATH_MORE)
 
 
 def vision_capable(model: dict) -> bool:
@@ -424,20 +491,19 @@ def vision_capable(model: dict) -> bool:
 def llm_item(tags: dict | None, installed: bool, vision_model: str, text_model: str) -> dict:
     """Local AI is recommended, never required: its absence never holds setup back."""
     title = "Local AI (Ollama)"
-    pull = f"ollama pull {vision_model} and ollama pull {text_model}"
-
     def entry(status: str, detail: str, fix: str = "", **extra: object) -> dict:
         if status != "ok":
-            detail = f"{detail} {LLM_ADDS}"
-        return item("llm", status, title, detail, fix, required=False, recommended=True, **extra)
+            extra["more"] = f"{LLM_ADDS} {extra.get('more', '')}".strip()
+        return item("llm", status, title, detail, fix, required=False, recommended=True, step="apps",
+                    gives="Titles and captions drafted from each video.", **extra)
 
     if not isinstance(tags, dict):
         if installed:
-            return entry("action", "Ollama is installed but not running.",
-                         "Open Ollama from the Start menu, then check again.")
-        return entry("action", "No local AI was found on this PC.",
-                     "Install Ollama with one command in PowerShell: winget install Ollama.Ollama "
-                     f"(or download it from ollama.com). Then run {pull}.")
+            return entry("action", "Ollama is installed but not running.", "Open Ollama from the Start menu.")
+        return entry("action", "No local AI was found on this PC.", "Install Ollama and pull the two models.",
+                     commands=["winget install Ollama.Ollama", f"ollama pull {vision_model}",
+                               f"ollama pull {text_model}"], run_in="PowerShell",
+                     more="Download Ollama from ollama.com if winget is not available.")
     listed = [model for model in tags.get("models", []) if isinstance(model, dict) and model.get("name")]
     names = {str(model["name"]) for model in listed}
     names |= {name.removesuffix(":latest") for name in names}
@@ -448,7 +514,8 @@ def llm_item(tags: dict | None, installed: bool, vision_model: str, text_model: 
     if missing:
         return entry("action",
                      f"Ollama is running. Installed models: {summary}." if models else "Ollama is running with no models.",
-                     f"Run {' and '.join('ollama pull ' + name for name in missing)}, then check again.", models=models)
+                     "Pull what is missing.", models=models,
+                     commands=["ollama pull " + name for name in missing], run_in="PowerShell")
     return entry("ok", f"Ollama is running · vision: {vision_model} · text: {text_model}", models=models)
 
 
@@ -522,17 +589,18 @@ def folder_item(watch: dict, clouds: list[tuple[str, Path]]) -> dict:
                    "iPhone, let it sync, then choose a folder inside it.")
     path = str(watch.get("path") or "")
     if not path:
-        return item("folder", "action", title,
-                    f"No folder chosen yet.{' Cloud folders on this PC: ' + available + '.' if clouds else ''}",
-                    f"Choose the folder your video editor exports to. {pick_inside}", action="folder")
+        return item("folder", "action", title, "No folder chosen yet.", "Choose the folder your editor exports to.",
+                    action="folder", step="folder",
+                    more=f"{pick_inside}{' Cloud folders on this PC: ' + available + '.' if clouds else ''}")
     cloud = cloud_for(Path(path), clouds)
     provider = cloud[0] if cloud else ""
     if watch.get("problem"):
         return item("folder", "action", title, f"{path} · {watch['problem']}",
-                    str(watch.get("fix") or "Choose the export folder again."), action="folder", provider=provider)
+                    str(watch.get("fix") or "Choose the export folder again."), action="folder", provider=provider,
+                    step="folder")
     if not cloud:
         return item("folder", "action", title, f"{path} is not inside a cloud folder the iPhone can reach.",
-                    f"Choose a different folder. {pick_inside}", action="folder", provider="")
+                    "Choose a different folder.", action="folder", provider="", step="folder", more=pick_inside)
     if provider == "OneDrive":
         route, note = "the iPhone opens videos in the OneDrive app", ""
     else:
@@ -540,27 +608,27 @@ def folder_item(watch: dict, clouds: list[tuple[str, Path]]) -> dict:
     if not watch.get("enabled"):
         return item("folder", "action", title, f"{path} · inside {provider} · Watch folder is off.{note}",
                     "Turn on Watch folder so new exports are picked up by themselves.", action="watch",
-                    provider=provider)
+                    provider=provider, step="folder")
     return item("folder", "ok", title, f"Watching {path} · inside {provider} · {route}.{note}",
-                action="folder", provider=provider)
+                action="folder", provider=provider, step="folder")
 
 
-CHARGING_FIX = (
-    "Charge the iPhone on a wall charger before posting, and use a USB port that can power it under load: "
-    "a rear port on the CPU's own controller, a powered hub, or a USB-C PD port. Keep it above 20%."
-)
+CHARGING_FIX = "Charge the iPhone on a wall charger before posting, and use a USB port that can power it."
+CHARGING_MORE = ("A rear port on the CPU's own controller, a powered hub or a USB-C PD port can power it under load. "
+                 "Keep it above 20%.")
+CHARGING_GIVES = "The iPhone stays charged through long uploads."
 
 
 def charging_item(battery: dict | None, phone_ok: bool) -> dict:
     """Is the port actually charging the phone? On 2026-09-30 the chipset port read IsCharging while the
     phone drained at 2.4 A under video load at 1-2% capacity; every link stall that day happened with the
     battery low. One sample here: a negative current while 'charging' or a low capacity is the warning."""
-    title = "iPhone charging over USB"
+    title = "iPhone charging"
     if not phone_ok:
-        return item("charging", "blocked", title, "Waiting for the iPhone.", "Connect the iPhone first.", required=False)
+        return item("charging", "blocked", title, "Waiting for the iPhone.", "Connect the iPhone first.", required=False, gives=CHARGING_GIVES, more=CHARGING_MORE)
     if not isinstance(battery, dict) or "error" in battery or "CurrentCapacity" not in battery:
         return item("charging", "blocked", title, "Could not read the phone's battery over USB.", CHARGING_FIX,
-                    required=False)
+                    required=False, gives=CHARGING_GIVES, more=CHARGING_MORE)
     capacity = int(battery.get("CurrentCapacity") or 0)
     current = battery.get("InstantAmperage")
     charging = bool(battery.get("IsCharging"))
@@ -576,31 +644,35 @@ def charging_item(battery: dict | None, phone_ok: bool) -> dict:
     if problems:
         joined = "; ".join(problems)
         return item("charging", "action", title, detail + " " + joined[0].upper() + joined[1:] + ".",
-                    CHARGING_FIX, required=False, capacity=capacity, current=current)
-    return item("charging", "ok", title, detail, required=False, capacity=capacity, current=current)
+                    CHARGING_FIX, required=False, capacity=capacity, current=current, gives=CHARGING_GIVES, more=CHARGING_MORE)
+    return item("charging", "ok", title, detail, required=False, capacity=capacity, current=current, gives=CHARGING_GIVES, more=CHARGING_MORE)
 
 
-OCR_FIX = ("Open Settings > Time & language > Language & region, add English (United States) and make sure its "
-           "Optical character recognition feature is installed (Language options), then check again.")
+OCR_FIX = "Add English (United States) with its text reader in Windows Settings."
+OCR_MORE = "The YouTube upload screen is read from a screenshot, so Windows needs its English text reader."
+OCR_STEPS = ("Open Settings > Time & language > Language & region.",
+             "Add English (United States) if it is not listed.",
+             "Open its Language options and install the Optical character recognition feature.")
 
 
 def screen_text_item(screen_text: dict | None) -> dict:
     """Windows' built-in OCR engine: YouTube 21.38 hides its Description, Paid promotion and
     "AI use, Tags" rows from accessibility, so the YouTube flow reads them from a screenshot."""
-    title = "Screen text reader (Windows OCR)"
+    title = "Windows reads screen text"
     if not isinstance(screen_text, dict):
-        return item("screenText", "blocked", title, "Could not ask Windows for its OCR engine.", OCR_FIX)
+        return item("screenText", "blocked", title, "Could not ask Windows for its text reader.", OCR_FIX, step="control",
+                    steps=OCR_STEPS, more=OCR_MORE)
     if not screen_text.get("available"):
-        detail = "Windows has no OCR language, so YouTube's hidden detail rows cannot be read."
+        detail = "Windows has no English text reader yet."
         if screen_text.get("error"):
             detail += f" ({screen_text['error']})"
-        return item("screenText", "action", title, detail, OCR_FIX)
+        return item("screenText", "action", title, detail, OCR_FIX, step="control", steps=OCR_STEPS, more=OCR_MORE)
     language = str(screen_text.get("language") or "")
     if not language.casefold().startswith("en"):
         return item("screenText", "action", title,
                     f"Windows reads screen text in {language} only; the apps are matched by their English labels.",
-                    OCR_FIX)
-    return item("screenText", "ok", title, f"Offline, {language}.")
+                    OCR_FIX, step="control", steps=OCR_STEPS, more=OCR_MORE)
+    return item("screenText", "ok", title, f"Offline, {language}.", step="control")
 
 
 def checklist(probes: SetupProbes) -> dict:
@@ -613,20 +685,35 @@ def checklist(probes: SetupProbes) -> dict:
     link = link_item(wda, phone_ok, bundle)
     # An answering WDA proves the runner is installed; a silent one is looked up in the phone's app list.
     installed = phone_ok and (wda_ready(wda) or bundle is not None)
-    items = [driver, phone, link,
-             inventory_item(probes.inspection(), link["status"] == "ok"),
-             space_item(probes.phone_space()),
-             llm_item(probes.ollama_tags(), probes.ollama_installed(), probes.vision_model, probes.text_model),
-             folder_item(probes.watch(), probes.cloud_folders()),
-             signature_item(probes.wda_signature() if installed else None, phone_ok, installed),
-             passcode_item(probes.passcode()),
-             apple_service_item(probes.apple_service()),
+    # Rows in first-run order: each step's required rows first, then what is recommended for it.
+    items = [apple_service_item(probes.apple_service()),
+             driver, phone,
              usb_power_item(probes.usb_power()),
-             usb_helper_item(probes.usb_helper()),
              usb_path_item(probes.usb_path() if phone_ok else None, phone_ok),
              charging_item(probes.battery() if phone_ok else None, phone_ok),
-             screen_text_item(probes.screen_text())]
-    return {"items": items, "ready": all(entry["status"] == "ok" for entry in items if entry["required"])}
+             usb_helper_item(probes.usb_helper()),
+             signature_item(probes.wda_signature() if installed else None, phone_ok, installed),
+             link,
+             passcode_item(probes.passcode()),
+             screen_text_item(probes.screen_text()),
+             folder_item(probes.watch(), probes.cloud_folders()),
+             inventory_item(probes.inspection(), link["status"] == "ok"),
+             space_item(probes.phone_space()),
+             llm_item(probes.ollama_tags(), probes.ollama_installed(), probes.vision_model, probes.text_model)]
+    return {"items": items, "steps": step_summary(items),
+            "ready": all(entry["status"] == "ok" for entry in items if entry["required"])}
+
+
+def step_summary(items: list[dict]) -> list[dict]:
+    """One entry per first-run screen: what it is for, how many required rows it has and whether they all pass."""
+    summary = []
+    for step in STEPS:
+        mine = [entry for entry in items if entry["step"] == step["key"]]
+        required = [entry for entry in mine if entry["required"]]
+        summary.append({**step, "required": len(required),
+                        "done": sum(entry["status"] == "ok" for entry in required),
+                        "ready": all(entry["status"] == "ok" for entry in required)})
+    return summary
 
 
 def wda_ready(wda: dict | None) -> bool:

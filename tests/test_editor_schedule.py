@@ -203,7 +203,7 @@ class EditorPageTests(unittest.TestCase):
     def test_editor_has_a_posting_time_control_and_honest_disabled_reasons(self):
         page = (server.ROOT / "web" / "index.html").read_text(encoding="utf-8")
         for needle in ('id="slotChoice"', "/api/queue/plan", "receiptDue", 'id="timeZone"', "/api/settings/time-zone",
-                       "`Schedule for ${", "tiktokPostable", "item.recommended?'Recommended':'Optional'"):
+                       "`Schedule for ${", "tiktokPostable", "title:'Extras',count:'Optional'"):
             self.assertIn(needle, page)
         self.assertNotIn("America/New_York", page)
         self.assertNotIn("Native scheduling is not connected yet", page)

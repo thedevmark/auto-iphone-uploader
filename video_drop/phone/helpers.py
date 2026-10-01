@@ -187,10 +187,12 @@ def _frames_moving(first: bytes, second: bytes) -> bool:
 
 
 def _video_surface_playing() -> bool:
-    """Two go-ios screenshots (never WDA: those queue behind a hung snapshot) a beat apart."""
-    first = capture._go_ios_screenshot()
+    """Two AX-free screenshots a beat apart: go-ios, or WDA's /screenshot when go-ios's
+    screenshot service is wedged. The guard never asks WDA for a snapshot, so nothing hung
+    is queued ahead of that screenshot."""
+    first = capture.pixels_png()
     time.sleep(_VIDEO_FRAME_GAP)
-    return _frames_moving(first, capture._go_ios_screenshot())
+    return _frames_moving(first, capture.pixels_png())
 
 
 def video_in_front() -> bool:

@@ -37,6 +37,7 @@ from PIL import Image
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
+from video_drop import phone_lock  # noqa: E402
 
 from video_drop import receipts as rc  # noqa: E402
 from video_drop.accounts import load_targets  # noqa: E402
@@ -252,6 +253,7 @@ def check(store: Store, release: dict, platform: str, state: Path, *, posts_befo
         leave()
 
 
+@phone_lock.locked("receipt check")
 def run(release_id: int, db: Path, *, platform: str = "all", posts_before: int | None = None,
         record: bool = True) -> dict:
     with Store(db, load_targets(db.parent)) as store:

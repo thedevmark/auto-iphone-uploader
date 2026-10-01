@@ -49,6 +49,13 @@ def render(result: dict) -> str:
         lines.append(f"{'':10}{entry['detail']}")
         if entry["status"] != "ok" and entry.get("fix"):
             lines.append(f"{'':10}-> {entry['fix']}")
+        if entry["status"] != "ok":
+            for number, step in enumerate(entry.get("steps", []), 1):
+                lines.append(f"{'':13}{number}. {step}")
+            if entry.get("commands"):
+                lines.append(f"{'':13}{entry.get('runIn', 'PowerShell')}:")
+                for command in entry["commands"]:
+                    lines.append(f"{'':15}PS> {command}")
     lines.append("")
     lines.append("Ready for the first post." if result["ready"] else "Not ready yet: finish the rows marked [to do].")
     return "\n".join(lines)

@@ -112,6 +112,16 @@ class SweepServerTests(unittest.TestCase):
         self.assertEqual(self.tick(), [])
         self.assertEqual(self.submitted, [])
 
+    def test_a_declared_busy_window_stands_the_read_down_without_spending_it(self):
+        # A hand-run posting script holds no phone.lock; its busy window (an upload still running)
+        # is the only sign it has the phone. The attempt is kept for the next tick in the window.
+        self.server.link_supervisor.declare_busy(self.server.STATE, "YouTube upload", 600)
+        self.assertEqual(self.tick(), [])
+        self.assertEqual(self.submitted, [])
+        self.assertEqual(sweep.load_done(self.server.STATE), set())
+        self.server.link_supervisor.clear_busy(self.server.STATE)
+        self.assertEqual(self.tick(), [(6, "instagram")])
+
     def test_the_worker_spends_each_attempt_and_frees_the_phone(self):
         checks = [(6, "instagram", sweep.due(waiting(), set(), TAP + timedelta(minutes=4))[0][2])]
         self.server.PHONE_ACTION_RUNNING = True

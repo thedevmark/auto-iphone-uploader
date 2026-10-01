@@ -25,6 +25,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
+from video_drop import phone_lock  # noqa: E402
 
 from video_drop.core import Store, digest, threads_post_refusal  # noqa: E402
 from video_drop.accounts import load_targets, require_target  # noqa: E402
@@ -104,6 +105,7 @@ def prepare(data: dict) -> None:
     unique(rows, "Post this thread", kind="Button")
 
 
+@phone_lock.locked("Threads")
 def run(release_id: int, db: Path, *, commit: bool = False) -> dict:
     """Use the native Threads composer for one confirmed release."""
     if commit and os.environ.get("VIDEO_DROP_TEST_MODE") == "1":
@@ -122,7 +124,7 @@ def run(release_id: int, db: Path, *, commit: bool = False) -> dict:
                     break
                 except share.WDAError as exc:
                     if attempt == 2 or not share.recover_link():
-                        raise share.PhoneUploadError("SideTap could not restore Threads preparation; nothing posted") from exc
+                        raise share.PhoneUploadError("The phone link could not be restored for Threads; nothing was posted") from exc
                     time.sleep(1)
             if not commit:
                 return {"kind": "ready", "platform": "threads", "releaseId": release_id}

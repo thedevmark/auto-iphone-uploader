@@ -3,7 +3,7 @@
 All notable changes to Auto iPhone Uploader. Versions match the Git tags that
 [release.yml](.github/workflows/release.yml) builds release zips from.
 
-## 1.0.0 (unreleased; current candidate 1.0.0-rc.2)
+## 1.0.0 (current candidate 1.0.0-rc.3)
 
 Post finished videos from a Windows PC through the real iPhone apps: YouTube
 Shorts with title, description and a first-frame thumbnail; Instagram Reels
@@ -15,10 +15,26 @@ and a setup checklist. The README's
 [docs/launch-checklist.md](docs/launch-checklist.md) say what has been
 verified on the reference phone.
 
-### Unreleased (since 1.0.0-rc.2)
+### 1.0.0-rc.3 (2026-10-01)
 
 #### Added
 
+- **Remove the video from the iPhone after it posts.** Posts save nothing to
+  Photos, but every Instagram post leaves an Edits project holding the clip
+  (often over a gigabyte). Once Instagram confirms the post, that one project
+  moves to Edits' Trash, where it can still be restored. It is matched exactly
+  (new since the upload, still "Untitled project", young enough); anything
+  ambiguous leaves Edits alone. Setting on by default.
+- **A calm first-run setup.** Five screens, one task each, that advance by
+  themselves; commands sit in copyable console blocks behind "Show me how";
+  optional items moved to **Extras** in Settings. System, light and dark
+  theme toggle.
+- **One-command install** with numbered progress, plain messages, a fix for
+  every failure, and optional prompts for the passcode and the USB recovery
+  helper (now recommended rather than required).
+- **One owner of the iPhone at a time.** Every phone flow holds a lock, so a
+  script run by hand, a slot post and a receipt read can never drive the
+  phone together; a lock left by a crashed run is ignored.
 - **YouTube's hidden detail rows are read with Windows' built-in OCR.**
   YouTube 21.38 draws Description, Paid promotion and "AI use, Tags" but
   leaves them out of the accessibility tree; the YouTube runner now finds them
@@ -60,6 +76,13 @@ verified on the reference phone.
 
 #### Fixed
 
+- Screenshots fall back to WebDriverAgent's screenshot when go-ios's
+  screenshot service on the phone stops answering, instead of stopping the
+  run.
+- A clip in a cloud folder reached through a short (8.3) or junction path is
+  recognised as inside that folder.
+- numpy is listed as a runtime dependency.
+- Instagram's account check closes a story the app reopened on.
 - **Receipts:** the Instagram receipt taps the Profile tab a second time
   (two seconds apart, never a double tap) so a profile reopened mid-scroll
   shows its post count again; the Threads receipt reads Threads' new "Threads

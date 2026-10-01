@@ -44,6 +44,7 @@ from PIL import Image, ImageChops, ImageStat
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
+from video_drop import phone_lock  # noqa: E402
 
 from video_drop.core import Store, digest, utc_now  # noqa: E402
 from video_drop.accounts import load_targets, require_target  # noqa: E402
@@ -315,6 +316,7 @@ def compose(data: dict, frame: Image.Image, evidence_dir: Path) -> dict:
     return {**record, "evidence": str(stem.with_name(stem.name + "-cover.png"))}
 
 
+@phone_lock.locked("TikTok")
 def run(release_id: int, db: Path, *, commit: bool = False, not_after: datetime | None = None) -> dict:
     """Use the native TikTok composer for one confirmed release."""
     if commit and os.environ.get("VIDEO_DROP_TEST_MODE") == "1":

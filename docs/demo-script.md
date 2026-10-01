@@ -1,6 +1,6 @@
 # Five-minute demo
 
-A live walkthrough of Auto iPhone Uploader 1.0.0-rc.2 for an audience. It
+A live walkthrough of Auto iPhone Uploader 1.0.0-rc.3 for an audience. It
 shows only what this version does live; the lines to say are in quotes. What
 is shown live has been run on the reference phone (iPhone 16 Pro Max, iOS
 26.7); what is only described has offline tests.
