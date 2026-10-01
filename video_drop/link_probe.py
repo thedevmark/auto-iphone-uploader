@@ -219,6 +219,79 @@ def pmd3_entries(timeout: float = 1.5, api: str = PMD3_API) -> tuple[str, int, l
     return "ok", _ms(started), entries
 
 
+# ---- battery / charging (power hypothesis) ------------------------------------------
+
+BATTERY_KEYS = ("CurrentCapacity", "IsCharging", "ExternalConnected", "InstantAmperage", "Voltage",
+                "Temperature", "FullyCharged", "AdapterDetails")
+
+
+def battery_snapshot(udid: str | None = None, timeout: float = 8.0, ios: str | None = None) -> dict:
+    """The phone's IOPMPowerSource registry through `ios batteryregistry` (diagnostics relay over
+    lockdown, no tunnel; `batterycheck` is the lockdown battery domain and carries no current or
+    temperature): capacity %, whether it charges, the instantaneous current (mA; negative =
+    draining while plugged in) and the pack temperature (centi-degrees C). Spawns go-ios, so it runs on its own
+    cadence (``battery_every``), never per tick. An error is a data point ({"error": ...})."""
+    import subprocess
+    import sys
+
+    exe = ios
+    if exe is None:
+        from .phone import device
+
+        exe = device.ios_path()
+    if not exe:
+        return {"error": "no go-ios"}
+    args = [exe, "batteryregistry"] + ([f"--udid={udid}"] if udid else [])
+    try:
+        proc = subprocess.run(args, capture_output=True, text=True, timeout=timeout,
+                              creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return {"error": type(exc).__name__}
+    return parse_battery(proc.stdout + proc.stderr)
+
+
+def parse_battery(text: str) -> dict:
+    """Keep the keys that matter from go-ios's JSON (one object, or one per line)."""
+    found: dict = {}
+    for line in text.splitlines():
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            data = json.loads(line)
+        except ValueError:
+            continue
+        for src in (data, data.get("data") if isinstance(data.get("data"), dict) else {}):
+            for key in BATTERY_KEYS:
+                if key in src:
+                    value = src[key]
+                    if key == "AdapterDetails" and isinstance(value, dict):
+                        value = {k: value.get(k) for k in ("Watts", "Current", "Voltage", "Description") if k in value}
+                    found[key] = value
+    return found or {"error": "no battery data", "raw": text.strip()[:160]}
+
+
+def power_warning(reads: list[dict], min_reads: int = 2) -> str | None:
+    """One sentence when the port cannot power the phone under load, else None.
+
+    Measured 2026-09-30 19:38 on the chipset port: IsCharging true, capacity 1-2%, and
+    InstantAmperage -2340..-2463 mA while TikTok/YouTube played (pack voltage 3.33 V).
+    A phone that drains while plugged in is one heavy screen away from a brownout, so this
+    fires on the SECOND negative sample (one can be a stale registry read)."""
+    good = [r for r in reads if isinstance(r, dict) and "error" not in r]
+    draining = [r for r in good if r.get("IsCharging") and isinstance(r.get("InstantAmperage"), (int, float))
+                and r["InstantAmperage"] < 0]
+    if len(draining) < min_reads:
+        return None
+    worst = min(r["InstantAmperage"] for r in draining)
+    capacity = min((r["CurrentCapacity"] for r in draining if isinstance(r.get("CurrentCapacity"), (int, float))),
+                   default=None)
+    cap = f" at {capacity}% battery" if capacity is not None else ""
+    return (f"The USB port cannot power the phone under load: it drained at {abs(worst)} mA while plugged in"
+            f"{cap} ({len(draining)} of {len(good)} reads). Charge it on a wall charger and use a port that "
+            "delivers more current (a CPU-attached rear port, a powered hub, or USB-C PD).")
+
+
 # ---- the recorder -----------------------------------------------------------------
 
 
@@ -243,7 +316,8 @@ class LogTail:
             new = handle.read().decode("utf-8", "ignore").splitlines()
         self.offset = size
         return [line[:240] for line in new
-                if '"level":"ERROR"' in line or '"level":"WARN"' in line or "closed" in line or "Killing" in line]
+                if ('"level":"ERROR"' in line or '"level":"WARN"' in line or "closed" in line or "Killing" in line)
+                and "proxyConns failed: writeto" not in line]  # the recorder's own RSD probe closing its socket
 
 
 class LinkRecorder:
@@ -251,7 +325,8 @@ class LinkRecorder:
 
     def __init__(self, out: Path, *, udid: str | None = None, entry_source: Callable[[], list[dict]] | None = None,
                  logs: dict[str, Path] | None = None, interval: float = 1.0, tunnel_every: float = 5.0,
-                 probe_timeout: float = 1.5, wda_port: int = WDA_PORT, mux: tuple = USBMUX):
+                 probe_timeout: float = 1.5, wda_port: int = WDA_PORT, mux: tuple = USBMUX,
+                 battery_every: float = 0.0, battery_source: Callable[[], dict] | None = None):
         self.out = out
         self.udid = udid
         self.mux = mux
@@ -267,6 +342,11 @@ class LinkRecorder:
         self._last_tunnel = 0.0
         self._entry: dict | None = None
         self._entry_checked = 0.0
+        # 0 = off. On: one `ios batteryregistry` every battery_every seconds, only while lockdown
+        # answers (a stalled pipe would just add a hung go-ios to the picture).
+        self.battery_every = battery_every
+        self.battery_source = battery_source or (lambda: battery_snapshot(udid))
+        self._battery_checked = 0.0
 
     # one tick, exposed for tests
     def probe_once(self, now: float | None = None) -> dict:
@@ -292,10 +372,19 @@ class LinkRecorder:
                 else ["no entry", 0]
             if self._entry:
                 row["entry"] = {k: self._entry.get(k) for k in ("address", "rsdPort", "userspaceTun", "userspaceTunPort")}
+        if self.battery_every and now - self._battery_checked >= self.battery_every                 and layer_ok(row, "lockdown"):
+            self._battery_checked = now
+            try:
+                row["battery"] = self.battery_source()
+            except Exception as exc:  # a failed read is a data point
+                row["battery"] = {"error": type(exc).__name__}
         for name, tail in self.tails.items():
             lines = tail.new_lines()
             if lines:
-                row[name] = lines[:6]
+                # "log:" prefix: a tail named "tunnel" used to overwrite the tunnel PROBE result
+                # (every RSD round trip makes go-ios log a proxyConns error, so the tunnel column
+                # of the 2026-09-30 17:28 and 17:57 recordings is mostly log lines, not probes).
+                row[f"log:{name}"] = lines[:6]
         return row
 
     def _loop(self) -> None:

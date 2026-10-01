@@ -109,7 +109,13 @@ def open_profile(bundle: str, tab: tuple[float, float]) -> None:
     """Launch without asking WDA anything (the app may resume on a playing feed), then tap Profile blind."""
     phone.open_app(bundle)
     time.sleep(LAUNCH_SETTLE)
-    phone.tap(*share.layout().bottom_sheet_point(*tab))
+    point = share.layout().bottom_sheet_point(*tab)
+    phone.tap(*point)
+    time.sleep(TAB_SETTLE)
+    # Instagram reopens the profile where it was last scrolled, hiding the header's post count
+    # (measured 2026-10-01: 0 counts found). A second tap on the active tab scrolls to the top;
+    # TAB_SETTLE apart, so Instagram never reads it as the double tap that switches accounts.
+    phone.tap(*point)
     time.sleep(TAB_SETTLE)
 
 

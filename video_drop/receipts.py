@@ -366,8 +366,15 @@ def threads_newest_post(elements, layout: PhoneLayout, *, account: str, caption:
     wanted = plain(caption)
     if not wanted:
         raise ReceiptError("Expected Threads caption is empty")
-    tabs = [(a, b) for a in elements if a.label == "Threads" and a.height < 80
-            for b in elements if b.label == "Replies" and b.height < 80 and abs(a.y - b.y) < 12]
+    # Threads 2026-10 labels the tabs "Threads tab" / "Replies tab"; older builds drop the suffix.
+    accepted = {wanted}
+    # Threads folds trailing hashtags (2026-10-01): "A guest of the show… show hashtags".
+    # Only that exact fold of the approved caption counts; no other truncation is accepted.
+    folded = re.fullmatch(r"(.*?\S)((?:\s+#\w+)+)", wanted)
+    if folded:
+        accepted.add(f"{folded.group(1)}… show hashtags")
+    tabs = [(a, b) for a in elements if a.label in ("Threads", "Threads tab") and a.height < 80
+            for b in elements if b.label in ("Replies", "Replies tab") and b.height < 80 and abs(a.y - b.y) < 12]
     if len({(round(a.y), round(b.y)) for a, b in tabs}) != 1:
         raise ReceiptError("Threads profile tabs are not on screen")
     below = max(max(a.top + a.height, b.top + b.height) for a, b in tabs)
@@ -386,7 +393,7 @@ def threads_newest_post(elements, layout: PhoneLayout, *, account: str, caption:
         block = [e for e in elements if start <= e.top < end]
         if any(e.label == "Pinned" for e in block):
             continue
-        shown = [e for e in block if wanted in (plain(e.label), plain(e.value))]
+        shown = [e for e in block if {plain(e.label), plain(e.value)} & accepted]
         if not shown:
             raise ReceiptError("The newest Threads post does not have the approved caption")
         return {"account": "@" + handle(author.label), "caption": wanted, "postIndex": index,

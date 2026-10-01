@@ -26,6 +26,7 @@ from video_drop.screens.labels import Labels
 from video_drop.screens.matcher import MatchError, find
 from video_drop.screens.model import Locator
 from video_drop.screens.snapshot import Element, Snapshot, elements_from_tree
+from video_drop import ocr
 from video_drop.youtube_nav import open_tabs
 from video_drop.phone_focus import FocusError, optional_focus
 from video_drop.core import Store
@@ -162,17 +163,28 @@ def ensure_youtube_channel(expected: str) -> None:
         raise PhoneUploadError(f"YouTube did not switch to {expected}")
 
 
+SHEET_HEADER_GRACE = 15.0
+
+
 def assert_share_sheet(data: dict, *, timeout: float = 180) -> None:
     deadline = time.monotonic() + timeout
+    sheet_seen = None
     while time.monotonic() < deadline:
         labels = {row["text"] for row in screen()}
         if "shareSheet.activity.contentView" in labels:
             # The Files app's share sheet names the file without its extension.
-            if data["filename"] not in labels and Path(data["filename"]).stem not in labels:
-                raise PhoneUploadError("iOS share sheet has the wrong filename")
-            if not size_shown(data["sizeBytes"], labels):
-                raise PhoneUploadError("iOS share sheet has the wrong file size")
-            return
+            named = data["filename"] in labels or Path(data["filename"]).stem in labels
+            sized = size_shown(data["sizeBytes"], labels)
+            if named and sized:
+                return
+            # iOS draws the sheet before its header has the size ("Video" first, then
+            # "Video · 159.8 MB", 2026-09-30): give the header a moment before judging it.
+            sheet_seen = sheet_seen or time.monotonic()
+            if time.monotonic() - sheet_seen >= SHEET_HEADER_GRACE:
+                raise PhoneUploadError("iOS share sheet has the wrong filename" if not named
+                                       else "iOS share sheet has the wrong file size")
+            time.sleep(0.5)
+            continue
         if "ShareHVC.AppsAndActions.ScrollView" in labels and "More" in labels:
             tap("More")
         time.sleep(0.5)
@@ -254,7 +266,18 @@ def open_onedrive_file(data: dict) -> None:
     stage("ios_share_sheet")
 
 
+_SOURCE_DB: Path | None = None
+
+
+def set_source_db(db: Path) -> None:
+    """The database the running flow loaded its release from; the source check must read the same one."""
+    global _SOURCE_DB
+    _SOURCE_DB = Path(db)
+
+
 def source_db() -> Path:
+    if _SOURCE_DB is not None:
+        return _SOURCE_DB
     return Path(os.environ.get("VIDEO_DROP_STATE", Path(__file__).resolve().parent.parent / ".state")) / "video-drop.sqlite"
 
 
@@ -330,6 +353,69 @@ def choose_unlabeled_radio(label: str, *, x: int = 35, exact: bool = True) -> No
     image = Image.open(BytesIO(phone.screenshot())).convert("RGB")
     if not filled_radio(image, layout(), selected_x, selected_y):
         raise PhoneUploadError(f"YouTube radio {label!r} did not show selected")
+
+
+def radio_selected(label: str, *, x: int = 35, exact: bool = True) -> bool:
+    """Read a radio's state from pixels without tapping it."""
+    y = round(wait(label, exact=exact)["y"])
+    image = Image.open(BytesIO(phone.screenshot())).convert("RGB")
+    return filled_radio(image, layout(), float(x), y)
+
+
+def confirm_visibility(choice: str) -> None:
+    """YouTube 21.38 can leave the details row on the old value ("Visibility, Private") after a
+    change (seen 2026-09-30). The picker's radio is the truth: reopen it and read it."""
+    if matches(f"Visibility, {choice}"):
+        return
+    tap("Visibility", exact=False)
+    assert_visible("Set visibility")
+    selected = radio_selected(choice, exact=False)
+    tap("Back")
+    assert_visible("Add details")
+    if not selected:
+        raise PhoneUploadError(f"YouTube visibility is not {choice}; nothing was uploaded")
+
+
+def open_row(label: str, *, opened, exact: bool = True, settle: float = 2.0) -> None:
+    """Open a details row by its accessible label, or by OCR when the app hides it; the next
+    screen must prove the tap (``opened()``), or nothing else happens."""
+    if matches(label, exact=exact):
+        tap(label, exact=exact)
+    else:
+        png = screen_pixels()
+        with Image.open(BytesIO(png)) as image:
+            scale = image.width / layout().width
+        try:
+            line = ocr.find(ocr.read_png(png), label, exact=exact)
+        except ocr.OcrError as exc:
+            raise PhoneUploadError(f"YouTube row {label!r} not found on screen: {exc}") from exc
+        phone.tap(*line.center_points(scale))
+    deadline = time.monotonic() + 10
+    while not opened():
+        if time.monotonic() >= deadline:
+            raise PhoneUploadError(f"YouTube row {label!r} did not open its screen; nothing was uploaded")
+        time.sleep(settle / 4)
+
+
+def description_editor_open() -> bool:
+    items = elements_from_tree(phone.ui_tree())
+    return any(e.type == "Keyboard" for e in items) and any(e.type == "TextView" for e in items)
+
+
+def type_description(description: str) -> None:
+    """Type line by line with the keyboard's Return key, then read the whole field back."""
+    for index, line in enumerate(description.split("\n")):
+        if index:
+            keys = [e for e in elements_from_tree(phone.ui_tree()) if e.type == "Button" and e.name == "Return"]
+            if len(keys) != 1:
+                raise PhoneUploadError("YouTube description keyboard has no single Return key")
+            phone.tap(keys[0].x, keys[0].y)
+            time.sleep(0.6)
+        phone.type_text(line)
+        time.sleep(1.0)
+    values = [e.value for e in elements_from_tree(phone.ui_tree()) if e.type == "TextView"]
+    if description not in values:
+        raise PhoneUploadError(f"YouTube description does not match the approved text: {values!r}")
 
 
 def leave_text_editor(expected: str) -> None:
@@ -422,26 +508,32 @@ def prepare_youtube(data: dict) -> None:
     assert_visible("Set visibility")
     choose_unlabeled_radio(data["visibility"].capitalize(), exact=False)
     tap("Back")
-    assert_visible(f"Visibility, {data['visibility'].capitalize()}")
-    tap("Select audience")
-    assert_visible("Select audience")
-    choose_unlabeled_radio("No, it's not made for kids")
-    tap("Back")
+    confirm_visibility(data["visibility"].capitalize())
+    # YouTube remembers the last audience: the row then reads "Audience, No, it's not made for
+    # kids" and there is no "Select audience" entry to open (2026-09-30).
+    if not matches("Audience, No, it's not made for kids", exact=False):
+        tap("Select audience" if matches("Select audience") else "Audience", exact=False)
+        assert_visible("Select audience")
+        choose_unlabeled_radio("No, it's not made for kids")
+        tap("Back")
     assert_visible("No, it's not made for kids", exact=False)
-    tap("Show more")
-    tap("Add description")
-    phone.type_text(data["description"])
-    assert_visible(data["description"])
+    if matches("Show more"):
+        tap("Show more")
+    # YouTube 21.38 draws these rows but hides them from accessibility (2026-09-30):
+    # open_row reads them with offline OCR and proves each tap by the screen it opens.
+    open_row("Add description", opened=description_editor_open)
+    type_description(data["description"])
     leave_text_editor("Add details")
-    tap("Paid promotion & brands", exact=False)
-    assert_visible("Paid promotion & brands")
+    # The row is hidden on Add details, so its title showing without that header proves the page.
+    open_row("Paid promotion & brands",
+             opened=lambda: bool(matches("Paid promotion & brands")) and not matches("Add details"))
     choose_unlabeled_radio("No", x=28)
     tap("Back")
     assert_visible("Add details")
-    assert_visible("No, it doesn", exact=False)
     # Scroll only the details list; the upload button stays fixed below it.
-    scroll_to("AI use, Tags", exact=False)
-    tap("AI use, Tags", exact=False)
+    phone.swipe(*layout().reference_point(220, 760), *layout().reference_point(220, 380), 0.5)
+    time.sleep(1.2)
+    open_row("AI use, Tags", exact=False, opened=lambda: bool(matches("Attributes")) and bool(matches("Add tags")))
     tap("AI use", exact=False)
     assert_visible("AI use")
     choose_unlabeled_radio("No")
@@ -510,6 +602,7 @@ def run(release: str, db: Path, *, commit: bool = False, resume_share: bool = Fa
         raise PhoneUploadError("Schedule inspection cannot submit an upload")
     if commit and os.environ.get("VIDEO_DROP_TEST_MODE") == "1":
         raise PhoneUploadError("Posting is disabled in this test session")
+    set_source_db(db)
     with Store(db, load_targets(db.parent)) as store:
         if release.isdecimal():
             data = youtube_input(store, int(release))

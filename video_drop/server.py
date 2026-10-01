@@ -23,7 +23,7 @@ from .accounts import load_targets
 from .watch import WatchFolder, complete_video, eligible
 from .runtime_identity import source_fingerprint
 from .phone_space import ensure_room, free_bytes
-from . import link_supervisor, phone_link, release_run, setup_check, timezones
+from . import link_supervisor, phone_link, receipt_sweep, release_run, setup_check, timezones
 
 ROOT = Path(__file__).resolve().parent.parent
 phone_free_bytes = free_bytes
@@ -618,12 +618,69 @@ def slot_post_tick(now: datetime | None = None) -> list[SlotPost]:
     return started
 
 
+def receipt_sweep_tick(now: datetime | None = None) -> list[tuple[int, str]]:
+    """Start the receipt reads due now on the phone worker (read-only). Returns what started.
+
+    Skipped, without spending the attempt, while any phone action or check runs or the link
+    is not ready; the next tick inside the same window tries again.
+    """
+    global PHONE_ACTION_RUNNING
+    if TEST_MODE:
+        return []
+    now = now or utc_now()
+    with Store(STATE / "video-drop.sqlite", load_targets(STATE)) as store:
+        if not store.phone_checks()["readReceipts"]:
+            return []
+        checks = receipt_sweep.due(receipt_sweep.unconfirmed(store.db), receipt_sweep.load_done(STATE), now)
+    # phone.lock: a soak, link experiment or operator session holds the phone; a background read
+    # would land in the middle of it.
+    if not checks or (STATE / "phone.lock").exists() or link_supervisor.read_status(STATE).get("state") != "ready":
+        return []
+    with PHONE_ACTION_LOCK:
+        if PHONE_ACTION_RUNNING:
+            return []
+        with PHONE_LOCK:
+            if PHONE_RUNNING:
+                return []
+        PHONE_ACTION_RUNNING = True
+    PHONE_POOL.submit(run_receipt_checks, checks, now)
+    return [(release_id, platform) for release_id, platform, _ in checks]
+
+
+def run_receipt_checks(checks: list[tuple[int, str, str]], now: datetime) -> list[dict]:
+    """The phone worker's half of receipt_sweep_tick. Callers hold PHONE_ACTION_RUNNING."""
+    global PHONE_ACTION_RUNNING
+    from scripts import phone_receipts
+
+    results = []
+    try:
+        done = receipt_sweep.load_done(STATE)
+        for release_id, platform, key in checks:
+            done.add(key)  # spent before the read: a crash mid-read never repeats it in a burst
+            receipt_sweep.save_done(STATE, done, now)
+            try:
+                results.append(phone_receipts.run(release_id, STATE / "video-drop.sqlite", platform=platform))
+            except Exception as exc:  # one release's failure never blocks the next
+                results.append({"releaseId": release_id, "platform": platform, "kind": "error",
+                                "message": str(exc)[:200]})
+        (STATE / "receipt-sweep.json").write_text(json.dumps({"at": now.isoformat(), "results": results},
+                                                             ensure_ascii=False), encoding="utf-8")
+        return results
+    finally:
+        with PHONE_ACTION_LOCK:
+            PHONE_ACTION_RUNNING = False
+
+
 def slot_post_loop(stop: threading.Event) -> None:
     while not stop.is_set():
         try:
             slot_post_tick()
         except Exception as exc:  # keep the scheduler alive; the next tick reads fresh state
             print(f"Slot scheduler: {exc}", file=sys.stderr, flush=True)
+        try:
+            receipt_sweep_tick()
+        except Exception as exc:
+            print(f"Receipt reads: {exc}", file=sys.stderr, flush=True)
         stop.wait(SLOT_POST_INTERVAL)
 
 

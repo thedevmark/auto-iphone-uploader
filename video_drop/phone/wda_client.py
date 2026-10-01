@@ -440,10 +440,13 @@ class WDAClient:
                 # defaults until the viewer's next 5s /api/status tick called
                 # configure_mjpeg. That call stays, for a session this process
                 # ADOPTED rather than created.
-                "mjpegServerFramerate": config.MJPEG_FPS,
-                "mjpegServerScreenshotQuality": config.MJPEG_QUALITY,
-                "mjpegScalingFactor": config.MJPEG_SCALE,
             }
+            if config.MJPEG_SETTINGS:
+                settings.update({
+                    "mjpegServerFramerate": config.MJPEG_FPS,
+                    "mjpegServerScreenshotQuality": config.MJPEG_QUALITY,
+                    "mjpegScalingFactor": config.MJPEG_SCALE,
+                })
             if config.WDA_ACCESSIBILITY_DEADLINE > 0:
                 settings["accessibilityDeadline"] = config.WDA_ACCESSIBILITY_DEADLINE
             if config.WDA_SNAPSHOT_MAX_DEPTH > 0:
@@ -637,6 +640,16 @@ class WDAClient:
                 {"type": "pointerUp", "button": 0},
             ]
         )
+
+    def set_settings(self, settings: dict) -> None:
+        """POST /appium/settings on the shared session. The keys ride the SESSION, so
+        whoever changes one restores it (helpers.media_profile does both)."""
+        self._session_request("POST", "/appium/settings", {"settings": dict(settings)})
+
+    def get_settings(self) -> dict:
+        """GET /appium/settings: what WDA actually holds for this session."""
+        value = self._session_request("GET", "/appium/settings")
+        return value if isinstance(value, dict) else {}
 
     def set_wait_for_idle(self, seconds: float) -> None:  # noqa: vulture  (called by helpers.py)
         """Session waitForIdleTimeout. 0 makes gestures fire without waiting

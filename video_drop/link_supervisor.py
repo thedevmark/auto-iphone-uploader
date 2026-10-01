@@ -21,6 +21,15 @@ Why this exists (evidence gathered 2026-09-29/30 on the reference iPhone 16 Pro 
   healthy tunnels. Here every restart needs consecutive failures across ticks,
   and a declared busy window (an upload or export in progress) stretches every
   threshold.
+* A *pipe stall* (docs/link-root-cause.md, S1: lockdown, WDA and the tunnel all
+  silent while usbmuxd still lists the phone) used to end in "replug the phone"
+  after five minutes. Now three raw probes (``pipe_stall``) name it within a few
+  ticks and a recovery ladder runs: wait a little, restart Apple Mobile Device
+  Service, restart the phone's USB device node, each step verified by lockdown
+  answering again, and only then the replug message. The two privileged steps
+  go through the USB recovery helper (``usb_helper``), an on-demand SYSTEM task
+  the installer registers once; without it the ladder says so and asks for the
+  replug. Every step and its timing lands in link-events.jsonl.
 
 The decision logic (``Decider``) is pure and driven by ``Observation`` values so
 tests inject probes. ``Runner`` gathers observations from go-ios/WDA and applies
@@ -86,6 +95,11 @@ class Observation:
     activity_landed: bool = False  # another process landed a WDA action since the last tick
     busy: bool = False  # a script declared an upload/export in progress
     runner_error: str = ""  # last "Failed running WDA" error from runwda.log, when the runner is dead
+    # The USB data pipe, from pipe_stall.probe_pipe: "ok" (lockdown or WDA answered over usbmux),
+    # "stalled" (phone listed, lockdown AND WDA timed out), None (not probed: WDA was up, or the
+    # phone is off the bus, or the probe could not tell). Only probed while WDA is not answering.
+    pipe: str | None = None
+    helper_available: bool = False  # the USB recovery helper (usb_helper) is installed on this PC
 
 
 # What a dead runner's last error means for the person holding the phone.
@@ -137,6 +151,17 @@ class Policy:
     releases_before_restart: int = 2  # Home presses that failed to clear a wedge before restarting the runner
     tunnel_backoff: tuple[float, ...] = (20.0, 60.0, 180.0, 300.0)  # a daemon needs ~12s to negotiate
     runner_backoff: tuple[float, ...] = (3.0, 10.0, 30.0, 60.0)
+    # The pipe-stall ladder (docs/usb-recovery-helper.md). A stall is called after this many
+    # consecutive "stalled" pipe probes (lockdown and WDA both timed out, phone still listed);
+    # the WDA probe ahead of it is 4s and the two raw probes 2s each, so three ticks is ~30s
+    # of a silent pipe. Then: wait `stall_wait` for it to clear on its own (none of the six
+    # stalls on 2026-09-30 did, so this is short), restart Apple Mobile Device Service and give
+    # lockdown `stall_verify` to answer, restart the phone's USB device node and give it
+    # `stall_usb_verify` (Windows re-enumerates the port and usbmuxd re-attaches), then replug.
+    stall_probes: int = 3
+    stall_wait: float = 30.0
+    stall_verify: float = 45.0
+    stall_usb_verify: float = 60.0
 
 
 @dataclass
@@ -145,6 +170,7 @@ class Decision:
     message: str
     actions: list[str] = field(default_factory=list)
     detail: str = ""
+    ladder: dict | None = None  # the pipe-stall ladder's report, on the tick it ends (timings per step)
 
 
 READY = "ready"
@@ -156,10 +182,26 @@ RECOVERING_RUNNER = "recovering-runner"
 WEDGED = "wedged"
 NEEDS_REPLUG = "needs-replug"
 EXTERNAL_TUNNEL_DOWN = "external-tunnel-down"
+PIPE_STALL = "pipe-stall"  # the ladder's first step: waiting for the stall to clear by itself
+PIPE_STALL_SERVICE = "pipe-stall-service"  # restarting Apple Mobile Device Service through the helper
+PIPE_STALL_USB = "pipe-stall-usb"  # restarting the phone's USB device node through the helper
 
 TUNNEL_MODES = ("userspace", "kernel", "pmd3")
 
+# The ladder's steps in order; "failed" is the terminal one (the replug message).
+LADDER_STEPS = ("wait", "service", "usb", "failed")
+LADDER_ACTIONS = {"service": "restart_apple_service", "usb": "restart_usb_device"}
+HELPER_HINT = ("The app could not try the automatic fixes because the USB recovery helper is not installed: "
+               "run scripts\\install_windows.ps1 -InstallUsbHelper once (it asks for administrator rights) so the "
+               "app can restart Apple's USB service and reset the phone's USB port by itself next time.")
+
 MESSAGES = {
+    PIPE_STALL: "Phone link paused: the phone's USB data link stopped answering while it stays plugged in. "
+                "Waiting a moment in case it clears by itself…",
+    PIPE_STALL_SERVICE: "Phone link paused: restarting Apple's USB service (Apple Mobile Device Service) to revive "
+                        "the phone's USB link…",
+    PIPE_STALL_USB: "Phone link paused: resetting the phone's USB port (like a replug, without touching the "
+                    "cable)…",
     EXTERNAL_TUNNEL_DOWN: "The externally started tunnel is not answering: restart it in its admin terminal "
                           "(or replug the phone). The supervisor never touches an adopted tunnel",
     READY: "Phone link ready",
@@ -200,8 +242,23 @@ class Decider:
         self.next_runner_start = 0.0
         self.device_returned_at: float | None = None
         self.device_seen = True
+        # The pipe-stall ladder: consecutive stalled probes, when the stall began, and the
+        # ladder's own record ({"step", "since", "sent", "result", "steps": [...]}) while it runs.
+        self.stall_ticks = 0
+        self.stall_since: float | None = None
+        self.ladder: dict | None = None
+        self.stall_reports: list[dict] = []  # every finished ladder, newest last (the runner logs them)
 
     # -- bookkeeping the runner reports back ---------------------------------
+
+    def ladder_step_result(self, ok: bool | None, detail: str = "") -> None:
+        """The runner ran a ladder step through the helper. ``False`` skips the verification
+        wait (the helper refused or failed, so there is nothing to wait for); ``None`` (no
+        reply in time) and ``True`` both leave the verdict to lockdown answering."""
+        if self.ladder is None:
+            return
+        self.ladder["result"] = "failed" if ok is False else "sent"
+        self.ladder["result_detail"] = detail[:200]
 
     def tunnel_started(self) -> None:
         now = self.clock()
@@ -246,9 +303,14 @@ class Decider:
                 self.device_seen = False
             self.route_failures = self.entry_misses = self.wedged_ticks = 0
             self.outage_restarts = self.tunnel_starts = 0
+            # A USB device-node restart re-enumerates the phone, so a short absence during that
+            # step is the step working, not a replug; any other absence ends the stall.
+            if not (self.ladder and self.ladder["step"] == "usb"):
+                self._end_stall()
             self.state = UNPLUGGED
             return Decision(UNPLUGGED, MESSAGES[UNPLUGGED])
-        if not self.device_seen:
+        returned = not self.device_seen
+        if returned:
             # The phone just came back. go-ios's daemon re-creates the tunnel on
             # its own; give it the full grace before judging the entry.
             self.device_seen = True
@@ -257,6 +319,10 @@ class Decider:
             self.route_failures = 0
             self.outage_restarts = self.tunnel_starts = 0
             self.runner_restarts = 0
+        stall = self._pipe_stall(now, obs)
+        if stall is not None:
+            return stall
+        if returned:
             self.state = WAITING_TUNNEL
             # `ios forward` is bound to the USB connection the phone just dropped; a forward from
             # before the drop accepts locally and never reaches the phone (2026-09-30 11:50-12:05).
@@ -348,6 +414,13 @@ class Decider:
                 self.wedged_ticks = 0
                 self.state = READY
                 return Decision(READY, MESSAGES[READY], detail="busy, not wedged")
+            if obs.pipe == "stalled":
+                # The forward accepts and nothing answers because the whole USB pipe is silent, not
+                # because an app holds the driver: a Home press (`ios launch`, through the tunnel)
+                # would only hang. The ladder takes over once the stall is confirmed.
+                self.state = WEDGED
+                return Decision(WEDGED, MESSAGES[WEDGED],
+                                detail=f"USB link silent too ({self.stall_ticks}); judging a pipe stall before pressing Home")
             self.wedged_ticks += 1
             # Busy does NOT stretch this one: the wedge happens inside a busy
             # window by construction, and the runner is lost 39s in either way.
@@ -406,6 +479,127 @@ class Decider:
         self.state = RECOVERING_RUNNER
         return Decision(RECOVERING_RUNNER, MESSAGES[RECOVERING_RUNNER], actions, detail="waiting out runner backoff")
 
+    # -- the pipe-stall ladder ---------------------------------------------------
+
+    def _end_stall(self) -> None:
+        self.stall_ticks = 0
+        self.stall_since = None
+        self.ladder = None
+
+    def _pipe_stall(self, now: float, obs: Observation) -> Decision | None:
+        """Judge the USB data pipe; run the ladder while it is stalled. None = nothing to say."""
+        probed_ok = obs.pipe == "ok"
+        pipe_ok = probed_ok or obs.wda == "up"  # WDA answering through the forward rides the same pipe
+        if probed_ok:
+            # Lockdown answered: the route probe (`ios image list`, lockdown too) cannot be dead, so a
+            # runner that died with the pipe healthy gets its cheap restart instead of a route hold.
+            self.route_failures = 0
+            self.route_dead_since = None
+            self.last_route_ok = True
+        if pipe_ok:
+            self.stall_ticks = 0
+            if self.ladder is None:
+                self.stall_since = None
+                if probed_ok and self.state == NEEDS_REPLUG:
+                    self.state = STARTING  # the user replugged (or the pipe healed): judge the rest afresh
+                return None
+            report = self._stall_report(now, recovered=True)
+            self._end_stall()
+            self.entry_misses = self.route_failures = 0
+            self.route_dead_since = None
+            self.outage_restarts = self.tunnel_starts = self.runner_restarts = 0
+            self.device_returned_at = now  # the daemon gets its full grace to relist the tunnel
+            self.state = WAITING_TUNNEL
+            # The forwards were bound to the connection that stalled; the runner is judged next tick.
+            return Decision(WAITING_TUNNEL, MESSAGES[WAITING_TUNNEL], ["start_forwards"], detail=report["summary"],
+                            ladder=report)
+        if obs.pipe == "stalled":
+            self.stall_ticks += 1
+            if self.stall_since is None:
+                self.stall_since = now
+        if self.ladder is None:
+            if obs.pipe != "stalled" or self.stall_ticks < self._scale(self.policy.stall_probes, obs.busy):
+                return None
+            self.ladder = {"step": "wait", "since": now, "sent": False, "steps": []}
+        return self._ladder(now, obs)
+
+    def _ladder_next(self, now: float, outcome: str) -> None:
+        lad = self.ladder
+        lad["steps"].append({"step": lad["step"], "seconds": round(now - lad["since"], 1), "outcome": outcome})
+        lad["step"] = LADDER_STEPS[LADDER_STEPS.index(lad["step"]) + 1]
+        lad["since"] = now
+        lad["sent"] = False
+        lad.pop("result", None)
+        lad.pop("result_detail", None)
+
+    def _stall_report(self, now: float, *, recovered: bool) -> dict:
+        lad = self.ladder or {"step": "wait", "since": now, "steps": []}
+        steps = list(lad["steps"])
+        current = lad["step"]
+        if recovered and current != "failed":
+            steps.append({"step": current, "seconds": round(now - lad["since"], 1), "outcome": "lockdown answered"})
+        by = next((s["step"] for s in reversed(steps) if s["outcome"] == "lockdown answered"), None)
+        total = round(now - (self.stall_since if self.stall_since is not None else now), 1)
+        if recovered:
+            summary = (f"pipe stall cleared after {total:g}s: lockdown answered "
+                       f"{steps[-1]['seconds']:g}s into step '{by}'" if by else f"pipe stall cleared after {total:g}s")
+        else:
+            summary = f"pipe stall not cleared after {total:g}s; automatic recovery failed"
+        report = {"recovered": recovered, "recoveredBy": by, "stallSeconds": total, "steps": steps, "summary": summary}
+        self.stall_reports.append(report)
+        return report
+
+    def _ladder(self, now: float, obs: Observation) -> Decision:
+        policy = self.policy
+        lad = self.ladder
+        while True:
+            step = lad["step"]
+            elapsed = now - lad["since"]
+            stalled_for = now - (self.stall_since if self.stall_since is not None else now)
+            if step == "wait":
+                limit = self._scale(policy.stall_wait, obs.busy)
+                if elapsed < limit:
+                    self.state = PIPE_STALL
+                    return Decision(PIPE_STALL, MESSAGES[PIPE_STALL],
+                                    detail=f"pipe stalled {stalled_for:g}s; waiting {elapsed:g}s of {limit:g}s")
+                self._ladder_next(now, "did not clear on its own")
+                continue
+            if step in LADDER_ACTIONS:
+                state = PIPE_STALL_SERVICE if step == "service" else PIPE_STALL_USB
+                action = LADDER_ACTIONS[step]
+                verify = policy.stall_verify if step == "service" else policy.stall_usb_verify
+                if not lad["sent"]:
+                    if not obs.helper_available:
+                        self._ladder_next(now, "skipped: USB recovery helper not installed")
+                        continue
+                    lad["sent"] = True
+                    self.state = state
+                    return Decision(state, MESSAGES[state], [action],
+                                    detail=f"pipe stalled {stalled_for:g}s; step '{step}'")
+                if lad.get("result") == "failed":
+                    self._ladder_next(now, f"helper failed: {lad.get('result_detail', '')}")
+                    continue
+                if elapsed < verify:
+                    self.state = state
+                    return Decision(state, MESSAGES[state],
+                                    detail=f"waiting for lockdown to answer ({elapsed:g}s of {verify:g}s)")
+                self._ladder_next(now, f"lockdown still silent {verify:g}s after {action}")
+                continue
+            # "failed": every step ran (or was skipped); only a replug is left. The ladder record
+            # stays so the stall is not re-judged from scratch every tick; it ends when lockdown
+            # answers or the phone leaves the bus.
+            report = lad.get("report")
+            fresh = report is None
+            if fresh:
+                report = lad["report"] = self._stall_report(now, recovered=False)
+            message = MESSAGES[NEEDS_REPLUG]
+            if not obs.helper_available:
+                message = f"{message}. {HELPER_HINT}"
+            self.state = NEEDS_REPLUG
+            return Decision(NEEDS_REPLUG, message, detail=report["summary"] + ": " + "; ".join(
+                f"{s['step']} {s['seconds']:g}s ({s['outcome']})" for s in report["steps"]),
+                ladder=report if fresh else None)
+
     def _tunnel_dead(self, now: float, why: str) -> Decision:
         if not self.policy.manage_tunnel:
             # Adopted, never owned: say what died and leave the daemon to whoever started it.
@@ -442,12 +636,25 @@ def read_status(state: Path | None = None) -> dict:
     return data
 
 
+def replace_file(tmp: Path, target: Path, attempts: int = 5) -> None:
+    """os.replace, retried: on Windows a reader holding the target open makes it fail with
+    PermissionError for a moment (seen as occasional "tick failed" events, 2026-09-30)."""
+    for attempt in range(attempts):
+        try:
+            os.replace(tmp, target)
+            return
+        except PermissionError:
+            if attempt == attempts - 1:
+                raise
+            time.sleep(0.05 * (attempt + 1))
+
+
 def write_status(state: Path, decision: Decision, *, since: str, extra: dict | None = None) -> None:
     payload = {"state": decision.state, "message": decision.message, "detail": decision.detail,
                "since": since, "updatedAt": _now_iso(), **(extra or {})}
     tmp = state / (STATUS_FILE + ".tmp")
     tmp.write_text(json.dumps(payload), encoding="utf-8")
-    os.replace(tmp, state / STATUS_FILE)
+    replace_file(tmp, state / STATUS_FILE)
 
 
 def log_event(state: Path, event: dict) -> None:
@@ -614,6 +821,9 @@ class Runner:
         self.last_route_probe = 0.0
         self.last_activity_mtime = 0.0
         self.viewer_warned = False
+        self.last_pipe: dict | None = None  # the raw pipe probe behind the latest observation
+        self._helper: tuple[float, bool] = (0.0, False)  # (checked at, installed)
+        self.helper_check_interval = 300.0
 
         # One owner: the driver's files (pids, logs, wda_session, the activity
         # feed) sit under THIS supervisor's state folder, whatever the process
@@ -759,6 +969,35 @@ class Runner:
         except ValueError:
             return "wedged"
 
+    def pipe_state(self) -> str | None:
+        """The USB data pipe through three raw probes (pipe_stall.probe_pipe), each bounded to 2s.
+
+        "ok" / "stalled" for the Decider; None when the probe could not tell (usbmuxd silent,
+        phone not listed, a non-timeout error). The raw row is kept for the event log.
+        """
+        from . import pipe_stall
+
+        try:
+            row = pipe_stall.probe_pipe(udid=self.config.SIDETAP_UDID, timeout=2.0, wda_port=self.config.WDA_PORT)
+        except Exception as exc:  # a probe bug must never take the loop down
+            row = {"pipe": pipe_stall.PIPE_UNKNOWN, "error": repr(exc)}
+        self.last_pipe = row
+        return row["pipe"] if row["pipe"] in (pipe_stall.PIPE_OK, pipe_stall.PIPE_STALLED) else None
+
+    def helper_available(self, *, refresh: bool = False) -> bool:
+        """Is the USB recovery helper installed (cached; a schtasks query is ~100ms)."""
+        checked, installed = self._helper
+        now = time.monotonic()
+        if refresh or now - checked >= self.helper_check_interval:
+            from . import usb_helper
+
+            try:
+                installed = bool(usb_helper.status().get("installed"))
+            except Exception:
+                installed = False
+            self._helper = (now, installed)
+        return installed
+
     def proc_alive(self, name: str) -> bool:
         return self.device.proc_status(name) == "running"
 
@@ -797,6 +1036,11 @@ class Runner:
         present = self.device_present()
         if present is False:
             wda = "down"
+        # The pipe probe only runs while WDA is silent: an answering WDA already proves the pipe,
+        # and a broken link pays at most ~4s here (two 2s probes) before anything else.
+        pipe: str | None = "ok" if wda == "up" else None
+        if wda != "up" and present is not False:
+            pipe = self.pipe_state()
         entry = self.tunnel_entry() if (present is not False and tunnel_alive) else None
         # Every connect to the userspace port is a half-open tunnel client go-ios logs as a
         # failed preamble; probing it every tick coincided with the link cycling every ~40s
@@ -818,7 +1062,9 @@ class Runner:
                            route_ok=route, runwda_alive=runwda_alive,
                            forwards_alive=all(self.proc_alive(name) for name in self.forward_names),
                            wda=wda, activity_landed=self.activity_landed(), busy=busy,
-                           runner_error="" if runwda_alive else self.runner_error())
+                           runner_error="" if runwda_alive else self.runner_error(),
+                           pipe=pipe, helper_available=self.helper_available(refresh=pipe == "stalled"
+                                                                                     and self.decider.ladder is None))
 
     # -- actions --
 
@@ -942,12 +1188,32 @@ class Runner:
         self.decider.released()
         return "pressed Home" if ok else "Home press failed"
 
+    def _helper_step(self, command: str) -> str:
+        """One privileged ladder step through the USB recovery helper; the verdict stays with lockdown."""
+        from . import usb_helper
+
+        started = time.monotonic()
+        try:
+            result = usb_helper.request(command)
+        except Exception as exc:
+            result = {"ok": False, "detail": f"helper call failed: {exc}"}
+        self.decider.ladder_step_result(result.get("ok"), str(result.get("detail") or ""))
+        verdict = {True: "done", False: "failed", None: "no reply"}[result.get("ok")]
+        return f"helper {command}: {verdict} ({result.get('detail', '')}) in {time.monotonic() - started:.1f}s"
+
+    def restart_apple_service(self) -> str:
+        return self._helper_step("restart-apple-service")
+
+    def restart_usb_device(self) -> str:
+        return self._helper_step("restart-usb-device")
+
     def apply(self, action: str) -> str:
         return {
             "start_tunnel": self.start_tunnel, "restart_tunnel": self.restart_tunnel,
             "refresh_tunnel": self.refresh_tunnel,
             "start_runwda": self.start_runwda, "restart_runwda": self.restart_runwda,
             "start_forwards": self.start_forwards, "release_springboard": self.release_springboard,
+            "restart_apple_service": self.restart_apple_service, "restart_usb_device": self.restart_usb_device,
         }[action]()
 
     def _viewer_check(self) -> None:
@@ -979,27 +1245,36 @@ class Runner:
                 # shows the real cadence (one restart, then replug, etc.).
                 {"start_tunnel": self.decider.tunnel_started, "restart_tunnel": self.decider.tunnel_started,
                  "start_runwda": self.decider.runner_started, "restart_runwda": self.decider.runner_started,
-                 "release_springboard": self.decider.released}.get(action, lambda: None)()
+                 "release_springboard": self.decider.released,
+                 "restart_apple_service": lambda: self.decider.ladder_step_result(None, "observe only"),
+                 "restart_usb_device": lambda: self.decider.ladder_step_result(None, "observe only"),
+                 }.get(action, lambda: None)()
                 continue
             try:
                 results.append(f"{action}: {self.apply(action)}")
             except Exception as exc:  # the loop must survive a failed action
                 results.append(f"{action}: failed {exc}")
-        if decision.state != self.last_state or results or requested:
+        if decision.state != self.last_state or results or requested or decision.ladder:
             if decision.state != self.last_state:
                 self.since = _now_iso()
-            self._event({"state": decision.state, "message": decision.message, "detail": decision.detail,
-                         "actions": results, "requested": requested, "observation": obs.__dict__})
+            event = {"state": decision.state, "message": decision.message, "detail": decision.detail,
+                     "actions": results, "requested": requested, "observation": obs.__dict__}
+            if obs.pipe is not None or self.last_pipe:
+                event["pipeProbe"] = self.last_pipe
+            if decision.ladder:
+                event["ladder"] = decision.ladder  # the whole stall: each step, its seconds and outcome
+            self._event(event)
             self.last_state = decision.state
         payload = {"state": decision.state, "message": decision.message, "detail": decision.detail,
                    "since": self.since, "updatedAt": _now_iso(), "busy": read_busy(self.state),
                    "pids": {n: self.device.proc_status(n) for n in ("tunnel", "runwda", *self.forward_names)},
                    "supervisorPid": os.getpid(), "observeOnly": self.observe_only, "standby": standby,
                    "tunnelMode": self.tunnel_mode, "mjpegForward": self.mjpeg_forward,
-                   "modeMismatch": self.mode_mismatch}
+                   "modeMismatch": self.mode_mismatch, "usbHelper": self._helper[1],
+                   "lastStall": self.decider.stall_reports[-1] if self.decider.stall_reports else None}
         tmp = self.state / (self.status_file + ".tmp")
         tmp.write_text(json.dumps(payload), encoding="utf-8")
-        os.replace(tmp, self.state / self.status_file)
+        replace_file(tmp, self.state / self.status_file)
         if standby:
             self._viewer_check()
         return decision

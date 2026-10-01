@@ -13,6 +13,19 @@ class PreconditionTests(unittest.TestCase):
             for kind in spec["workload"].split(","):
                 self.assertIn(kind, exp.WORKLOADS, f"{name}: {kind}")
 
+    def test_isolation_arms_differ_only_in_the_reader(self):
+        # pixels never touches WDA; ax and wda-nosnap put the same video on screen with WDA readers.
+        self.assertEqual(exp.EXPERIMENTS["pixels"]["workload"], "tiktok-pixels,youtube-feed-pixels")
+        self.assertTrue(exp.EXPERIMENTS["ax"]["workload"].startswith("tiktok,"))
+        self.assertEqual(exp.EXPERIMENTS["wda-nosnap"]["workload"], "tiktok-status,tiktok-shot")
+        self.assertEqual(exp.EXPERIMENTS["wda-strip"]["env"]["MJPEG_SETTINGS"], "0")
+        for name in ("pixels", "ax", "wda-nosnap", "wda-strip"):
+            self.assertEqual(exp.EXPERIMENTS[name]["tunnel_mode"], "userspace", name)
+            self.assertEqual(exp.supervisor_matches(
+                {"alive": True, "tunnelMode": "userspace", "mjpegForward": True}, exp.EXPERIMENTS[name]), [])
+        for app in ("tiktok", "youtube", "photos"):
+            self.assertIn(app, exp.VIDEO_APPS)
+
     def test_supervisor_mode_mismatch_is_named(self):
         status = {"alive": True, "state": "ready", "tunnelMode": "userspace", "mjpegForward": True}
         self.assertEqual(exp.supervisor_matches(status, exp.EXPERIMENTS["baseline"]), [])
@@ -31,6 +44,22 @@ class PreconditionTests(unittest.TestCase):
         self.assertIn("--tunnel-mode kernel", exp.supervisor_command(exp.EXPERIMENTS["kernel"]))
         self.assertIn("--no-mjpeg-forward", exp.supervisor_command(exp.EXPERIMENTS["no-mjpeg"]))
         self.assertNotIn("--no-mjpeg-forward", exp.supervisor_command(exp.EXPERIMENTS["baseline"]))
+
+
+class BatteryTests(unittest.TestCase):
+    def test_envelope_summarises_charging_fields(self):
+        rows = [{"t": "1", "battery": {"CurrentCapacity": 20, "InstantAmperage": -300, "IsCharging": True,
+                                       "Temperature": 3100}},
+                {"t": "2"},
+                {"t": "3", "battery": {"CurrentCapacity": 21, "InstantAmperage": 900, "IsCharging": True,
+                                       "Temperature": 3400}},
+                {"t": "4", "battery": {"error": "no go-ios"}}]
+        env = exp.battery_envelope(rows)
+        self.assertEqual(env["reads"], 2)
+        self.assertEqual(env["InstantAmperage"], {"min": -300, "max": 900})
+        self.assertEqual(env["Temperature"], {"min": 3100, "max": 3400})
+        self.assertEqual(env["IsCharging"], {"always": True, "ever": True})
+        self.assertEqual(exp.battery_envelope([{"t": "1"}]), {"reads": 0})
 
 
 class VerdictTests(unittest.TestCase):
@@ -55,6 +84,11 @@ class VerdictTests(unittest.TestCase):
         self.assertIn("pnputil-restart brought lockdown back after 6.0s", text)
         self.assertIn("Windows USB stack", text)
 
+    def test_power_warning_rides_with_the_verdict(self):
+        text = exp.verdict("pixels", [], 8.0, [], "tiktok-pixels",
+                           power="The USB port cannot power the phone under load: x")
+        self.assertIn("power: The USB port cannot power", text)
+
     def test_clean_run_says_so_without_overclaiming(self):
         text = exp.verdict("kernel", [], 30.0, [], "safe")
         self.assertIn("0 pipe stall(s)", text)
@@ -70,3 +104,31 @@ class VerdictTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ReplugTests(unittest.TestCase):
+    def test_note_names_the_incident_and_the_action(self):
+        import tempfile
+        from datetime import datetime
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as td:
+            inc = {"kind": "pipe-stall", "at": "17:30:36.67", "order": ["lockdown", "wda", "tunnel"]}
+            path = exp.note_replug_needed(Path(td), inc, now=datetime(2026, 9, 30, 17, 32, 15))
+            text = path.read_text(encoding="utf-8")
+            self.assertEqual(path.name, "NEEDS_REPLUG.txt")
+            self.assertIn("2026-09-30T17:32:15 pipe-stall at 17:30:36.67 (lockdown -> wda -> tunnel)", text)
+            self.assertIn("plug it back in", text)
+
+    def test_wait_for_phone_polls_until_listed_or_gives_up(self):
+        answers = iter([False, False, True])
+        naps = []
+        self.assertTrue(exp.wait_for_phone(None, minutes=10, poll=30, listed=lambda: next(answers),
+                                           sleep=naps.append))
+        self.assertEqual(naps, [30, 30])
+        clock = iter([0.0, 0.0, 700.0, 700.0])
+        original = exp.time.monotonic
+        exp.time.monotonic = lambda: next(clock)
+        try:
+            self.assertFalse(exp.wait_for_phone(None, minutes=10, poll=30, listed=lambda: False, sleep=lambda s: None))
+        finally:
+            exp.time.monotonic = original

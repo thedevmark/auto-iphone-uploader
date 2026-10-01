@@ -516,6 +516,16 @@ def test_new_session_carries_the_mjpeg_stream_settings(wda):
     assert FakeWDA.last_settings["mjpegScalingFactor"] == config.MJPEG_SCALE
 
 
+def test_mjpeg_settings_can_be_left_out_of_the_session(wda, monkeypatch):
+    # Experiment arm "wda-strip" (docs/link-root-cause.md): MJPEG_SETTINGS=0 keeps
+    # the three stream keys out of the session so WDA runs on its own defaults.
+    monkeypatch.setattr(config, "MJPEG_SETTINGS", False)
+    wda.fresh_session()
+    assert "mjpegServerFramerate" not in FakeWDA.last_settings
+    assert "mjpegScalingFactor" not in FakeWDA.last_settings
+    assert FakeWDA.last_settings["waitForIdleTimeout"] == config.WDA_IDLE_WAIT
+
+
 def test_tap_hold_comes_from_config_and_is_overridable(wda):
     # The scripted finger contact is pure wait, ~20% of a bare tap budget, but
     # a contact that is too brief can be DROPPED and a missed tap is worse than

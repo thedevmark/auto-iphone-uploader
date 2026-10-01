@@ -39,6 +39,16 @@ def probes(**changes) -> SetupProbes:
         "wda_signature": lambda: {"expires": SIGNED_UNTIL, "source": "phone", "error": ""},
         "passcode": lambda: {"set": True, "source": "dotenv", "envPath": "C:/App/.env"},
         "apple_service": lambda: {"installed": True, "running": True},
+        "usb_helper": lambda: {"supported": True, "installed": True, "script": True, "task": True, "version": 1,
+                               "userSid": "S-1-5-21-1-2-3-1001", "detail": "installed"},
+        "usb_path": lambda: {"found": True, "chain": [
+            {"instanceId": "USB\\VID_05AC&PID_12A8\\00008140EXAMPLE000000000", "name": "Apple iPhone", "class": "USB"},
+            {"instanceId": "USB\\ROOT_HUB30\\5&1F32783&0&0", "name": "USB Root Hub (USB 3.0)", "class": "USB"},
+            {"instanceId": "PCI\\VEN_1022&DEV_149C&SUBSYS_11421B21&REV_00\\3&11583659&0&41",
+             "name": "AMD USB 3.10 eXtensible Host Controller", "class": "USB"}]},
+        "battery": lambda: {"CurrentCapacity": 63, "IsCharging": True, "InstantAmperage": 812, "Voltage": 3980,
+                            "Temperature": 2950},
+        "screen_text": lambda: {"available": True, "language": "en-US", "error": ""},
         "vision_model": VISION,
         "text_model": TEXT,
     }
@@ -56,7 +66,7 @@ class ChecklistTests(unittest.TestCase):
         self.assertTrue(result["ready"])
         self.assertEqual([item["key"] for item in result["items"]],
                          ["driver", "phone", "link", "inventory", "space", "llm", "folder", "signature", "passcode",
-                          "appleService", "usbPower"])
+                          "appleService", "usbPower", "usbHelper", "usbPath", "charging", "screenText"])
         self.assertTrue(all({"key", "status", "title", "detail", "fix"} <= set(item) for item in result["items"]))
         self.assertEqual(statuses(result)["space"], "blocked")
         self.assertIn("440 × 956 points", result["items"][3]["detail"])
@@ -525,3 +535,144 @@ class AppleServiceTests(unittest.TestCase):
         absent = "[SC] EnumQueryServicesStatus:OpenService FAILED 1060:\n\nThe specified service does not exist.\n"
         self.assertEqual(setup_check.parse_service_query(1060, absent), {"installed": False, "running": False})
         self.assertIsNone(setup_check.parse_service_query(0, "garbage"))
+
+
+class UsbHelperRowTests(unittest.TestCase):
+    """The elevated helper is what turns 'replug the phone' into an automatic fix; the row says so."""
+
+    def test_installed_helper_is_ok_and_required(self):
+        row = checklist(probes())["items"][11]
+        self.assertEqual((row["key"], row["status"], row["required"]), ("usbHelper", "ok", False))
+        self.assertIn("before ever asking for a replug", row["detail"])
+
+    def test_missing_helper_names_the_one_command_and_the_uac_prompt(self):
+        result = checklist(probes(usb_helper=lambda: {"supported": True, "installed": False, "script": False,
+                                                       "task": False, "version": None,
+                                                       "detail": "helper script missing; scheduled task missing"}))
+        row = result["items"][11]
+        self.assertEqual(row["status"], "action")
+        self.assertTrue(result["ready"])  # recommended, not required: posting works without it
+        self.assertFalse(row["required"])
+        self.assertIn("-InstallUsbHelper", row["fix"])
+        self.assertIn("administrator prompt once", row["fix"])
+        self.assertIn("exactly two things", row["fix"])
+        self.assertIn("unplugging and replugging", row["detail"])
+
+    def test_half_installed_and_outdated_helpers_say_what_is_off(self):
+        half = checklist(probes(usb_helper=lambda: {"supported": True, "installed": False, "script": True, "task": False,
+                                                     "version": 1, "detail": "scheduled task missing"}))["items"][11]
+        self.assertEqual(half["status"], "action")
+        self.assertIn("scheduled task missing", half["detail"])
+        old = checklist(probes(usb_helper=lambda: {"supported": True, "installed": True, "script": True, "task": True,
+                                                    "version": 0, "detail": "installed version 0, app expects 1"}))["items"][11]
+        self.assertEqual(old["status"], "action")
+        self.assertIn("app expects 1", old["detail"])
+
+    def test_unreadable_is_blocked_and_other_systems_are_fine(self):
+        self.assertEqual(checklist(probes(usb_helper=lambda: None))["items"][11]["status"], "blocked")
+        other = checklist(probes(usb_helper=lambda: {"supported": False, "installed": False}))["items"][11]
+        self.assertEqual((other["status"], other["required"]), ("ok", False))
+
+
+class UsbPathRowTests(unittest.TestCase):
+    """Which controller and hubs the phone hangs off: chipset controller or a hub = plain advice, never a block."""
+
+    def test_cpu_controller_without_a_hub_is_ok(self):
+        row = checklist(probes())["items"][12]
+        self.assertEqual((row["key"], row["status"], row["required"]), ("usbPath", "ok", False))
+        self.assertIn("iPhone -> root hub -> AMD CPU USB controller (DEV_149C)", row["detail"])
+        self.assertIn("no hub", row["detail"])
+        self.assertEqual(row["controller"], "149C")
+
+    def test_chipset_controller_through_a_via_hub_gets_the_port_advice(self):
+        chain = [
+            {"instanceId": "USB\\VID_05AC&PID_12A8\\00008140EXAMPLE000000000", "name": "Apple iPhone"},
+            {"instanceId": "USB\\VID_2109&PID_0817\\6&2A1B&0&3", "name": "USB 3.0 Hub", "class": "USB"},
+            {"instanceId": "USB\\ROOT_HUB30\\5&4087D53&0&0", "name": "USB Root Hub (USB 3.0)"},
+            {"instanceId": "PCI\\VEN_1022&DEV_43D5&SUBSYS_11421B21&REV_01\\4&2C18E2E3&0&000B",
+             "name": "AMD USB 3.10 eXtensible Host Controller - 1.10 (Microsoft)"},
+        ]
+        result = checklist(probes(usb_path=lambda: {"found": True, "chain": chain}))
+        row = result["items"][12]
+        self.assertEqual(row["status"], "action")
+        self.assertTrue(result["ready"])  # advice only
+        self.assertIn("iPhone -> VIA hub (VID_2109) -> root hub -> AMD 500-series chipset USB controller (DEV_43D5)",
+                      row["detail"])
+        self.assertIn("known to drop busy USB devices", row["detail"])
+        self.assertIn("1 hub", row["detail"])
+        self.assertIn("rear port on the PC's own (CPU) USB controller", row["fix"])
+        self.assertIn("no hub", row["fix"])
+        self.assertEqual((row["controller"], row["hubs"]), ("43D5", 1))
+
+    def test_unknown_controller_without_a_hub_is_ok_but_says_so(self):
+        chain = [{"instanceId": "USB\\VID_05AC&PID_12A8\\X"}, {"instanceId": "USB\\ROOT_HUB30\\5&1&0&0"},
+                 {"instanceId": "PCI\\VEN_1B21&DEV_2142\\4&1&0&0", "name": "ASMedia USB 3.1 eXtensible Host Controller"}]
+        row = checklist(probes(usb_path=lambda: {"found": True, "chain": chain}))["items"][12]
+        self.assertEqual(row["status"], "ok")
+        self.assertIn("ASMedia USB 3.1 eXtensible Host Controller (DEV_2142)", row["detail"])
+        self.assertIn("not in the known list", row["detail"])
+
+    def test_waits_for_the_phone_and_never_reads_the_path_without_it(self):
+        def never():
+            raise AssertionError("read the USB path with no phone")
+
+        result = checklist(probes(usb_path=never, ios_devices=lambda: {"found": True, "count": 0, "error": ""},
+                                  wda_status=lambda: None))
+        self.assertEqual(result["items"][12]["status"], "blocked")
+        unreadable = checklist(probes(usb_path=lambda: None))["items"][12]
+        self.assertEqual(unreadable["status"], "blocked")
+        gone = checklist(probes(usb_path=lambda: {"found": False}))["items"][12]
+        self.assertEqual(gone["status"], "blocked")
+        self.assertIn("Reconnect", gone["fix"])
+
+    def test_powershell_output_is_parsed_from_its_last_json_line(self):
+        out = 'WARNING: something\n{"chain":[{"instanceId":"USB\\\\VID_05AC&PID_12A8\\\\X"}],"found":true}\n'
+        self.assertEqual(setup_check.parse_usb_path(out)["found"], True)
+        self.assertEqual(setup_check.parse_usb_path('{"found":false}'), {"found": False})
+        self.assertIsNone(setup_check.parse_usb_path("nothing"))
+        self.assertIsNone(setup_check.parse_usb_path("{not json"))
+        # The probe is read-only PowerShell: PnP reads only, no restart, disable or remove.
+        for banned in ("Restart-", "Disable-", "Enable-", "Remove-", "pnputil"):
+            self.assertNotIn(banned, setup_check.USB_PATH_SCRIPT)
+        self.assertIn("DEVPKEY_Device_Parent", setup_check.USB_PATH_SCRIPT)
+
+
+class ChargingRowTests(unittest.TestCase):
+    """The port must actually charge the phone: the 2026-09-30 stalls all happened at 1-2% while 'charging'."""
+
+    def test_charging_phone_is_ok_and_never_required(self):
+        row = checklist(probes())["items"][13]
+        self.assertEqual((row["key"], row["status"], row["required"]), ("charging", "ok", False))
+        self.assertIn("63% · charging · +812 mA", row["detail"])
+
+    def test_draining_while_plugged_in_names_the_port(self):
+        row = checklist(probes(battery=lambda: {"CurrentCapacity": 1, "IsCharging": True, "InstantAmperage": -2463,
+                                                "Voltage": 3363, "Temperature": 2929}))["items"][13]
+        self.assertEqual(row["status"], "action")
+        self.assertIn("draining at 2463 mA while plugged in", row["detail"])
+        self.assertIn("battery at 1%", row["detail"])
+        self.assertIn("wall charger", row["fix"])
+
+    def test_not_charging_and_unreadable_and_no_phone(self):
+        row = checklist(probes(battery=lambda: {"CurrentCapacity": 55, "IsCharging": False, "InstantAmperage": -300}))["items"][13]
+        self.assertEqual(row["status"], "action")
+        self.assertIn("not charging on this port", row["detail"])
+        row = checklist(probes(battery=lambda: {"error": "no go-ios"}))["items"][13]
+        self.assertEqual(row["status"], "blocked")
+        row = checklist(probes(ios_devices=lambda: {"found": False, "count": 0, "error": ""},
+                               wda_status=lambda: None, inspection=lambda: {"status": "idle"}))["items"][13]
+        self.assertEqual((row["status"], row["detail"]), ("blocked", "Waiting for the iPhone."))
+
+
+class ScreenTextTests(unittest.TestCase):
+    def test_english_engine_is_ok(self):
+        self.assertEqual(statuses(checklist(probes()))["screenText"], "ok")
+
+    def test_missing_or_non_english_engine_blocks_ready_with_the_language_fix(self):
+        for probe in ({"available": False, "language": "", "error": "No Windows OCR language is installed"},
+                      {"available": True, "language": "de-DE", "error": ""}, None):
+            result = checklist(probes(screen_text=lambda probe=probe: probe))
+            row = next(i for i in result["items"] if i["key"] == "screenText")
+            self.assertNotEqual(row["status"], "ok")
+            self.assertIn("Optical character recognition", row["fix"])
+            self.assertFalse(result["ready"])

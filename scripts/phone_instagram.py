@@ -181,7 +181,9 @@ def tap(element: Element, settle: float = 1.5) -> None:
 
 
 def screen_image() -> Image.Image:
-    return Image.open(BytesIO(phone.screenshot())).convert("RGB")
+    # go-ios pixels, never WDA's /screenshot: that queues behind a snapshot a playing preview
+    # hangs, and the cover proof and Edits' segment check run on screens that show the clip.
+    return Image.open(BytesIO(share.screen_pixels())).convert("RGB")
 
 
 def selected(image: Image.Image, element: Element) -> bool:
@@ -571,6 +573,7 @@ def run(release_id: int, db: Path, *, commit: bool = False, now=None) -> dict:
     if commit and os.environ.get("VIDEO_DROP_TEST_MODE") == "1":
         raise share.PhoneUploadError("Posting is disabled in this test session")
     clock = now or (lambda: datetime.now(timezone.utc))
+    share.set_source_db(db)
     with Store(db, load_targets(db.parent)) as store:
         data = release_input(store, release_id, clock())
         share.connect_sidetap()
@@ -579,9 +582,10 @@ def run(release_id: int, db: Path, *, commit: bool = False, now=None) -> dict:
         preflight.phone = phone
         phone.unlock()
         with share.busy("Instagram via Edits", 1800), optional_focus(phone, store.phone_checks()["doNotDisturb"]):
-            actual = preflight.selected_instagram_account()
-            if actual != data["account"].casefold():
-                raise Stop(f"Instagram has {actual}; expected {data['account']}. Nothing was posted")
+            try:
+                preflight.ensure_instagram_account(data["account"])
+            except ValueError as exc:
+                raise Stop(f"{exc}. Nothing was posted") from exc
             # The profile is the last screen showing the post count before the upload; the
             # receipt later requires exactly one more post plus the first-frame tile.
             try:

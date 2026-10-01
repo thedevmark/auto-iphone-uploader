@@ -11,10 +11,13 @@ from video_drop.phone import config, device
 
 
 @pytest.fixture
-def reloaded(monkeypatch):
-    """Reload config under a controlled environment; put the real one back after."""
+def reloaded(monkeypatch, tmp_path):
+    """Reload config under a controlled environment; put the real one back after.
+
+    The app's own .env is swapped for an empty one: the owner's real file holds the passcode."""
 
     def load(**env):
+        monkeypatch.setenv("VIDEO_DROP_ENV_FILE", str(tmp_path / "no-app.env"))
         for key in ("VIDEO_DROP_STATE", "GO_IOS_PATH", "SIDETAP_ROOT", "LOCALAPPDATA", "PHONE_PASSCODE",
                     "WDA_BUNDLE_ID", "PHONE_UDID", "SIDETAP_UDID", "VIDEO_DROP_NO_LEGACY_ENV"):
             monkeypatch.delenv(key, raising=False)

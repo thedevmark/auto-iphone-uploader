@@ -13,7 +13,9 @@ import os
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-ENV_FILE = REPO_ROOT / ".env"
+# VIDEO_DROP_ENV_FILE points tests (or a second install) at another file so the owner's real
+# .env, which holds the passcode, is never read by the test suite.
+ENV_FILE = Path(os.environ.get("VIDEO_DROP_ENV_FILE") or REPO_ROOT / ".env")
 
 
 def _load_env(path: Path = ENV_FILE) -> dict[str, str]:
@@ -121,11 +123,33 @@ WDA_TYPING_FREQ = int(get("WDA_TYPING_FREQ", "60") or "60")
 MJPEG_FPS = int(get("MJPEG_FPS", "60") or "60")
 MJPEG_QUALITY = int(get("MJPEG_QUALITY", "70") or "70")
 MJPEG_SCALE = int(get("MJPEG_SCALE", "50") or "50")
+# MJPEG_SETTINGS=0 leaves the three stream keys out of the session settings entirely
+# (WDA keeps its own defaults: 10 fps, quality 25, scale 100). Experiment arm
+# "wda-strip" in docs/link-root-cause.md: no client streams here, and WDA's
+# FBMjpegServer skips the capture while nobody is connected, so this should be a
+# no-op — the arm exists to measure that instead of assuming it.
+MJPEG_SETTINGS = (get("MJPEG_SETTINGS", "1") or "1").lower() not in ("0", "false", "no")
+
+# Apps whose screens may be playing video when a tree read is asked for. Before a /source
+# in one of these, helpers.ui_tree() compares two go-ios frames and REFUSES the accessibility
+# snapshot while the picture is moving. Measured 2026-09-30 (docs/link-root-cause.md 0.6): on
+# the chipset USB port, video alone was clean for 9.4 min and one /source of TikTok's feed
+# killed the whole USB data pipe in 37 s; on any port that /source hangs WDA >=30 s, TikTok
+# serves it on its main thread until FrontBoard's watchdog kills the app. Empty = guard off.
+AX_VIDEO_APPS = frozenset(
+    x.strip() for x in (get("AX_VIDEO_APPS", "com.zhiliaoapp.musically") or "").split(",") if x.strip()
+)
 
 # Accessibility snapshot timeout (seconds). Added upstream in WDA #1214
 # (appium/WebDriverAgent#1214) to avoid indefinite hangs on apps with busy main
 # event loops (e.g. TikTok video feeds). 0 disables the bound; default is 2.0s.
 WDA_ACCESSIBILITY_DEADLINE = float(get("WDA_ACCESSIBILITY_DEADLINE", "2.0") or "2.0")
+# snapshotMaxDepth while a flow is on a media screen (helpers.media_profile): TikTok's
+# editor/post screen, Instagram's cover editor/composer, YouTube's details screen. The Appium
+# maintainers' answer for TikTok's huge tree is 10-15 (appium/appium#19255); the controls
+# those flows read sit a few levels down. needs device check: not yet measured here.
+WDA_MEDIA_SNAPSHOT_DEPTH = int(get("WDA_MEDIA_SNAPSHOT_DEPTH", "15") or "15")
+
 # WDA's snapshotMaxDepth (its default is 50). 0 leaves WDA's default alone. Lower
 # values make /source cheaper on deep media UIs; experiment C in docs/link-root-cause.md.
 WDA_SNAPSHOT_MAX_DEPTH = int(get("WDA_SNAPSHOT_MAX_DEPTH", "0") or "0")

@@ -24,11 +24,104 @@ import sys
 import tempfile
 import time
 import urllib.request
+from dataclasses import dataclass
+from io import BytesIO
 from pathlib import Path
 
 from . import link_supervisor
 
 WDA_STATUS = "http://127.0.0.1:8100/status"
+
+# ---- "is a video surface in front?" -----------------------------------------------------
+# Two go-ios screenshots a few hundred milliseconds apart: a playing video changes a large
+# share of the pixels in the main region, a static screen changes almost none. Scripts ask
+# this before any WebDriverAgent tree read, because an accessibility snapshot on a video
+# surface is the documented trigger of the wedge (appium/WebDriverAgent#1210) and of the
+# pipe stall that followed it here (docs/link-root-cause.md). Reading pixels never touches
+# WDA, so the check itself cannot wedge anything.
+#
+# TODO-to-measure (the experiment agent owns the numbers; these are starting points):
+#   VIDEO_CHANGE_FRACTION  fraction of sampled pixels that must change to call it video. A
+#                          static screen with a blinking cursor or a spinner measures well
+#                          under 0.01; a playing feed should measure 0.10-0.60. 0.08 is the
+#                          bootstrap; set it from a recording of each app's video and static
+#                          screens (scripts/record_screen.py) before trusting it on the post path.
+#   VIDEO_PIXEL_DELTA      grey-level change (0-255) that counts one pixel as changed; 24 ignores
+#                          JPEG-free PNG noise and subtle UI fades.
+#   VIDEO_REGION           the main region as fractions (left, top, right, bottom): skips the status
+#                          bar and the tab/home bar, whose clocks and indicators change on their own.
+#   VIDEO_GAP_SECONDS      target gap between the two frames; go-ios itself takes 100-300 ms per
+#                          frame on Windows, so the measured gap (reported) is longer.
+VIDEO_CHANGE_FRACTION = 0.08
+VIDEO_PIXEL_DELTA = 24
+VIDEO_REGION = (0.0, 0.10, 1.0, 0.88)
+VIDEO_GAP_SECONDS = 0.3
+VIDEO_SAMPLE = 4  # every Nth pixel in each direction (the diff is 16x cheaper; motion is not that fine)
+
+
+@dataclass(frozen=True)
+class VideoCheck:
+    video: bool  # True: treat the screen as a video surface (no WDA tree reads; pixels and taps only)
+    changed: float  # fraction of sampled main-region pixels that changed between the two frames
+    threshold: float
+    gap_ms: int  # measured gap between the two frames
+    elapsed_ms: int  # the whole check, both screenshots included
+    size: tuple[int, int]  # frame size in pixels (0, 0 when the frames differed in size)
+
+
+def changed_fraction(before: bytes, after: bytes, *, region=VIDEO_REGION, pixel_delta: int = VIDEO_PIXEL_DELTA,
+                     sample: int = VIDEO_SAMPLE) -> float:
+    """Share of main-region pixels whose grey level moved by more than ``pixel_delta`` between two PNGs.
+
+    Frames of different sizes (an orientation change mid-check) count as fully changed.
+    """
+    from PIL import Image, ImageChops
+
+    first = Image.open(BytesIO(before)).convert("L")
+    second = Image.open(BytesIO(after)).convert("L")
+    if first.size != second.size:
+        return 1.0
+    width, height = first.size
+    box = (int(width * region[0]), int(height * region[1]), int(width * region[2]), int(height * region[3]))
+    first, second = first.crop(box), second.crop(box)
+    if sample > 1:
+        first = first.reduce(sample)
+        second = second.reduce(sample)
+    total = first.size[0] * first.size[1]
+    if total == 0:
+        return 0.0
+    histogram = ImageChops.difference(first, second).histogram()
+    return sum(histogram[pixel_delta + 1:]) / total
+
+
+def video_in_front(ios_path: str | None, *, threshold: float = VIDEO_CHANGE_FRACTION, gap: float = VIDEO_GAP_SECONDS,
+                   region=VIDEO_REGION, pixel_delta: int = VIDEO_PIXEL_DELTA, grab=None, sleep=time.sleep,
+                   clock=time.monotonic) -> VideoCheck:
+    """Is a video playing on the screen in front? Two go-ios screenshots, no WebDriverAgent.
+
+    ``grab`` (default ``pixels``) is injected so the rule is testable without a phone. Use it
+    on the surfaces that wedge WDA (TikTok feed/editor, Reels, YouTube Shorts, autoplaying
+    feeds): when ``.video`` is True, drive by coordinates and read pixels; never ``ui_tree()``.
+    """
+    grab = grab or (lambda: pixels(ios_path))
+    started = clock()
+    first = grab()
+    shot_at = clock()
+    remaining = gap - (shot_at - started)
+    if remaining > 0:
+        sleep(remaining)
+    second_at = clock()
+    second = grab()
+    changed = changed_fraction(first, second, region=region, pixel_delta=pixel_delta)
+    from PIL import Image
+
+    try:
+        size = Image.open(BytesIO(first)).size
+    except OSError:
+        size = (0, 0)
+    return VideoCheck(video=changed >= threshold, changed=round(changed, 4), threshold=threshold,
+                      gap_ms=int((second_at - started) * 1000), elapsed_ms=int((clock() - started) * 1000),
+                      size=size)
 
 
 def wda_ready(timeout: float = 3.0) -> bool:

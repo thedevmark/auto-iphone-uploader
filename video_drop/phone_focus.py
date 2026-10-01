@@ -45,7 +45,9 @@ def focus_state(elements: tuple[Element, ...]) -> str:
         return "off"
     if value == DND_VALUE:
         return "dnd"
-    raise FocusError(f"The {value!r} Focus is on; leaving the phone's Focus alone")
+    # Another Focus (e.g. "Streaming", seen 2026-09-30) already silences the phone: the run
+    # proceeds under it and never switches or restores the owner's own Focus.
+    return "other"
 
 
 def _settle(phone, name: str, timeout: float = 4.0, poll: float = 0.4) -> tuple[Element, ...]:
@@ -59,12 +61,20 @@ def _settle(phone, name: str, timeout: float = 4.0, poll: float = 0.4) -> tuple[
         time.sleep(poll)
 
 
-def open_control_center(phone) -> tuple[Element, ...]:
+def open_control_center(phone, *, retry: bool = True) -> tuple[Element, ...]:
     layout = PhoneLayout.from_info(phone.screen_info())
     phone.press_home()
     time.sleep(0.8)
     phone.swipe(layout.width * .92, 1, layout.width * .92, layout.height * .30, .3)
     time.sleep(1.0)
+    if retry and any(e.name == "focus-modes-ui" for e in _elements(phone)):
+        # A run that stopped mid-check left the Focus menu up (2026-10-01 00:33); the swipe then
+        # shows the menu, not Control Center. Home does not close it (measured 2026-10-01);
+        # a tap on the empty area below the modes does. Then open Control Center once more.
+        phone.tap(*layout.reference_point(220, 790))
+        time.sleep(1.0)
+        return open_control_center(phone, retry=False)
+    # Not under the shallow media profile: depth 15 hid the Focus module (2026-09-30 23:44).
     return _settle(phone, MODULE)
 
 
@@ -90,11 +100,21 @@ def _state_now(phone) -> str:
         close_control_center(phone)
 
 
-def enable_dnd(phone) -> bool:
+# A Focus the owner already had on is remembered for a while, so one Post now (YouTube →
+# Instagram → TikTok) reads Control Center once instead of once per platform.
+QUIET_MEMORY = 600.0
+_quiet_until = 0.0
+
+
+def enable_dnd(phone, *, clock=time.monotonic) -> bool:
     """Return True only if this run changed Focus from off to DND."""
+    global _quiet_until
+    if clock() < _quiet_until:
+        return False
     elements = open_control_center(phone)
-    if focus_state(elements) == "dnd":
+    if focus_state(elements) in ("dnd", "other"):
         close_control_center(phone)
+        _quiet_until = clock() + QUIET_MEMORY
         return False
     _choose_dnd(phone, elements)
     try:

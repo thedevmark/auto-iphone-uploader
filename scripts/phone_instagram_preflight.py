@@ -55,6 +55,45 @@ def selected_instagram_account() -> str:
     return profile_handle(elements)
 
 
+def switcher_row(elements, handle: str):
+    """The account switcher's row for ``handle``. Recorded 2026-10-01: each signed-in account is
+    a Button labelled "INSTAGRAM profile, <handle>[, <activity>]"; the active one has value 1."""
+    pattern = re.compile(r"instagram profile, " + re.escape(handle.lstrip("@").casefold()) + r"(,|$)")
+    rows = {(e.x, e.y): e for e in elements if e.type == "Button" and pattern.match(e.label.casefold())}
+    if len(rows) != 1:
+        raise ValueError(f"Instagram account switcher shows {len(rows)} rows for {handle}; "
+                         "sign that account in on the phone first")
+    return next(iter(rows.values()))
+
+
+def ensure_instagram_account(expected: str) -> str:
+    """Open the profile, and switch to ``expected`` through Instagram's own account switcher
+    when another signed-in account is active. The header must then read ``expected``."""
+    actual = selected_instagram_account()
+    if actual == expected.casefold():
+        return actual
+    elements = elements_from_tree(phone.ui_tree())
+    header = [e for e in elements if e.type == "Button" and e.name == "user-switch-title-button"]
+    if len(header) != 1:
+        raise ValueError("Instagram profile header is missing or ambiguous; stop before Edits export")
+    phone.tap(header[0].x, header[0].y)
+    time.sleep(1.5)
+    row = switcher_row(elements_from_tree(phone.ui_tree()), expected)
+    phone.tap(row.x, row.y)
+    deadline = time.monotonic() + 15
+    while True:
+        time.sleep(1.5)
+        try:
+            actual = profile_handle(elements_from_tree(phone.ui_tree()))
+        except ValueError:
+            actual = ""
+        if actual == expected.casefold():
+            return actual
+        if time.monotonic() >= deadline:
+            raise ValueError(f"Instagram did not switch to {expected} (shows {actual or 'nothing'}); "
+                             "nothing was exported")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("source", type=Path, nargs="?")
@@ -92,9 +131,7 @@ def main() -> None:
     color = edits_color_mode(source)
     connect_sidetap()
     phone.unlock()
-    actual = selected_instagram_account()
-    if actual != account.casefold():
-        raise ValueError(f"Instagram has {actual}; expected {account}. Switch before Edits export")
+    actual = ensure_instagram_account(account)
     print(json.dumps({"source": str(source.resolve()), "instagramAccount": actual,
                       "editsColorMode": color, "readyForEditsExport": True}))
 

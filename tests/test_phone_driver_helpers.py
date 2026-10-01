@@ -1396,3 +1396,162 @@ def test_enter_passcode_taps_with_a_short_hold(fast):
     assert stub.hold_ms == [80] * len(config.PHONE_PASSCODE), (
         f"pad taps asked for hold_ms {stub.hold_ms}"
     )
+
+
+# ---- video surfaces: no accessibility snapshot while a feed plays --------------------------
+
+
+def _png(seed: int, noise: bool) -> bytes:
+    from io import BytesIO
+
+    from PIL import Image
+
+    img = Image.new("L", (64, 128), 40)
+    if noise:
+        px = img.load()
+        for y in range(128):
+            for x in range(64):
+                px[x, y] = (x * 7 + y * 13 + seed * 61) % 256
+    buf = BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def _guarded(monkeypatch, frames):
+    """A CountingClient behind ui_tree, TikTok in front, go-ios frames served from `frames`."""
+    stub = _fresh_counting_client(monkeypatch)
+    monkeypatch.setattr(helpers.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(config, "AX_VIDEO_APPS", frozenset({"com.zhiliaoapp.musically"}))
+    monkeypatch.setattr(helpers, "_front_bundle", "com.zhiliaoapp.musically")
+    it = iter(frames)
+    monkeypatch.setattr(helpers.capture, "_go_ios_screenshot", lambda: next(it))
+    return stub
+
+
+def test_tree_read_refused_while_the_feed_plays(monkeypatch):
+    stub = _guarded(monkeypatch, [_png(1, True), _png(2, True)])
+    with pytest.raises(helpers.VideoSurfaceError) as err:
+        helpers.ui_tree()
+    assert "playing video" in str(err.value) and "screenshot()" in str(err.value)
+    assert stub.source_calls == 0  # WDA never asked
+
+
+def test_still_screen_in_a_video_app_reads_the_tree(monkeypatch):
+    stub = _guarded(monkeypatch, [_png(1, False), _png(1, False)])
+    assert helpers.ui_tree() == SAMPLE_TREE
+    assert stub.source_calls == 1
+
+
+def test_guard_only_looks_at_listed_apps_and_clears_on_home(monkeypatch):
+    stub = _guarded(monkeypatch, [_png(1, True), _png(2, True)])
+    monkeypatch.setattr(helpers, "_front_bundle", "com.apple.Preferences")  # not listed: no frames taken
+    assert helpers.ui_tree() == SAMPLE_TREE
+    assert stub.source_calls == 1
+    helpers._invalidate_tree()
+    monkeypatch.setattr(config, "AX_VIDEO_APPS", frozenset())  # guard off entirely
+    monkeypatch.setattr(helpers, "_front_bundle", "com.zhiliaoapp.musically")
+    assert helpers.ui_tree() == SAMPLE_TREE
+    assert stub.source_calls == 2
+
+
+def test_open_app_and_press_home_track_the_front_bundle(fast):
+    class Launcher(StubPhone):
+        def app_launch(self, bundle):
+            self.launched = bundle
+
+        def home(self):
+            pass
+
+    stub = fast(Launcher(SAMPLE_TREE))
+    monkeypatch_front = helpers._front_bundle
+    helpers.open_app("com.zhiliaoapp.musically")
+    assert helpers._front_bundle == "com.zhiliaoapp.musically" and stub.launched == "com.zhiliaoapp.musically"
+    helpers.press_home()
+    assert helpers._front_bundle is None
+    del monkeypatch_front
+
+
+def test_frame_comparison_thresholds():
+    assert not helpers._frames_moving(_png(1, False), _png(1, False))
+    assert helpers._frames_moving(_png(1, True), _png(2, True))
+
+
+class SettingsClient(CountingClient):
+    """Records every /appium/settings write, like the shared session would hold them."""
+
+    def __init__(self):
+        super().__init__()
+        self.writes = []
+        self.fail_restore = False
+
+    def set_settings(self, settings):
+        if self.fail_restore and settings.get("snapshotMaxDepth") != 15:
+            raise WDAError("link dropped")
+        self.writes.append(dict(settings))
+
+
+def test_media_profile_applies_shallow_no_wait_and_restores(monkeypatch):
+    helpers._invalidate_tree()
+    stub = SettingsClient()
+    monkeypatch.setattr(helpers, "_client", stub)
+    monkeypatch.setattr(config, "WDA_MEDIA_SNAPSHOT_DEPTH", 15)
+    monkeypatch.setattr(config, "WDA_SNAPSHOT_MAX_DEPTH", 0)
+    monkeypatch.setattr(config, "WDA_IDLE_WAIT", 2.0)
+    monkeypatch.setattr(config, "WDA_ANIM_COOLOFF", 0.0)
+    with helpers.media_profile():
+        helpers.ui_tree()
+    assert stub.writes == [
+        {"snapshotMaxDepth": 15, "waitForIdleTimeout": 0, "animationCoolOffTimeout": 0},
+        {"snapshotMaxDepth": 50, "waitForIdleTimeout": 2.0, "animationCoolOffTimeout": 0.0},
+    ]
+
+
+def test_media_profile_restores_on_error_and_reports_a_failed_restore(monkeypatch, capsys):
+    helpers._invalidate_tree()
+    stub = SettingsClient()
+    monkeypatch.setattr(helpers, "_client", stub)
+    monkeypatch.setattr(config, "WDA_MEDIA_SNAPSHOT_DEPTH", 15)
+    with pytest.raises(RuntimeError):
+        with helpers.media_profile():
+            raise RuntimeError("flow failed")
+    assert stub.writes[-1]["snapshotMaxDepth"] == 50  # restored despite the error
+    stub.fail_restore = True
+    with helpers.media_profile(depth=15):
+        pass
+    assert "media profile not restored" in capsys.readouterr().err
+
+
+def test_video_in_front_and_note_front_app(monkeypatch):
+    frames = iter([_png(1, True), _png(2, True), _png(3, False), _png(3, False)])
+    monkeypatch.setattr(helpers.capture, "_go_ios_screenshot", lambda: next(frames))
+    monkeypatch.setattr(helpers.time, "sleep", lambda _s: None)
+    assert helpers.video_in_front() is True
+    assert helpers.video_in_front() is False
+    helpers.note_front_app("com.zhiliaoapp.musically")
+    assert helpers._front_bundle == "com.zhiliaoapp.musically"
+    helpers.note_front_app(None)
+    assert helpers._front_bundle is None
+
+
+def test_press_home_leaves_a_video_app_over_usb_without_asking_wda(monkeypatch):
+    stub = SlowSpringboard(arrives_on=10_000)  # WDA would never confirm; it must not be asked
+    monkeypatch.setattr(helpers, "_client", stub)
+    monkeypatch.setattr(helpers.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(config, "AX_VIDEO_APPS", frozenset({"com.zhiliaoapp.musically"}))
+    launched = []
+    monkeypatch.setattr(helpers.device, "foreground_springboard", lambda: launched.append(1) or True)
+    helpers.note_front_app("com.zhiliaoapp.musically")
+    helpers.press_home()
+    assert launched == [1] and not stub.homed and stub.checks == 0
+    assert helpers._front_bundle is None
+    # go-ios unavailable: fall back to WDA's Home press as before
+    monkeypatch.setattr(helpers.device, "foreground_springboard", lambda: False)
+    helpers.note_front_app("com.zhiliaoapp.musically")
+    helpers.press_home()
+    assert stub.homed
+    # an app that is not listed never takes the go-ios path
+    launched.clear()
+    monkeypatch.setattr(helpers.device, "foreground_springboard", lambda: launched.append(1) or True)
+    helpers.note_front_app("com.apple.Preferences")
+    helpers.press_home()
+    assert launched == []

@@ -154,12 +154,105 @@ def _foreign_activity() -> float:
         return 0.0
 
 
+class VideoSurfaceError(WDAError):
+    """A tree read was refused because the app in front is playing video.
+
+    Read pixels instead (screenshot()/ocr(), or the posting scripts' pixel
+    helpers); an accessibility snapshot of a playing feed hangs WDA and, on a
+    weak USB port, takes the whole USB link down (docs/link-root-cause.md)."""
+
+
+# The bundle id open_app() last launched; press_home() clears it. Only apps in
+# config.AX_VIDEO_APPS are checked, so an unknown front app costs nothing.
+_front_bundle: str | None = None
+
+# Two go-ios frames this far apart, downscaled to grey 64x128, whose mean absolute
+# difference exceeds _VIDEO_DIFF (0-255) are "video playing". A still screen with a
+# blinking caret or a progress spinner stays well under 1; a feed clip changes most
+# of the frame. needs device check on the threshold; go-ios frames cost ~0.7-1.0 s each.
+_VIDEO_FRAME_GAP = 0.7
+_VIDEO_DIFF = 4.0
+
+
+def _frames_moving(first: bytes, second: bytes) -> bool:
+    if first == second:
+        return False
+    from io import BytesIO
+
+    from PIL import Image, ImageChops, ImageStat
+
+    a = Image.open(BytesIO(first)).convert("L").resize((64, 128))
+    b = Image.open(BytesIO(second)).convert("L").resize((64, 128))
+    return ImageStat.Stat(ImageChops.difference(a, b)).mean[0] > _VIDEO_DIFF
+
+
+def _video_surface_playing() -> bool:
+    """Two go-ios screenshots (never WDA: those queue behind a hung snapshot) a beat apart."""
+    first = capture._go_ios_screenshot()
+    time.sleep(_VIDEO_FRAME_GAP)
+    return _frames_moving(first, capture._go_ios_screenshot())
+
+
+def video_in_front() -> bool:
+    """Is the screen visibly playing video right now? Two go-ios frames, no WDA.
+
+    For flows that reach a media app through a share sheet (open_app() never
+    saw it): ask this before a tree read while a full-screen clip may be up,
+    and wait instead of snapshotting while it answers True."""
+    return _video_surface_playing()
+
+
+def note_front_app(bundle: str | None) -> None:
+    """Tell the video guard which app a share sheet (not open_app) put in front; None clears."""
+    global _front_bundle
+    _front_bundle = bundle
+
+
+class media_profile:
+    """`with media_profile():` — shallow, no-wait WDA snapshots while a media screen is up.
+
+    Applies snapshotMaxDepth=config.WDA_MEDIA_SNAPSHOT_DEPTH, waitForIdleTimeout=0 and
+    animationCoolOffTimeout=0 to the shared session on entry and restores the configured
+    values on exit, exceptions included: the keys ride the session every process shares,
+    so a profile left behind would slow or shallow every later read. A failed restore is
+    reported, never raised, so it cannot mask the flow's own error."""
+
+    def __init__(self, depth: int | None = None):
+        self.depth = depth or config.WDA_MEDIA_SNAPSHOT_DEPTH
+        self.applied = False
+
+    def __enter__(self):
+        client().set_settings({"snapshotMaxDepth": self.depth, "waitForIdleTimeout": 0,
+                               "animationCoolOffTimeout": 0})
+        self.applied = True
+        _invalidate_tree()
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        if not self.applied:
+            return False
+        restore = {"snapshotMaxDepth": config.WDA_SNAPSHOT_MAX_DEPTH or 50,
+                   "waitForIdleTimeout": config.WDA_IDLE_WAIT,
+                   "animationCoolOffTimeout": config.WDA_ANIM_COOLOFF}
+        try:
+            client().set_settings(restore)
+        except WDAError as err:  # the link may be the thing that failed; say so, keep the real error
+            import sys
+
+            print(f"warning: WDA media profile not restored: {err}", file=sys.stderr, flush=True)
+        _invalidate_tree()
+        return False
+
+
 def ui_tree() -> dict:
     """Raw UI element tree (nested dicts). The precise view of the screen.
 
     Every text read in this module reaches the screen through here. Upstream
     also marks the session tainted here for its send-approval gate; this app
     never sends messages on the agent's behalf, so that bookkeeping is gone.
+
+    Raises VideoSurfaceError instead of asking WDA when the app open_app() last
+    launched is in config.AX_VIDEO_APPS and the screen is visibly playing video.
     """
     now = time.monotonic()
     act = _foreign_activity()
@@ -169,6 +262,11 @@ def ui_tree() -> dict:
         and act == _tree_cache["act"]
     ):
         return _tree_cache["tree"]
+    if _front_bundle in config.AX_VIDEO_APPS and _video_surface_playing():
+        raise VideoSurfaceError(
+            f"{_front_bundle} is playing video: refusing the accessibility snapshot. "
+            "Read pixels (screenshot()/ocr()) on this screen, or press Home first."
+        )
     tree = client().source()
     _tree_cache.update(tree=tree, ts=time.monotonic(), flags=[], act=act)
     return tree
@@ -363,7 +461,17 @@ def press_home() -> None:
     silent on timeout: the physical gesture cannot fail, so neither may this;
     callers that need to know check the screen.
     """
+    global _front_bundle
     _invalidate_tree()
+    leaving_video = _front_bundle in config.AX_VIDEO_APPS
+    _front_bundle = None
+    if leaving_video and device.foreground_springboard():
+        # Leaving a playing feed: the springboard wait below asks WDA for the active app,
+        # an accessibility route that hung 30 s on TikTok's feed three times on 2026-10-01
+        # 01:49-01:57 (one of them a WDA-only wedge the supervisor cleared by restarting the
+        # runner). `ios launch com.apple.springboard` puts the Home Screen in front with no
+        # WDA request at all and is synchronous; nothing is left to poll.
+        return
     c = client()
     c.home()
     deadline = time.monotonic() + _HOME_DEADLINE
@@ -507,8 +615,10 @@ def open_app(name: str, wait_seconds: float = 0.0) -> None:
     stopped moving", which a launch that bounced back to the Home Screen also
     satisfies.
     """
+    global _front_bundle
     bundle = _resolve_bundle(name)
     _invalidate_tree()
+    _front_bundle = bundle
     client().app_launch(bundle)
     if wait_seconds > 0 and not wait_for_app(bundle, timeout=wait_seconds):
         # Loud, not a return value: keeping `-> None` leaves the MCP output
@@ -1039,6 +1149,10 @@ __all__ = [
     "compact",
     "press_home",
     "open_app",
+    "video_in_front",
+    "note_front_app",
+    "media_profile",
+    "VideoSurfaceError",
     "close_app",
     "current_app",
     "wait_for_app",

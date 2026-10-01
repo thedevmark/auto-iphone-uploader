@@ -5,10 +5,92 @@ All notable changes to Auto iPhone Uploader. Versions match the Git tags that
 
 ## 1.0.0 (unreleased; current candidate 1.0.0-rc.2)
 
-The first release meant for people other than its author. See the README's
-[Known limitations](README.md#known-limitations) and
-[docs/launch-checklist.md](docs/launch-checklist.md) for what still stands
-between this candidate and 1.0.
+Post finished videos from a Windows PC through the real iPhone apps: YouTube
+Shorts with title, description and a first-frame thumbnail; Instagram Reels
+through Edits' 4K export with Facebook and Threads crossposts; TikTok. Post
+now or Schedule into the apps' own schedulers, with Do Not Disturb during
+runs, receipts read back from the apps, a self-healing USB link supervisor
+and a setup checklist. The README's
+[Requirements and limits](README.md#requirements-and-limits) and
+[docs/launch-checklist.md](docs/launch-checklist.md) say what has been
+verified on the reference phone.
+
+### Unreleased (since 1.0.0-rc.2)
+
+#### Added
+
+- **YouTube's hidden detail rows are read with Windows' built-in OCR.**
+  YouTube 21.38 draws Description, Paid promotion and "AI use, Tags" but
+  leaves them out of the accessibility tree; the YouTube runner now finds them
+  in a screenshot with `Windows.Media.Ocr` (offline, no model,
+  `video_drop/ocr/`), taps the one exact match and proves the tap by the
+  screen that opens. A label that is missing or appears twice stops the run.
+  Multi-line descriptions are typed line by line and read back. New checklist
+  row: **Screen text reader (Windows OCR)**.
+- **Receipts read on their own.** In the hour after a final tap the app
+  looks at the phone up to four times (3, 10, 25 and 55 minutes, read-only;
+  a missed look is skipped, never caught up in a burst) and records the
+  Instagram and Threads receipts the profile proves, so those destinations
+  turn **posted** with no click. It stands down while another phone action,
+  a link problem or a held phone lock is in the way. New setting: **Check
+  each post in the apps afterwards** (on by default).
+- **Instagram switches to the release's account by itself.** When Instagram
+  is on another signed-in account, the runner opens Instagram's own account
+  switcher, picks the exact handle (never a prefix match) and reads the
+  profile header again before the Edits export; a switch that does not land
+  stops the run with nothing posted.
+- **USB pipe-stall recovery.** When WebDriverAgent and lockdown both stop
+  answering while Windows still lists the phone, the link supervisor names it
+  a pipe stall (`video_drop/pipe_stall.py`), skips the Home press and walks a
+  ladder: wait, restart Apple Mobile Device Service, restart the iPhone's USB
+  device node, each verified by lockdown answering again, and only then asks
+  for a replug. Each step's outcome and seconds are logged.
+- **USB recovery helper** for the two privileged ladder steps:
+  `scripts\install_windows.ps1 -InstallUsbHelper` registers an on-demand
+  SYSTEM scheduled task (one UAC prompt) that can only restart Apple Mobile
+  Device Service or the iPhone's USB node; `-UninstallUsbHelper` removes it.
+  The app itself never runs elevated. Design and threat model:
+  [docs/usb-recovery-helper.md](docs/usb-recovery-helper.md).
+- **Checklist rows:** USB recovery helper installed; iPhone USB path (warns
+  about an AMD chipset controller or a hub between the phone and the PC);
+  iPhone charging over USB (warns when the phone drains while plugged in or
+  the battery is low).
+- `scripts/set_passcode.py` saves `PHONE_PASSCODE` into `.env` from a hidden
+  prompt and never prints it.
+
+#### Fixed
+
+- **Receipts:** the Instagram receipt taps the Profile tab a second time
+  (two seconds apart, never a double tap) so a profile reopened mid-scroll
+  shows its post count again; the Threads receipt reads Threads' new "Threads
+  tab" / "Replies tab" labels and accepts a caption whose hashtags Threads
+  folded, only as that exact fold of the approved caption.
+- **Focus:** a Focus menu left open by an earlier run is closed with a tap on
+  empty space (Home leaves it up) before Control Center is read; Control
+  Center is read at full depth again so the Focus module is found; an active
+  Focus that already silences the phone (for example a Streaming Focus) is
+  left untouched; the owner's Focus is remembered for 10 minutes so one Post
+  now reads it once.
+- **YouTube:** the audience picker is skipped when YouTube already remembers
+  "not made for kids"; visibility is confirmed from the picker's own radio
+  when the details row is stale; the share sheet gets up to 15 s to show the
+  file size before it is judged.
+- **Phone link:** the driver refuses an accessibility snapshot while a video
+  app is visibly playing (the read that stalled the USB pipe) and the flows
+  read pixels there instead: TikTok waits out its playing editor by pixels
+  before reading the post screen, Instagram's cover proof and Edits' segment
+  check read go-ios pixels, and leaving a playing app goes to the Home Screen
+  through go-ios without asking WebDriverAgent; the supervisor retries its status-file replace
+  when a reader holds the file open on Windows; the link experiment keeps
+  recording through a phone error; a power warning is logged when the phone
+  drains while reported as charging.
+- Every runner checks the source file against the same database it loaded
+  the release from.
+
+#### Changed
+
+- The test suite never reads the owner's real `.env` (`VIDEO_DROP_ENV_FILE`),
+  and `pytest.ini` limits collection to `tests/`.
 
 ### 1.0.0-rc.2 (2026-09-30)
 

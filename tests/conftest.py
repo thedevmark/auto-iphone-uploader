@@ -3,9 +3,17 @@
 Tests that need another zone patch video_drop.timezones.pc_zone_name themselves.
 """
 
-import pytest
+import os
+import tempfile
+from pathlib import Path
 
-from video_drop import timezones
+# Before any app module is imported: the suite never reads the owner's real .env (it holds the
+# phone passcode). Tests that need .env values set them in the process environment.
+os.environ["VIDEO_DROP_ENV_FILE"] = str(Path(tempfile.gettempdir()) / "video-drop-tests-no.env")
+
+import pytest  # noqa: E402
+
+from video_drop import timezones  # noqa: E402
 
 
 @pytest.fixture(autouse=True)

@@ -40,6 +40,14 @@ Things only the owner can change (the app never changes system settings):
    cable. A powered hub is not a fix.
 3. On the phone, keep it unlocked while posting; iOS ends the runner ~15 min
    after the screen sleeps.
+4. Make sure the port actually charges the phone. On 2026-09-30 every link
+   stall happened with the battery at 1–23%, and `ios batteryregistry` on the
+   chipset port read `IsCharging: true` while the phone **drained at 2.4 A**
+   with TikTok or YouTube on screen (pack voltage 3.33 V at 1%). Charge it on
+   a wall charger first and prefer a port that can supply the load (a rear
+   port on the CPU controller, a powered hub, USB-C PD). The setup checklist's
+   "iPhone charging over USB" row shows the live reading; the link experiments
+   record it every 15 s and print a `power:` line when it drains while plugged in.
 
 ### 2. WebDriverAgent wedged by a playing video (looked like "WDA down")
 
@@ -79,7 +87,9 @@ wedge is being judged. Then:
 | Phone off the bus | Wait. The go-ios daemon re-creates the tunnel by itself when the phone returns (seen in `tunnel-kernel.err`: "stopping tunnel" → "start tunnel" a second after every re-enumeration). Nothing is killed. |
 | Tunnel listed, runner dead / forwards dead | Restart only the runner / forwards, with backoff (3, 10, 30, 60 s) — but never while the route is not answering (a runner cannot reach testmanagerd without it). A silent forward with no runner behind it counts as dead, not wedged. |
 | WDA accepts but never answers, no other process landing actions | After 2 consecutive silent probes (~10 s), press Home. **iOS kills the runner ~39 s after a wedge** (10:47:40→10:48:18 and 11:24:32→11:25:11 on 2026-09-30, tunnel healthy both times), so this is the one threshold a busy window never stretches. Never restart. A wedge that survives two Home presses 45 s apart restarts the runner only. |
-| Route dead for 3 consecutive probes with the phone on the bus | Leave the daemon alone for **5 minutes** (15 while busy): every such death so far followed a heavy transcode and a fresh daemon could not negotiate either. Then restart the daemon **once**. If the new one cannot route either: state `needs-replug`, "Unplug and replug the phone" — and keep probing, because a route that answers again clears it. |
+| WDA silent **and** lockdown silent while usbmuxd still lists the phone (3 consecutive raw probes, `video_drop/pipe_stall.py`) | A **pipe stall**. No Home press (`ios launch` would only hang). The recovery ladder: wait 30 s; restart Apple Mobile Device Service; restart the iPhone's USB device node; each step verified by lockdown answering again and logged with its seconds (`ladder` in `link-events.jsonl`, `lastStall` in `link-status.json`); only then `needs-replug`. The two privileged steps go through the USB recovery helper (`docs/usb-recovery-helper.md`); without it the ladder says so and asks for the replug. States `pipe-stall`, `pipe-stall-service`, `pipe-stall-usb`. |
+| Runner dead, lockdown answering | A cheap runner restart in seconds (the pipe probe's `ok` lifts the route hold). Never a tunnel action, never a replug. |
+| Route dead for 3 consecutive probes with the phone on the bus, lockdown not yet judged | Leave the daemon alone for **5 minutes** (15 while busy): every such death so far followed a heavy transcode and a fresh daemon could not negotiate either. Then restart the daemon **once**. If the new one cannot route either: state `needs-replug`, "Unplug and replug the phone" — and keep probing, because a route that answers again clears it. |
 | SideTap's viewer is running | Stand by: probe and log, take no action, say why. Its `_heal_loop` is a second healer (`admin._UP_LOCK` is in-process only), and at 11:28:13 a concurrent `up` replaced a healthy tunnel with one that never connected. |
 | A daemon or runner someone started by hand | Adopt it (write its pid file under `.state/phone/`) instead of starting a second one. |
 | A script declared busy (upload, export) | Route/entry thresholds ×3, route probes spaced out, nothing restarted on one miss. |
@@ -115,17 +125,25 @@ phone action and check `["state"] == "ready"`; on a `WDAError`, call
 is alive). Wrap long phone work in `phone_link.busy(reason, seconds, linger=...)`.
 Never call `phone-harness up` from a script.
 
-## Still needs a physical replug
+## The pipe stall: automated recovery, replug last
 
-When the tunnel's route to the phone dies while the phone stays on the bus
-(case 2 above), neither a new userspace daemon nor `pnputil /restart-device`
-has been shown to bring it back; the supervisor stops after one daemon restart
-and says so. Reducing case-2 triggers (no WDA reads on video surfaces, busy
-windows around exports) is the mitigation.
+When everything that crosses the USB data pipe dies while the phone stays on
+the bus (case 2 above, measured 2026-09-30
+— lockdown included, so not a WDA wedge), the supervisor no longer waits five
+minutes and asks for a replug. It names the stall with three raw probes and
+walks a recovery ladder — wait, restart Apple Mobile Device Service, restart
+the iPhone's USB device node — verifying each step by lockdown answering, and
+shows the replug message only when all of it failed. The two privileged steps
+run through a small on-demand SYSTEM task the installer registers once with
+UAC consent (`scripts\install_windows.ps1 -InstallUsbHelper`). Design,
+protocol and threat model: `docs/usb-recovery-helper.md`. The ladder's log is
+also the measurement the root-cause analysis asked for: which step brings a
+real stall back, and after how long.
 
-The 2026-09-30 evidence for this failure is analysed in
-`docs/link-root-cause.md`: it is a stall of everything that crosses the USB
-data pipe (lockdown included, so not a WDA wedge), with the experiments that
-decide host vs Windows-USB vs phone side. `scripts/link_experiment.py` runs
-them; the supervisor's `--tunnel-mode kernel|pmd3` adopts an externally
-started tunnel and `--no-mjpeg-forward` leaves :9100 alone for those A/B runs.
+Prevention on the scripts' side: `phone_link.video_in_front()` (two go-ios
+frames; a moving main region means "no WDA tree reads here") and
+`WDA_SETTINGS_PROFILE=lean|media` (bounded accessibility snapshots, shallow
+trees, no MJPEG keys) for the experiment agent's A/B runs.
+`scripts/link_experiment.py` runs the experiments; the supervisor's
+`--tunnel-mode kernel|pmd3` adopts an externally started tunnel and
+`--no-mjpeg-forward` leaves :9100 alone for those A/B runs.

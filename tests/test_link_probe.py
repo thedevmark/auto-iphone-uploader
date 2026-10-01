@@ -173,6 +173,69 @@ class ProbeTests(unittest.TestCase):
         self.assertEqual(row["lockdown"][0], "ok")
         self.assertEqual(row["wda"][0], "ok")
         self.assertEqual(row["tunnel"], ["no entry", 0])
+        self.assertNotIn("battery", row)
+
+    def test_recorder_reads_the_battery_on_its_own_cadence_only_while_lockdown_answers(self):
+        calls = []
+
+        def battery():
+            calls.append(1)
+            return {"CurrentCapacity": 21, "InstantAmperage": -412, "IsCharging": True}
+
+        rec = link_probe.LinkRecorder(__import__("pathlib").Path("unused.jsonl"), udid="00008140-TEST",
+                                      entry_source=lambda: [], probe_timeout=1.0, mux=self.mux.addr,
+                                      battery_every=10.0, battery_source=battery)
+        first = rec.probe_once(now=100.0)
+        self.assertEqual(first["battery"]["InstantAmperage"], -412)
+        self.assertNotIn("battery", rec.probe_once(now=105.0))
+        self.assertIn("battery", rec.probe_once(now=111.0))
+        self.assertEqual(len(calls), 2)
+        rec.udid = "no-such-phone"  # lockdown cannot be probed: no battery read either
+        self.assertNotIn("battery", rec.probe_once(now=130.0))
+        self.assertEqual(len(calls), 2)
+
+    def test_log_tails_never_shadow_a_probe_column(self):
+        import pathlib
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            log = pathlib.Path(td) / "tunnel.log"
+            log.write_text("", encoding="utf-8")
+            rec = link_probe.LinkRecorder(pathlib.Path(td) / "out.jsonl", udid="00008140-TEST",
+                                          entry_source=lambda: [], probe_timeout=1.0, mux=self.mux.addr,
+                                          logs={"tunnel": log})
+            log.write_text("\n".join([
+                '{"level":"ERROR","msg":"userspace tunnel connection failed","error":"proxyConns failed: writeto tcp"}',
+                '{"level":"ERROR","msg":"framedIPv6Reader: failed to read IPv6 header"}',
+                "",
+            ]), encoding="utf-8")
+            row = rec.probe_once(now=100.0)
+            self.assertEqual(row["tunnel"], ["no entry", 0])
+            self.assertEqual(len(row["log:tunnel"]), 1)
+            self.assertIn("framedIPv6Reader", row["log:tunnel"][0])
+
+    def test_power_warning_needs_two_draining_reads_while_charging(self):
+        rest = {"CurrentCapacity": 2, "IsCharging": True, "InstantAmperage": 423}
+        drain = {"CurrentCapacity": 1, "IsCharging": True, "InstantAmperage": -2463}
+        self.assertIsNone(link_probe.power_warning([rest, rest, drain]))
+        self.assertIsNone(link_probe.power_warning([{"IsCharging": False, "InstantAmperage": -900}] * 3))
+        text = link_probe.power_warning([rest, drain, {"error": "x"}, drain])
+        self.assertIn("2463 mA", text)
+        self.assertIn("at 1% battery", text)
+        self.assertIn("2 of 3 reads", text)
+
+    def test_parse_battery_keeps_the_charging_fields(self):
+        text = "\n".join([
+            '{"level":"info","msg":"x"}',
+            '{"CurrentCapacity":21,"IsCharging":true,"ExternalConnected":true,"InstantAmperage":-380,'
+            '"Temperature":3310,"Voltage":3890,"FullyCharged":false,"CycleCount":12,'
+            '"AdapterDetails":{"Watts":15,"Current":3000,"Voltage":5000,"Description":"pd charger","Manufacturer":"x"}}',
+        ])
+        parsed = link_probe.parse_battery(text)
+        self.assertEqual(parsed["InstantAmperage"], -380)
+        self.assertEqual(parsed["AdapterDetails"], {"Watts": 15, "Current": 3000, "Voltage": 5000,
+                                                    "Description": "pd charger"})
+        self.assertNotIn("CycleCount", parsed)
+        self.assertIn("error", link_probe.parse_battery("not json at all"))
 
 
 def rows(spec: str, start: float = 0.0):

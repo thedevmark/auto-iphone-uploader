@@ -6,6 +6,11 @@
     python scripts/link_experiment.py no-mjpeg --restart-supervisor
     python scripts/link_experiment.py wda-lean
     python scripts/link_experiment.py idle --minutes 60 --ladder         # record only; walk the recovery ladder on a stall
+    python scripts/link_experiment.py pixels --minutes 8                 # video on screen, go-ios pixels only (no WDA)
+    python scripts/link_experiment.py ax --minutes 8                     # video on screen, WDA /source (AX snapshot)
+    python scripts/link_experiment.py ax-shallow --minutes 8             # ax with snapshotMaxDepth=12
+    python scripts/link_experiment.py wda-nosnap --minutes 8             # video on screen, WDA /status then /screenshot
+    python scripts/link_experiment.py wda-strip --minutes 8              # ax with no MJPEG settings, 0.5s AX deadline
 
 Every experiment runs the same layered 1 Hz recorder (video_drop/link_probe.py:
 usbmux ListDevices, lockdown QueryType, WDA /status straight through usbmux,
@@ -40,7 +45,20 @@ from video_drop import link_probe, link_supervisor  # noqa: E402
 STATE = link_supervisor.state_dir()
 SIDETAP_STATE = (Path.home() / "AppData/Local/Packages/OpenAI.Codex_2p2nqsd0c76g0/LocalCache/Local/SideTap/.state")
 
-WORKLOADS = ("none", "safe", "tiktok", "control-center", "youtube-create")
+WORKLOADS = ("none", "safe", "tiktok", "control-center", "youtube-create",
+             # Trigger isolation (2026-09-30 evening): the same video surfaces with a different
+             # host-side reader on each, so what the host does can be separated from what the
+             # phone shows. See docs/link-root-cause.md section 6.
+             "tiktok-pixels",        # go-ios only: `ios launch` + `ios screenshot` (tunnel); no WDA request at all
+             "tiktok-status",        # WDA HTTP only: GET /status polls (standalone route, no accessibility)
+             "tiktok-shot",          # WDA GET /screenshot (testmanagerd capture), no accessibility snapshot
+             "youtube-feed",         # a second video app (YouTube's home feed autoplays previews) + /source
+             "youtube-feed-pixels",  # same screen, go-ios only
+             "photos",               # Photos grid (GPU-heavy, no video) + /source: the 13:0x S1 shape
+             )
+
+VIDEO_APPS = {"tiktok": "com.zhiliaoapp.musically", "youtube": "com.google.ios.youtube",
+              "photos": "com.apple.mobileslideshow"}
 
 EXPERIMENTS: dict[str, dict] = {
     "baseline": {
@@ -85,6 +103,40 @@ EXPERIMENTS: dict[str, dict] = {
     "idle": {
         "tunnel_mode": None, "mjpeg_forward": None, "env": {}, "workload": "none",
         "why": "record only, whatever the supervisor is doing; use with --ladder while you reproduce a stall by hand",
+    },
+    # ---- trigger isolation (each arm <= 10 min; stop on the first stall) ----
+    "pixels": {
+        "tunnel_mode": "userspace", "mjpeg_forward": True, "env": {},
+        "workload": "tiktok-pixels,youtube-feed-pixels",
+        "why": "video plays, the host reads pixels through go-ios only (launch + screenshot over the tunnel): "
+               "no WDA request of any kind while the runner sits idle",
+    },
+    "ax": {
+        "tunnel_mode": "userspace", "mjpeg_forward": True, "env": {},
+        "workload": "tiktok,youtube-feed,photos",
+        "why": "video/GPU-heavy screens read with WDA /source (an XCTest accessibility snapshot): the 12:20 and "
+               "17:30 reproduction shape, on TikTok, YouTube's feed and the Photos grid",
+    },
+    "ax-shallow": {
+        # AX_VIDEO_APPS="" switches the driver's video-surface guard off for this arm: the point is
+        # to let a depth-12 /source reach TikTok's feed and see whether it returns.
+        "tunnel_mode": "userspace", "mjpeg_forward": True, "env": {"WDA_SNAPSHOT_MAX_DEPTH": "12", "AX_VIDEO_APPS": ""},
+        "workload": "tiktok,youtube-feed",
+        "why": "the ax arm with snapshotMaxDepth=12 (appium/appium#19255: TikTok's tree is huge; 10-15 while it is "
+               "in front): does a shallow /source return at all on the feed?",
+    },
+    "wda-nosnap": {
+        "tunnel_mode": "userspace", "mjpeg_forward": True, "env": {},
+        "workload": "tiktok-status,tiktok-shot",
+        "why": "video plays while the host talks to WDA without an accessibility snapshot: /status polls, then "
+               "/screenshot (testmanagerd capture)",
+    },
+    "wda-strip": {
+        "tunnel_mode": "userspace", "mjpeg_forward": True,
+        "env": {"MJPEG_SETTINGS": "0", "WDA_ACCESSIBILITY_DEADLINE": "0.5", "WDA_IDLE_WAIT": "0"},
+        "workload": "tiktok,youtube-feed",
+        "why": "the ax arm with the session stripped: no MJPEG settings sent, a 0.5s accessibility deadline, "
+               "no idle wait",
     },
 }
 
@@ -159,14 +211,24 @@ def restart_supervisor(exp: dict) -> dict:
 
 
 class Workload:
-    """Read-only phone activity through the vendored driver; never posts, deletes or sends."""
+    """Read-only phone activity; never posts, deletes or sends.
+
+    Two readers: the WDA driver (``phone``) and go-ios alone (``_go_*``: `ios launch`,
+    `ios screenshot`, `ios launch com.apple.springboard`), so an arm can put the same video
+    on the screen with no WDA request in flight. go-ios actions are written to the activity
+    feed too, so a stall can be attributed to what the host was doing at that second.
+    """
 
     def __init__(self, kinds: list[str]):
         from scripts import phone_youtube as share  # imported late: the driver reads WDA_* env at import
+        from video_drop.phone import capture, device, wda_client
 
         share.connect_sidetap()
         self.share = share
         self.phone = share.phone
+        self.device = device
+        self.capture = capture
+        self.log_event = wda_client.log_event
         self.kinds = kinds
         self.errors = 0
 
@@ -186,6 +248,69 @@ class Workload:
         tree = self.phone.ui_tree()
         log(name, ok=True, elements=len(self.phone.collect_texts(tree)))
 
+    def settings(self) -> dict:
+        """What WDA holds for this session (GET /appium/settings): proves which knobs applied."""
+        client = self.phone.client()
+        try:
+            value = client._session_request("GET", "/appium/settings")
+        except Exception as exc:  # a driver error here is a note, not a failure
+            return {"error": str(exc)[:120]}
+        keys = ("accessibilityDeadline", "snapshotMaxDepth", "waitForIdleTimeout", "animationCoolOffTimeout",
+                "mjpegServerFramerate", "mjpegScalingFactor", "defaultActiveApplication")
+        return {k: value.get(k) for k in keys if isinstance(value, dict) and k in value}
+
+    # -- go-ios only (no WDA) --
+    def _go_launch(self, bundle: str) -> None:
+        self.log_event(f"go-ios launch: {bundle}")
+        proc = self.device._run(["launch", bundle], timeout=20)
+        if proc.returncode != 0:
+            raise RuntimeError(f"ios launch {bundle} failed: {(proc.stderr or proc.stdout)[-160:]}")
+
+    def _go_shot(self, name: str) -> None:
+        self.log_event("go-ios screenshot")
+        png = self.capture._go_ios_screenshot()
+        log(name, ok=True, png_bytes=len(png))
+
+    def _go_home(self) -> None:
+        self.log_event("go-ios launch: com.apple.springboard")
+        if not self.device.foreground_springboard():
+            raise RuntimeError("ios launch com.apple.springboard failed")
+
+    def _wda_status(self, name: str) -> None:
+        value = self.phone.client().status()
+        log(name, ok=True, ready=bool(isinstance(value, dict) and value.get("ready", True)))
+
+    def _wda_shot(self, name: str) -> None:
+        png = self.phone.client().screenshot()
+        log(name, ok=True, png_bytes=len(png))
+
+    def _video_arm(self, app: str, reader: str, reads: int = 4, every: float = 8.0) -> None:
+        """Open a video/GPU-heavy app, read it `reads` times with one reader, go Home.
+
+        reader: "source" (WDA /source), "status" (WDA /status), "shot" (WDA /screenshot) or
+        "pixels" (go-ios only: launch, screenshot and Home all through go-ios)."""
+        bundle = VIDEO_APPS[app]
+        phone = self.phone
+        if reader == "pixels":
+            opened = self._step(f"go-ios open {app}", lambda: self._go_launch(bundle))
+        else:
+            opened = self._step(f"open {app}", lambda: phone.open_app(bundle))
+        if opened:
+            for i in range(reads):
+                time.sleep(every)
+                name = f"{reader} {app} {i}"
+                fn = {"source": lambda name=name: self._read(name),
+                      "status": lambda name=name: self._wda_status(name),
+                      "shot": lambda name=name: self._wda_shot(name),
+                      "pixels": lambda name=name: self._go_shot(name)}[reader]
+                if not self._step(name, fn):
+                    break
+        if reader == "pixels":
+            self._step("go-ios home", self._go_home)
+        else:
+            self._step("home", phone.press_home)
+        time.sleep(2)
+
     def cycle(self) -> None:
         phone = self.phone
         for kind in self.kinds:
@@ -197,14 +322,20 @@ class Workload:
                     self._step("home", phone.press_home)
                     time.sleep(1.0)
             elif kind == "tiktok":
-                # The 12:20 reproduction on 2026-09-30: the For You feed plus tree reads.
-                if self._step("open TikTok feed", lambda: phone.open_app("com.zhiliaoapp.musically")):
-                    for i in range(4):
-                        time.sleep(8)
-                        if not self._step(f"read TikTok {i}", lambda i=i: self._read(f"read TikTok {i}")):
-                            break
-                self._step("home", phone.press_home)
-                time.sleep(2)
+                # The 12:20 and 17:30 reproductions on 2026-09-30: the For You feed plus tree reads.
+                self._video_arm("tiktok", "source")
+            elif kind == "tiktok-pixels":
+                self._video_arm("tiktok", "pixels")
+            elif kind == "tiktok-status":
+                self._video_arm("tiktok", "status")
+            elif kind == "tiktok-shot":
+                self._video_arm("tiktok", "shot")
+            elif kind == "youtube-feed":
+                self._video_arm("youtube", "source", reads=3)
+            elif kind == "youtube-feed-pixels":
+                self._video_arm("youtube", "pixels", reads=3)
+            elif kind == "photos":
+                self._video_arm("photos", "source", reads=2, every=5.0)
             elif kind == "control-center":
                 # Preceded three of the failures on 2026-09-30 (12:46, 12:47, 12:56).
                 self._step("home", phone.press_home)
@@ -234,6 +365,34 @@ class Workload:
                     self._step("read Create sheet", lambda: self._read("read Create sheet"))
                 self._step("home", phone.press_home)
                 time.sleep(2)
+
+
+# ---- after a stall: the owner replugs ---------------------------------------------------------
+
+REPLUG_FILE = "NEEDS_REPLUG.txt"
+
+
+def note_replug_needed(state: Path, incident: dict, now: datetime | None = None) -> Path:
+    """One plain line for the person at the cable; the experiment waits for the phone after this."""
+    stamp = (now or datetime.now()).isoformat(timespec="seconds")
+    path = state / REPLUG_FILE
+    path.write_text(f"{stamp} {incident['kind']} at {incident['at']} ({' -> '.join(incident['order'])}): "
+                    "the phone's USB link stopped answering. Unplug the cable and plug it back in.\n",
+                    encoding="utf-8")
+    return path
+
+
+def wait_for_phone(udid: str | None, minutes: float, poll: float = 30.0,
+                   listed=None, sleep=time.sleep) -> bool:
+    """Poll usbmuxd until it lists the phone again (True) or `minutes` pass (False)."""
+    listed = listed or (lambda: link_probe.usb_device_id(link_probe.mux_list_devices()[2], udid) is not None)
+    deadline = time.monotonic() + minutes * 60
+    while True:
+        if listed():
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        sleep(poll)
 
 
 # ---- the recovery ladder ---------------------------------------------------------------
@@ -315,7 +474,25 @@ def tag_usb(incidents: list[dict], events: list[str], slack: float = 5.0) -> lis
     return tagged
 
 
-def verdict(name: str, incidents: list[dict], minutes: float, ladder: list[dict], workload: str) -> str:
+def battery_envelope(rows: list[dict]) -> dict:
+    """Min/max of the charging fields over a recording: was the phone draining while plugged in, how warm."""
+    reads = [r["battery"] for r in rows if isinstance(r.get("battery"), dict) and "error" not in r["battery"]]
+    if not reads:
+        return {"reads": 0}
+    out: dict = {"reads": len(reads)}
+    for key in ("CurrentCapacity", "InstantAmperage", "Temperature", "Voltage"):
+        values = [r[key] for r in reads if isinstance(r.get(key), (int, float))]
+        if values:
+            out[key] = {"min": min(values), "max": max(values)}
+    for key in ("IsCharging", "ExternalConnected"):
+        values = [r[key] for r in reads if key in r]
+        if values:
+            out[key] = {"always": all(values), "ever": any(values)}
+    return out
+
+
+def verdict(name: str, incidents: list[dict], minutes: float, ladder: list[dict], workload: str,
+            power: str | None = None) -> str:
     stalls = [i for i in incidents if i["kind"] == "pipe-stall"]
     drops = [i for i in incidents if i["kind"] == "usb-drop"]
     tunnel_only = [i for i in incidents if i["kind"] == "tunnel-only"]
@@ -339,6 +516,8 @@ def verdict(name: str, incidents: list[dict], minutes: float, ladder: list[dict]
             parts.append("ladder: no step brought lockdown back within 45s")
     if not incidents:
         parts.append("no incident: this configuration survived the workload (keep the run count honest before calling it fixed)")
+    if power:
+        parts.append("power: " + power)
     return "\n".join(parts)
 
 
@@ -354,7 +533,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--restart-supervisor", action="store_true",
                         help="restart the supervisor (Python only) in the mode this experiment needs")
     parser.add_argument("--tunnel-every", type=float, default=5.0, help="seconds between tunnel round trips")
-    parser.add_argument("--stop-on-stall", action="store_true", default=True)
+    parser.add_argument("--stop-on-stall", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--battery-every", type=float, default=15.0,
+                        help="seconds between `ios batteryregistry` reads (charging state, current, temperature); 0 = off")
+    parser.add_argument("--wait-replug", type=float, default=0.0, metavar="MINUTES",
+                        help="after a stall that needs a replug, write .state/NEEDS_REPLUG.txt and wait this long for the phone")
     args = parser.parse_args(argv)
     exp = EXPERIMENTS[args.experiment]
     kinds = [k for k in (args.workload or exp["workload"]).split(",") if k and k != "none"]
@@ -393,7 +576,7 @@ def main(argv: list[str] | None = None) -> int:
     entry_source = (lambda: link_probe.pmd3_entries()[2]) if exp.get("tunnel_mode") == "pmd3" \
         else (lambda: link_probe.tunnel_daemon_entries()[2])
     recorder = link_probe.LinkRecorder(out, udid=config.SIDETAP_UDID, entry_source=entry_source, logs=logs,
-                                       tunnel_every=args.tunnel_every).start()
+                                       tunnel_every=args.tunnel_every, battery_every=args.battery_every).start()
     started = datetime.now()
     log("experiment start", experiment=args.experiment, minutes=args.minutes, workload=kinds,
         supervisor=status.get("state"), tunnelMode=status.get("tunnelMode"), mjpegForward=status.get("mjpegForward"),
@@ -409,11 +592,17 @@ def main(argv: list[str] | None = None) -> int:
                 client.session_id = None
                 client._create_session()
             workload.phone.unlock()
+            log("wda settings", **workload.settings())
         deadline = time.monotonic() + args.minutes * 60
         seen = 0
         while time.monotonic() < deadline:
             if workload:
-                workload.cycle()
+                try:
+                    workload.cycle()
+                except Exception as exc:  # a dead link is the measurement, not the end of the run
+                    print(json.dumps({"ts": datetime.now().isoformat(timespec="seconds"), "step": "workload error",
+                                      "error": f"{type(exc).__name__}: {str(exc)[:160]}"}), flush=True)
+                    time.sleep(5)
             else:
                 time.sleep(5)
             incidents = link_probe.classify_incidents(recorder.rows)
@@ -438,10 +627,21 @@ def main(argv: list[str] | None = None) -> int:
                "workload": kinds, "tunnelMode": status.get("tunnelMode"), "mjpegForward": status.get("mjpegForward"),
                "env": exp["env"], "rows": len(rows), "incidents": incidents, "ladder": ladder,
                "workloadErrors": workload.errors if workload else 0, "recording": str(out)}
-    summary["verdict"] = verdict(args.experiment, incidents, summary["minutes"], ladder, ",".join(kinds) or "idle")
+    summary["battery"] = battery_envelope(rows)
+    summary["power"] = link_probe.power_warning([r["battery"] for r in rows if isinstance(r.get("battery"), dict)])
+    summary["verdict"] = verdict(args.experiment, incidents, summary["minutes"], ladder, ",".join(kinds) or "idle",
+                                 power=summary["power"])
     (out.with_suffix(".json")).write_text(json.dumps(summary, indent=2), encoding="utf-8")
     print(json.dumps(summary, indent=2))
     print("\n" + summary["verdict"])
+    needs_replug = [i for i in incidents if i["kind"] in ("pipe-stall", "usb-drop") and i["recovered_after"] is None]
+    if needs_replug and args.wait_replug > 0:
+        note = note_replug_needed(STATE, needs_replug[-1])
+        log("needs replug", file=str(note), waiting_minutes=args.wait_replug)
+        back = wait_for_phone(config.SIDETAP_UDID, args.wait_replug)
+        log("phone back" if back else "phone still absent", listed=back)
+        if back:
+            note.unlink(missing_ok=True)
     return 0 if not any(i["kind"] == "pipe-stall" for i in incidents) else 1
 
 

@@ -65,6 +65,15 @@ class SetupProbes:
     passcode: Callable[[], dict] = lambda: {"set": False, "source": "", "envPath": ".env"}
     # {"installed": bool, "running": bool}, or None when Windows services cannot be read.
     apple_service: Callable[[], dict | None] = lambda: None
+    # usb_helper.status(): {"supported", "installed", "script", "task", "version", "detail"}; None = unreadable.
+    usb_helper: Callable[[], dict | None] = lambda: None
+    # usb_path(): {"found": bool, "chain": [{"instanceId", "name", "class"}]}; None = unreadable.
+    usb_path: Callable[[], dict | None] = lambda: None
+    # link_probe.battery_snapshot(): IOPMPowerSource fields (CurrentCapacity, IsCharging, InstantAmperage,
+    # Voltage, Temperature) or {"error": ...}; None = not asked (no phone).
+    battery: Callable[[], dict | None] = lambda: None
+    # ocr.probe(): {"available": bool, "language": str, "error": str}; None = unreadable.
+    screen_text: Callable[[], dict | None] = lambda: None
     vision_model: str = VISION_MODEL
     text_model: str = TEXT_MODEL
 
@@ -300,6 +309,111 @@ def apple_service_item(service: dict | None) -> dict:
     return item("appleService", "ok", title, "Running.")
 
 
+USB_HELPER_FIX = (
+    "In PowerShell in the app folder run: powershell -NoProfile -ExecutionPolicy Bypass -File "
+    "scripts\\install_windows.ps1 -InstallUsbHelper and accept the administrator prompt once. It registers a small "
+    "on-demand task (runs as SYSTEM) that can do exactly two things for Apple devices: restart Apple Mobile Device "
+    "Service and reset the iPhone's USB port. The app itself keeps running without administrator rights "
+    "(docs/usb-recovery-helper.md has the details and the security notes).")
+
+
+def usb_helper_item(helper: dict | None) -> dict:
+    """The elevated USB recovery helper: without it a stalled USB link ends in 'unplug and replug'.
+
+    Recommended, not required: posting works without it, and it asks for one administrator prompt.
+    """
+    title = "USB recovery helper installed"
+    if not isinstance(helper, dict):
+        return item("usbHelper", "blocked", title, "Could not read the helper's state.", USB_HELPER_FIX, required=False)
+    if not helper.get("supported", True):
+        return item("usbHelper", "ok", title, "Not needed on this system (Windows only).", required=False)
+    if helper.get("installed"):
+        stale = str(helper.get("detail") or "")
+        if "version" in stale:
+            return item("usbHelper", "action", title, f"Installed, but {stale}.",
+                        "Run the install command again to update it: " + USB_HELPER_FIX, required=False)
+        return item("usbHelper", "ok", title,
+                    "Installed. When the phone's USB link stalls, the app restarts Apple's USB service and resets "
+                    "the phone's USB port by itself before ever asking for a replug.", required=False)
+    partial = str(helper.get("detail") or "")
+    if helper.get("script") or helper.get("task"):
+        return item("usbHelper", "action", title, f"Installed incompletely ({partial}).", USB_HELPER_FIX, required=False)
+    return item("usbHelper", "action", title,
+                "Not installed. Without it, a stalled USB link can only be fixed by unplugging and replugging the "
+                "phone by hand.", USB_HELPER_FIX, required=False)
+
+
+# Host controllers by PCI vendor/device id: what the phone's USB path ends in and what that means.
+# DEV_43D5 is the AMD 500-series chipset USB 3.1 controller with the documented dropout bug
+# (AGESA 1.2.0.2 era; docs/link-literature.md U1); the CPU's own controller is the usual fix.
+USB_CONTROLLERS = {
+    ("1022", "43D5"): ("AMD 500-series chipset USB controller", "warn"),
+    ("1022", "43EE"): ("AMD 600-series chipset USB controller", "warn"),
+    ("1022", "149C"): ("AMD CPU USB controller", "ok"),
+    ("1022", "15E0"): ("AMD CPU USB controller", "ok"),
+    ("1022", "15E1"): ("AMD CPU USB controller", "ok"),
+    ("1022", "1639"): ("AMD CPU USB controller", "ok"),
+    ("1022", "161F"): ("AMD CPU USB controller", "ok"),
+    ("8086", None): ("Intel USB controller", "ok"),
+}
+USB_HUB_VENDORS = {"2109": "VIA", "0BDA": "Realtek", "05E3": "Genesys", "1A40": "Terminus", "0424": "Microchip",
+                   "2188": "CalDigit", "8087": "Intel"}
+PCI_ID = re.compile(r"PCI\\VEN_([0-9A-F]{4})&DEV_([0-9A-F]{4})", re.IGNORECASE)
+USB_ID = re.compile(r"USB\\VID_([0-9A-F]{4})&PID_([0-9A-F]{4})", re.IGNORECASE)
+USB_PATH_FIX = ("Plug the iPhone straight into a rear port on the PC's own (CPU) USB controller: no hub, no "
+                "front-panel port, no dock. Use the cable that came with the phone or a USB-A-to-C cable. Then check "
+                "again: this row should read 'CPU USB controller, no hub'.")
+
+
+def describe_usb_path(path: dict) -> dict:
+    """Pure: the phone's chain (device -> hubs -> root hub -> controller) as names plus a verdict."""
+    chain = [node for node in path.get("chain", []) if isinstance(node, dict)]
+    hubs, controller, controller_id, verdict = [], "", "", "unknown"
+    for node in chain[1:]:
+        instance = str(node.get("instanceId") or "")
+        pci = PCI_ID.search(instance)
+        if pci:
+            vendor, device = pci.group(1).upper(), pci.group(2).upper()
+            known = USB_CONTROLLERS.get((vendor, device)) or USB_CONTROLLERS.get((vendor, None))
+            controller = f"{known[0] if known else (str(node.get('name') or 'USB controller'))} (DEV_{device})"
+            controller_id = device
+            verdict = known[1] if known else "unknown"
+            break
+        usb = USB_ID.search(instance)
+        if usb and "ROOT_HUB" not in instance.upper():
+            vendor = usb.group(1).upper()
+            hubs.append(f"{USB_HUB_VENDORS.get(vendor, 'USB')} hub (VID_{vendor})")
+    return {"hubs": hubs, "controller": controller, "controllerId": controller_id, "verdict": verdict}
+
+
+def usb_path_item(path: dict | None, phone_ok: bool) -> dict:
+    """Which controller and hubs the iPhone hangs off: the chipset controller and any hub are known drop causes."""
+    title = "iPhone USB path"
+    if not phone_ok:
+        return item("usbPath", "blocked", title, "Waiting for the iPhone.", "Connect the iPhone first.", required=False)
+    if not isinstance(path, dict):
+        return item("usbPath", "blocked", title, "Could not read the phone's USB path from Windows.", USB_PATH_FIX,
+                    required=False)
+    if not path.get("found"):
+        return item("usbPath", "blocked", title, "Windows does not list an iPhone USB device right now.",
+                    "Reconnect the iPhone, then check again.", required=False)
+    described = describe_usb_path(path)
+    hops = ["iPhone", *described["hubs"], "root hub", described["controller"] or "unknown controller"]
+    detail = " -> ".join(hops)
+    problems = []
+    if described["verdict"] == "warn":
+        problems.append("this chipset controller is known to drop busy USB devices")
+    if described["hubs"]:
+        count = len(described["hubs"])
+        problems.append(f"the phone goes through {count} hub{'s' if count != 1 else ''}")
+    if problems:
+        return item("usbPath", "action", title, f"{detail} · {'; '.join(problems)}.", USB_PATH_FIX, required=False,
+                    controller=described["controllerId"], hubs=len(described["hubs"]))
+    note = "CPU USB controller, no hub" if described["verdict"] == "ok" else "no hub; controller not in the known list"
+    return item("usbPath", "ok", title, f"{detail} · {note}.", required=False, controller=described["controllerId"],
+                hubs=0)
+
+
 def vision_capable(model: dict) -> bool:
     details = model.get("details") if isinstance(model.get("details"), dict) else {}
     families = details.get("families") if isinstance(details.get("families"), list) else []
@@ -422,6 +536,64 @@ def folder_item(watch: dict, clouds: list[tuple[str, Path]]) -> dict:
                 action="folder", provider=provider)
 
 
+CHARGING_FIX = (
+    "Charge the iPhone on a wall charger before posting, and use a USB port that can power it under load: "
+    "a rear port on the CPU's own controller, a powered hub, or a USB-C PD port. Keep it above 20%."
+)
+
+
+def charging_item(battery: dict | None, phone_ok: bool) -> dict:
+    """Is the port actually charging the phone? On 2026-09-30 the chipset port read IsCharging while the
+    phone drained at 2.4 A under video load at 1-2% capacity; every link stall that day happened with the
+    battery low. One sample here: a negative current while 'charging' or a low capacity is the warning."""
+    title = "iPhone charging over USB"
+    if not phone_ok:
+        return item("charging", "blocked", title, "Waiting for the iPhone.", "Connect the iPhone first.", required=False)
+    if not isinstance(battery, dict) or "error" in battery or "CurrentCapacity" not in battery:
+        return item("charging", "blocked", title, "Could not read the phone's battery over USB.", CHARGING_FIX,
+                    required=False)
+    capacity = int(battery.get("CurrentCapacity") or 0)
+    current = battery.get("InstantAmperage")
+    charging = bool(battery.get("IsCharging"))
+    current_text = f"{current:+d} mA" if isinstance(current, (int, float)) else "current unknown"
+    detail = f"{capacity}% · {'charging' if charging else 'not charging'} · {current_text}."
+    problems = []
+    if not charging:
+        problems.append("the phone is not charging on this port")
+    elif isinstance(current, (int, float)) and current < 0:
+        problems.append(f"it is draining at {abs(int(current))} mA while plugged in (the port cannot power it)")
+    if capacity < 20:
+        problems.append(f"battery at {capacity}%")
+    if problems:
+        joined = "; ".join(problems)
+        return item("charging", "action", title, detail + " " + joined[0].upper() + joined[1:] + ".",
+                    CHARGING_FIX, required=False, capacity=capacity, current=current)
+    return item("charging", "ok", title, detail, required=False, capacity=capacity, current=current)
+
+
+OCR_FIX = ("Open Settings > Time & language > Language & region, add English (United States) and make sure its "
+           "Optical character recognition feature is installed (Language options), then check again.")
+
+
+def screen_text_item(screen_text: dict | None) -> dict:
+    """Windows' built-in OCR engine: YouTube 21.38 hides its Description, Paid promotion and
+    "AI use, Tags" rows from accessibility, so the YouTube flow reads them from a screenshot."""
+    title = "Screen text reader (Windows OCR)"
+    if not isinstance(screen_text, dict):
+        return item("screenText", "blocked", title, "Could not ask Windows for its OCR engine.", OCR_FIX)
+    if not screen_text.get("available"):
+        detail = "Windows has no OCR language, so YouTube's hidden detail rows cannot be read."
+        if screen_text.get("error"):
+            detail += f" ({screen_text['error']})"
+        return item("screenText", "action", title, detail, OCR_FIX)
+    language = str(screen_text.get("language") or "")
+    if not language.casefold().startswith("en"):
+        return item("screenText", "action", title,
+                    f"Windows reads screen text in {language} only; the apps are matched by their English labels.",
+                    OCR_FIX)
+    return item("screenText", "ok", title, f"Offline, {language}.")
+
+
 def checklist(probes: SetupProbes) -> dict:
     driver = driver_item(probes.driver())
     phone = phone_item(probes.ios_devices(), driver["status"] == "ok")
@@ -440,7 +612,11 @@ def checklist(probes: SetupProbes) -> dict:
              signature_item(probes.wda_signature() if installed else None, phone_ok, installed),
              passcode_item(probes.passcode()),
              apple_service_item(probes.apple_service()),
-             usb_power_item(probes.usb_power())]
+             usb_power_item(probes.usb_power()),
+             usb_helper_item(probes.usb_helper()),
+             usb_path_item(probes.usb_path() if phone_ok else None, phone_ok),
+             charging_item(probes.battery() if phone_ok else None, phone_ok),
+             screen_text_item(probes.screen_text())]
     return {"items": items, "ready": all(entry["status"] == "ok" for entry in items if entry["required"])}
 
 
@@ -655,7 +831,82 @@ def local_probes(state: Path, watch: Callable[[], dict], inspection: Callable[[]
         wda_signature=wda_signature,
         passcode=passcode_probe,
         apple_service=apple_service,
+        usb_helper=usb_helper_status,
+        usb_path=usb_path,
+        battery=battery_probe,
+        screen_text=screen_text_probe,
     )
+
+
+def screen_text_probe() -> dict | None:
+    try:
+        from . import ocr
+
+        return ocr.probe()
+    except Exception:  # a diagnostics row must never take the checklist down
+        return None
+
+
+def battery_probe() -> dict | None:
+    """Read-only: one `ios batteryregistry` over lockdown (link_probe.battery_snapshot)."""
+    from . import link_probe
+
+    try:
+        return link_probe.battery_snapshot()
+    except Exception as exc:  # a diagnostics row must never take the checklist down
+        return {"error": type(exc).__name__}
+
+
+def usb_helper_status() -> dict | None:
+    """Read-only: the USB recovery helper's files and scheduled task (usb_helper.status)."""
+    try:
+        from . import usb_helper
+
+        return usb_helper.status()
+    except Exception:
+        return None
+
+
+# Walks DEVPKEY_Device_Parent from the iPhone's USB node (never an interface, never a caller value)
+# up to the PCI controller. Read-only: Get-PnpDevice / Get-PnpDeviceProperty only.
+USB_PATH_SCRIPT = (
+    "$ErrorActionPreference = 'SilentlyContinue'; "
+    "$phone = Get-PnpDevice -PresentOnly | Where-Object { $_.InstanceId -like 'USB\\VID_05AC&PID_12A8\\*' -and "
+    "$_.InstanceId -notmatch '&MI_' } | Select-Object -First 1; "
+    "if (-not $phone) { '{\"found\":false}'; exit 0 }; "
+    "$chain = @(); $id = [string]$phone.InstanceId; "
+    "for ($i = 0; $i -lt 12 -and $id; $i++) { "
+    "$dev = Get-PnpDevice -InstanceId $id; "
+    "$chain += @{ instanceId = $id; name = [string]$dev.FriendlyName; class = [string]$dev.Class }; "
+    "if ($id -like 'PCI\\*') { break }; "
+    "$id = [string](Get-PnpDeviceProperty -InstanceId $id -KeyName 'DEVPKEY_Device_Parent').Data }; "
+    "@{ found = $true; chain = $chain } | ConvertTo-Json -Compress -Depth 4")
+
+
+def usb_path() -> dict | None:
+    """Read-only: the iPhone's USB chain up to its host controller, from Windows' PnP tree."""
+    if os.name != "nt":
+        return None
+    try:
+        completed = subprocess.run(["powershell", "-NoProfile", "-Command", USB_PATH_SCRIPT], capture_output=True,
+                                   text=True, timeout=30, creationflags=NO_WINDOW)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return parse_usb_path(completed.stdout)
+
+
+def parse_usb_path(stdout: str) -> dict | None:
+    for line in reversed(stdout.strip().splitlines()):
+        line = line.strip()
+        if line.startswith("{"):
+            try:
+                data = json.loads(line)
+            except ValueError:
+                return None
+            if isinstance(data, dict) and isinstance(data.get("chain", []), list):
+                return data
+            return None
+    return None
 
 
 USB_SUBGROUP = "2a737441-1930-4402-8d77-b2bebba308a3"

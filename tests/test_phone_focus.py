@@ -27,8 +27,12 @@ class FakePhone:
 
     def swipe(self, x1, y1, x2, y2, seconds):
         self.in_control = y1 < 5 and y2 > y1
+        self.swipes = getattr(self, "swipes", 0) + 1
 
     def ui_tree(self):
+        if getattr(self, "stuck_menu", False):
+            return {"type": "XCUIElementTypeApplication",
+                    "children": [node("Other", "focus-modes-ui", 220, 400)]}
         if self.in_menu:
             children = [node("Button", "mode-Do Not Disturb", 220, 263, label="Do Not Disturb, Silence all notifications"),
                         node("Button", "mode-Work", 220, 435, label="Work")]
@@ -40,6 +44,10 @@ class FakePhone:
 
     def tap(self, x, y):
         self.taps.append((x, y))
+        if getattr(self, "stuck_menu", False):
+            # Recorded 2026-10-01: Home leaves this menu up; only empty space closes it.
+            self.stuck_menu = (x, y) != (220, 790)
+            return
         if self.in_menu and (x, y) == (220, 263):
             self.focus = "" if self.focus == "Do Not Disturb" else "Do Not Disturb"
         elif self.in_control and (x, y) == (129, 450):
@@ -48,6 +56,10 @@ class FakePhone:
 
 @mock.patch("video_drop.phone_focus.time.sleep", lambda seconds: None)
 class PhoneFocusTests(unittest.TestCase):
+    def setUp(self):
+        import video_drop.phone_focus as focus
+        focus._quiet_until = 0.0
+
     def test_restores_off_even_when_upload_fails(self):
         phone = FakePhone()
         with self.assertRaisesRegex(RuntimeError, "upload failed"):
@@ -76,13 +88,35 @@ class PhoneFocusTests(unittest.TestCase):
         self.assertEqual(phone.focus, "Do Not Disturb")
         self.assertEqual(phone.taps, [])
 
-    def test_another_focus_is_left_alone(self):
-        phone = FakePhone("Work")
-        with self.assertRaisesRegex(FocusError, "'Work' Focus is on"):
-            with upload_focus(phone):
-                pass
-        self.assertEqual(phone.focus, "Work")
+    def test_another_focus_is_kept_and_the_run_proceeds(self):
+        # 2026-09-30: the owner was live with the "Streaming" Focus on; it already silences the phone.
+        phone = FakePhone("Streaming")
+        with upload_focus(phone):
+            self.assertEqual(phone.focus, "Streaming")
+        self.assertEqual(phone.focus, "Streaming")
         self.assertEqual(phone.taps, [])
+
+    def test_an_owner_focus_is_read_once_per_session_window(self):
+        import video_drop.phone_focus as focus
+        phone = FakePhone("Streaming")
+        with upload_focus(phone):
+            pass
+        reads = phone.swipes
+        with upload_focus(phone):  # second platform of the same Post now: no Control Center read
+            pass
+        self.assertEqual(phone.swipes, reads)
+        focus._quiet_until = 0.0
+        with upload_focus(phone):
+            pass
+        self.assertGreater(phone.swipes, reads)
+
+    def test_a_leftover_focus_menu_is_closed_by_empty_space_not_home(self):
+        phone = FakePhone("Streaming")
+        phone.stuck_menu = True
+        with upload_focus(phone):
+            self.assertEqual(phone.focus, "Streaming")
+        self.assertIn((220, 790), phone.taps)
+        self.assertFalse(phone.stuck_menu)
 
     def test_state_reads_the_recorded_module_value(self):
         module = lambda value: (Element("Button", "Focus", "focus-module", value, 46, 412, 166, 76),)

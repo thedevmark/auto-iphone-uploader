@@ -18,60 +18,90 @@ has the tests behind that.
 phone and computer, and how to check a download was built from this
 repository by GitHub.
 
-## Status: 1.0 release candidate 2
-
-This is `1.0.0-rc.2`. It has been tried on **one iPhone 16 Pro Max on iOS 26.7
-only**. What has been run live on that phone, what is built but only partly
-tried, and what is not built yet is spelled out in
-[What works today](#what-works-today) and
-[docs/launch-checklist.md](docs/launch-checklist.md). Read both before you
-rely on it.
-
 ## What it does
 
-1. You export a finished video into a folder that syncs to the cloud.
-2. The app notices the new file, checks it is complete, and adds it to a
-   review queue on your PC. The original file is never moved or changed.
-3. If you have a local AI (Ollama), it suggests a title, description, tags and
-   captions. You edit them. Nothing is posted until you confirm the exact text
-   for each platform.
-4. The app controls your iPhone over the USB cable with a driver that is part
-   of the app, opens the video from the OneDrive app, shares it into each
-   social app, checks the signed-in account, fills in your confirmed text,
-   checks the cover is the video's first frame, and posts.
+Export a finished video into a folder that syncs to the cloud. The app picks
+it up, checks the file is complete, and adds it to a review queue on your PC;
+the original is never moved or changed. If you run a local AI (Ollama), it
+drafts the title, description, tags and captions. You edit them and confirm
+the exact text for each platform. Then your PC drives your iPhone over the
+USB cable and posts through the real apps:
+
+- **YouTube Shorts**: title, description and the first frame as the
+  thumbnail, posted from the YouTube app on the channel you set. Detail rows
+  YouTube hides from accessibility (Description, Paid promotion, AI use) are
+  found on screen with Windows' built-in offline OCR.
+- **Instagram Reels**: the clip goes through Meta's Edits app for a 4K
+  export, then into Instagram with your caption and a first-frame cover.
+  Instagram's own "Also share on" switches carry the post to **Facebook** and
+  **Threads** in the same upload. If Instagram is on another of your
+  signed-in accounts, the app switches to the right one through Instagram's
+  account switcher first.
+- **TikTok**: posted from the TikTok app with your caption.
+
+Each video is either **Post now** (everything immediately, in order: YouTube,
+then Instagram with its crossposts, then TikTok) or **Schedule** (the next
+free posting time): the app enters the slot in YouTube's and Instagram's own
+schedulers and reads the date and time back, and posts TikTok itself at the
+slot. Posting times are set in **Settings → Posting times**: one to five a
+day (10 AM and 7 PM by default), in your PC's time zone or one you choose.
+
+Around every run:
+
+- **Do Not Disturb** is on while the phone posts, and turned back off
+  afterwards if the app turned it on.
+- **Checks before the final tap**: the signed-in account, the exact video
+  file and size, free space on the phone, and the first frame as the cover,
+  proven by screenshot. A run that cannot prove one of them stops before
+  posting. A final tap that timed out is never retried, so there are no
+  double posts.
+- **Receipts** come back from the apps. In the hour after a final tap the
+  app looks at Instagram and Threads a few times, read-only, and marks the
+  post posted when the profile proves it: Instagram's post count and newest
+  first-frame tile, the newest Threads post with your caption. Facebook,
+  TikTok and YouTube you confirm with **Posted** or **Scheduled** in the
+  editor after a look at your phone.
+- **A self-healing phone link.** One supervisor owns the USB tunnel and the
+  phone driver, presses Home when a playing video wedges the driver, restarts
+  only what died, and recovers a stalled USB link by restarting Apple's USB
+  service and resetting the phone's USB port, asking for a replug only when
+  that fails ([docs/phone-link-reliability.md](docs/phone-link-reliability.md)).
+- **A setup checklist** that turns each requirement green and says exactly
+  what to fix when one is not.
 
 Everything runs on your own PC. The editor is a page at
 `http://127.0.0.1:4748` that only your computer can open. There is no account
 to create, no cloud service of ours, and no tracking.
 
-## What works today
+## Requirements and limits
 
-Each video has one of two modes. **Schedule** is the default; **Post now**
-posts everything immediately, in order: YouTube, then Instagram (which carries
-Facebook and Threads), then TikTok.
+- A Windows 10 or 11 PC and an iPhone on a USB cable. Plug the phone into a
+  port on the CPU's own USB controller (usually a rear port), not a chipset
+  port or a hub, keep it charged, and turn off USB selective suspend; the
+  checklist shows each of these.
+- Tested on an iPhone 16 Pro Max with iOS 26.7. The YouTube flow is covered
+  on other screen sizes by tests
+  ([docs/size-independence-audit.md](docs/size-independence-audit.md)). App
+  updates can move buttons; a run then stops instead of guessing.
+- English app labels, and an English OCR language in Windows (installed with
+  English Windows).
+- A free Apple ID signs the phone driver for 7 days; the checklist counts it
+  down and `scripts\phone_resign.py` renews it.
+- Threads is not scheduled natively: a scheduled video leaves Threads for you
+  and says so. Post now covers Threads through Instagram's crosspost.
+- TikTok has no native scheduler on the tested account, so your PC, the app
+  and the phone link must be on at the slot. A post not finished 15 minutes
+  after it is marked missed and never posted late.
+- Schedule mode has been run on the reference phone up to the date and time
+  read-back; a committed scheduled post has not been verified there yet
+  ([docs/native-scheduling.md](docs/native-scheduling.md)).
+- Videos are opened from the OneDrive app. Google Drive, Dropbox and iCloud
+  Drive folders go through the iPhone Files app, which has not been run live.
+- Your PC stays awake while the app works, and one phone action runs at a
+  time.
 
-| | Post now | Schedule |
-|---|---|---|
-| YouTube Shorts | **Live-tested.** The app posts it from the YouTube app | Built, partly live-tested: the app enters your slot in YouTube's own scheduler and reads it back, but stops before the final tap until `--commit` is used; no scheduled-list receipt yet |
-| Instagram Reels | **Live-tested.** OneDrive → Meta's Edits app → 4K export → Instagram, cover proven by screenshot | Built, partly live-tested: the slot goes into Instagram's "Schedule this reel" sheet; the time picker and the Scheduled content receipt are not verified live |
-| Facebook | **Live-tested.** Instagram's "Also share on" Facebook switch, set from **Settings → Post now** | Rides Instagram's scheduled crosspost (same state as Instagram) |
-| Threads | **Live-tested** as Instagram's "Also share on" Threads switch; a separate Threads post only when you turn that on | **Not built.** Threads has no crosspost when scheduling; a scheduled video leaves Threads for you and says so |
-| TikTok | **Live-tested.** The app posts it from the TikTok app | Built: TikTok has no scheduler on the tested account, so the app posts it itself at the slot. The PC, the app and the phone link must be on then; not yet run live at a slot |
-
-Also live-tested: the phone link supervisor that keeps the USB tunnel and the
-driver alive across a run ([docs/phone-link-reliability.md](docs/phone-link-reliability.md)).
-
-Built but not live-checked: opening videos from Google Drive, Dropbox and
-iCloud Drive folders through the iPhone Files app, and reading each app's own
-receipt back after a post. Until receipts are read automatically, you click
-**Posted** or **Scheduled** after checking the phone.
-
-After any post the app treats the result as unconfirmed until you check the
-app on your phone. A final tap that timed out is **never** retried
-automatically, so you never get a surprise double post.
-
-Posting times are set in **Settings → Posting times**: one to five times a day
-(10 AM and 7 PM by default), in your PC's time zone or one you choose.
+[docs/launch-checklist.md](docs/launch-checklist.md) records what has been
+verified live on the reference phone, and how to check each item yourself.
 
 ## What you need
 
@@ -124,7 +154,20 @@ Posting times are set in **Settings → Posting times**: one to five times a day
    any time; finished steps are skipped. `-CheckOnly` reports without
    downloading or writing anything. The `Bypass` applies to that one run only.
    It installs no drivers or services and does not touch your phone.
-5. Double-click the Desktop shortcut. The editor opens in your browser.
+5. Install the USB recovery helper (the checklist asks for it), so a stalled
+   USB link is recovered without unplugging the phone:
+
+   ```powershell
+   powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install_windows.ps1 -InstallUsbHelper
+   ```
+
+   Windows asks for administrator rights once. It registers one on-demand
+   scheduled task, running as SYSTEM, that can do exactly two things: restart
+   Apple Mobile Device Service and reset the iPhone's USB port. The app itself
+   never runs elevated. `-UninstallUsbHelper` removes it.
+   [docs/usb-recovery-helper.md](docs/usb-recovery-helper.md) has the design
+   and the threat model.
+6. Double-click the Desktop shortcut. The editor opens in your browser.
 
 Prefer not to run the script? `python -m pip install -r requirements.txt` then
 `python launch_video_drop.py` starts the app; you then fetch go-ios and the
@@ -151,6 +194,10 @@ when it is ready, and tells you exactly what to do when it is not:
 | Passcode saved for automation | `PHONE_PASSCODE` is set in the app's `.env`, so the app can unlock the phone before a post. The checklist never reads or shows the value |
 | Apple Mobile Device Service running | Windows has Apple's USB service and it is running |
 | USB power saving off | Windows will not switch off the iPhone's USB port mid-upload |
+| USB recovery helper installed | The helper from install step 5 is in place, so a stalled USB link is recovered before you are asked to replug |
+| iPhone USB path | Which USB controller and hubs the phone hangs off; warns about an AMD chipset controller or a hub (advice only) |
+| iPhone charging over USB | One battery reading over USB: warns when the port cannot keep the phone charged under load, or the battery is low (advice only) |
+| Screen text reader (Windows OCR) | Windows' built-in OCR engine has an English language, for the YouTube rows it reads from a screenshot |
 
 Every check only reads. None of them taps the phone, except **Check phone**,
 which you start yourself. Click **Check again** after fixing something.
@@ -195,41 +242,6 @@ Every phone run stops before posting if the signed-in account is different.
 
 The header shows your **Unattended streak**: how many Schedule-mode videos in
 a row reached every app without a hand fix. The goal is 20.
-
-## Known limitations
-
-- **One phone tested.** Only an iPhone 16 Pro Max on iOS 26.7. The YouTube
-  flow is proven on other screen sizes by tests
-  ([docs/size-independence-audit.md](docs/size-independence-audit.md)), not on
-  real phones. App updates from YouTube, Instagram, Edits, TikTok or Threads
-  can move buttons and stop a run until the app is updated.
-- **Windows USB power settings matter.** With USB selective suspend on, Windows
-  dropped the iPhone off the bus mid-upload dozens of times a day on the
-  reference PC. The checklist's **USB power saving off** row shows the exact
-  `powercfg` and Device Manager changes; they need an administrator prompt.
-- **A free Apple ID signature lasts 7 days.** The checklist counts it down and
-  `scripts\phone_resign.py` renews it.
-- **Native scheduling is partly verified.** YouTube and Instagram slot entry is
-  built and read back, but a committed schedule and its receipt have not been
-  run on a throwaway clip yet; Threads scheduling is not built. See
-  [docs/native-scheduling.md](docs/native-scheduling.md).
-- **TikTok needs your PC on at the posting time.** TikTok has no native
-  scheduling on the tested account, so this app posts it at the slot. If the
-  post has not finished 15 minutes after the slot, the app marks it missed and
-  does not post it; you can then choose **Post now** or confirm you posted it by
-  hand.
-- **Receipts are confirmed by you.** Automatic receipt reading is being built;
-  until it lands, click **Posted** or **Scheduled** after each post, and the
-  unattended streak does not grow.
-- **OneDrive is the proven route.** Google Drive, Dropbox and iCloud Drive
-  folders pass the checklist and the Files-app route exists in code, but it
-  has not been run live.
-- **English only.** The screen maps match English app labels.
-- **The phone link can still need a replug.** The supervisor recovers most
-  drops by itself; when the USB route dies while the phone stays connected, it
-  says **needs replug** and waits.
-- **Your PC must stay awake** while the app works, and one phone action runs at
-  a time.
 
 ## Where things are kept
 

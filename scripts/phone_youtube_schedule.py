@@ -227,6 +227,7 @@ def run(release: str | int, db: Path, *, commit: bool = False, now=None) -> dict
     if commit and os.environ.get("VIDEO_DROP_TEST_MODE") == "1":
         raise Stop("Posting is disabled in this test session")
     clock = now or (lambda: datetime.now(timezone.utc))
+    yt.set_source_db(db)
     with Store(db, load_targets(db.parent)) as store:
         data, moment = release_input(store, int(release), clock())
         zone = store.time_zone()

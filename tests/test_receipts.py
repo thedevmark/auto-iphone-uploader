@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 from PIL import Image, ImageDraw
@@ -320,6 +321,20 @@ class ThreadsTests(unittest.TestCase):
         # Threads swaps straight and curly apostrophes between releases.
         self.newest(threads_profile({"caption": CAPTION.replace("’", "'")}))
 
+    def test_threads_2026_10_tab_labels_and_folded_hashtags(self):
+        # Recorded 2026-10-01 on the reference release's crosspost: "Threads tab" / "Replies tab", hashtags folded.
+        items = [e if e.label not in ("Threads", "Replies") else
+                 element("Button", e.label + " tab", (e.left, e.top, e.width, e.height))
+                 for e in threads_profile({"caption": "What’s the move here… show hashtags"})]
+        self.assertEqual(self.newest(items)["postIndex"], 0)
+
+    def test_a_folded_caption_must_be_the_approved_text_before_its_hashtags(self):
+        with self.assertRaisesRegex(rc.ReceiptError, "approved caption"):
+            self.newest(threads_profile({"caption": "What’s the move… show hashtags"}))
+        with self.assertRaisesRegex(rc.ReceiptError, "approved caption"):
+            self.newest(threads_profile({"caption": "What’s the move here… show hashtags"}),
+                        caption="What’s the move here")
+
     def test_in_progress_crosspost_is_not_a_receipt(self):
         with self.assertRaisesRegex(rc.ReceiptError, "In progress"):
             self.newest(threads_profile({"caption": CAPTION, "in_progress": True}))
@@ -468,3 +483,17 @@ class LocalEvidenceTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OpenProfileTests(unittest.TestCase):
+    def test_profile_tab_is_tapped_twice_apart_to_scroll_the_header_back(self):
+        taps, sleeps = [], []
+        fake = type("P", (), {"open_app": lambda self, b: None,
+                              "tap": lambda self, x, y: taps.append((x, y))})()
+        with patch.object(phone_receipts, "phone", fake), \
+                patch.object(phone_receipts.share, "layout", lambda **kw: LAYOUT), \
+                patch.object(phone_receipts.time, "sleep", sleeps.append):
+            phone_receipts.open_profile(phone_receipts.INSTAGRAM_BUNDLE, phone_receipts.INSTAGRAM_PROFILE_TAB)
+        self.assertEqual(len(taps), 2)
+        self.assertEqual(taps[0], taps[1])
+        self.assertGreaterEqual(sleeps[1], 2.0)  # never a double tap (Instagram's account switch)

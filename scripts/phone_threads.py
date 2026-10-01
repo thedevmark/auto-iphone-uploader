@@ -108,6 +108,7 @@ def run(release_id: int, db: Path, *, commit: bool = False) -> dict:
     """Use the native Threads composer for one confirmed release."""
     if commit and os.environ.get("VIDEO_DROP_TEST_MODE") == "1":
         raise share.PhoneUploadError("Posting is disabled in this test session")
+    share.set_source_db(db)
     with Store(db, load_targets(db.parent)) as store:
         data = release_input(store, release_id)
         share.connect_sidetap()

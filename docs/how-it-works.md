@@ -18,9 +18,12 @@ Dropbox and iCloud Drive are detected too), the WebDriverAgent signing
 profile's expiry read off the phone (misagent via `pymobiledevice3` in a
 separate process; the app's own copy from the last re-sign is the fallback),
 whether `PHONE_PASSCODE` is set (never its value), the Apple Mobile Device
-Service (`sc query`) and Windows USB power saving (`powercfg`, WMI). Free
-space and local AI are advisory; the other rows must be green for the
-checklist to report ready.
+Service (`sc query`), Windows USB power saving (`powercfg`, WMI), the USB
+recovery helper's script and scheduled task, the iPhone's USB path up to its
+host controller (`Get-PnpDevice`), one battery reading (`ios batteryregistry`)
+and Windows' OCR language. Free space, local AI, the USB path and the
+charging row are advisory; the other rows must be green for the checklist to
+report ready.
 
 ## Installer, launcher and server
 
@@ -33,6 +36,10 @@ creates the Desktop shortcut and a Startup entry, and runs the checklist.
 `-CheckOnly` only reports; `-SkipDownloads` verifies what is already there;
 `-ReplaceShortcut` repoints shortcuts that target another checkout. It does
 not install drivers or services, sign into accounts, or touch the iPhone.
+`-InstallUsbHelper` (and `-UninstallUsbHelper`) is the one separate, elevated
+step: it registers the on-demand SYSTEM task that restarts Apple Mobile
+Device Service or the iPhone's USB node for the link supervisor
+([usb-recovery-helper.md](usb-recovery-helper.md)).
 
 Double-click the shortcut, or run `pythonw launch_video_drop.py`. The launcher
 starts the local server in the background if needed, makes sure the phone
@@ -56,7 +63,13 @@ tunnel, the WebDriverAgent runner and the port forwards. It probes WDA, the
 processes, the phone on USB and the tunnel every five seconds, presses Home
 when an app wedges the driver, restarts only what died with backoff, leaves a
 dead route alone for five minutes before one daemon restart, and reports
-`needs-replug` when nothing else helps. Status is in `.state/link-status.json`
+`needs-replug` when nothing else helps. When WDA and lockdown both stop
+answering while Windows still lists the phone (a USB *pipe stall*,
+`video_drop/pipe_stall.py`), it skips the Home press and walks a recovery
+ladder instead: wait 30 s, restart Apple Mobile Device Service, restart the
+iPhone's USB device node, each verified by lockdown answering again, and only
+then `needs-replug`. The two privileged steps go through the USB
+recovery helper ([usb-recovery-helper.md](usb-recovery-helper.md)). Status is in `.state/link-status.json`
 (the editor's Phone panel reads it through `/api/link`), every decision in
 `.state/link-events.jsonl`. Runners call `phone_link.wait_ready()` before the
 first phone action and `phone_link.busy()` around uploads.
@@ -144,12 +157,21 @@ the slot, and a queued mark is saved before the phone is touched, so a restart
 never posts the same slot twice. A slot that passes without a finished post is
 marked missed; Post now then opens for that video.
 
+With **Settings → Check each post in the apps afterwards** on (the default),
+`video_drop/receipt_sweep.py` looks at the phone 3, 10, 25 and 55 minutes
+after each final tap, read-only, through `scripts/phone_receipts.py`, and
+records the receipt the app's own profile proves: Instagram's post count plus
+a first-frame newest tile, and the newest Threads post with the approved
+caption. A missed look is skipped, never caught up in a burst, and the server
+starts none while another phone action runs, `.state/phone.lock` exists or
+the link is not ready. Destinations whose receipt screens are not recorded yet
+(Facebook, TikTok, YouTube) are never looked at.
+
 After checking a destination on the phone, the editor's **Posted** and
 **Scheduled** buttons record a manual receipt. The header's unattended streak
 counts the most recent Schedule-mode releases that reached every included app
-with no manual receipt, intervention or missed slot; its goal is 20. Only an
-observed native schedule (below) counts as an app-read receipt today, so manual
-confirmation ends the streak.
+with no manual receipt, intervention or missed slot; its goal is 20. A
+receipt read from the app counts toward it; a manual confirmation ends it.
 
 The slot planner defaults to successive 10 AM and 7 PM New York times.
 Settings can hold one to five distinct daily times. With 10 AM and 7 PM
@@ -188,8 +210,11 @@ the composer. An older manifest path also works only when every field matches
 that confirmed release. Preparation stops before Upload Short. A confirmed
 Post now release can use the one-shot Upload Short action; the app records an
 unconfirmed attempt before that tap and requires a native receipt check. The
-YouTube Post now path has unit and HTTP coverage but has not yet passed a live
-connected-phone run.
+YouTube Post now path runs live on the reference phone and has unit and HTTP
+coverage. YouTube 21.38 draws the Description, Paid promotion and "AI use,
+Tags" rows but leaves them out of the accessibility tree, so the runner finds
+them in a screenshot with Windows' built-in OCR (`video_drop/ocr/`, offline),
+taps the one exact match, and proves the tap by the screen that opens.
 
 For a connected phone, `python scripts/phone_onboard.py` records screen size,
 installed social apps, and the currently selected/available YouTube channels
@@ -198,8 +223,10 @@ the device ID, or the phone's unlock code. An installed app is marked
 unverified until its own account screen has been inspected. The YouTube runner
 selects the expected signed-in channel before opening the file, verifies it
 again in the composer, and scales its few unlabeled controls from the measured
-portrait screen size. Other app account screens still need mapping before
-phone automation can use them.
+portrait screen size. The Instagram runner reads the handle on the profile
+header and, when another signed-in account is active, switches through
+Instagram's own account switcher and reads the header again before the Edits
+export.
 
 The phone runners need go-ios and a signed WebDriverAgent on the phone (the
 installer and the checklist cover both) plus Pillow. When Windows loses the

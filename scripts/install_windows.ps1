@@ -21,7 +21,9 @@
     5. A Desktop shortcut that opens the app, and a Startup entry that brings
        the app server and the phone link supervisor up at sign-in without
        opening a browser window.
-    6. The setup checklist (python -m video_drop.setup_report).
+    6. A read-only look at whether the USB recovery helper is installed; it is
+       installed only on request (-InstallUsbHelper, administrator rights once).
+    7. The setup checklist (python -m video_drop.setup_report).
 
 .PARAMETER CheckOnly
   Report what is installed and run the checklist. Downloads nothing, writes nothing.
@@ -35,6 +37,13 @@
   Repoint an existing Desktop/Startup shortcut at this checkout.
 .PARAMETER DesktopDir, StartupDir
   Where to put the shortcuts; defaults to this user's Desktop and Startup folders.
+.PARAMETER InstallUsbHelper
+  Install the USB recovery helper and exit (idempotent). Windows asks for administrator
+  rights once (UAC); the helper is an on-demand scheduled task running as SYSTEM that can
+  only restart Apple Mobile Device Service and reset the iPhone's USB port, so the app can
+  recover a stalled USB link without a replug. See docs\usb-recovery-helper.md.
+.PARAMETER UninstallUsbHelper
+  Remove the USB recovery helper (its task and folder) and exit. Asks for administrator rights.
 #>
 param(
     [switch]$CheckOnly,
@@ -42,6 +51,8 @@ param(
     [switch]$NoStartup,
     [switch]$NoChecklist,
     [switch]$ReplaceShortcut,
+    [switch]$InstallUsbHelper,
+    [switch]$UninstallUsbHelper,
     [string]$DesktopDir = '',
     [string]$StartupDir = ''
 )
@@ -160,6 +171,54 @@ function New-Shortcut([string]$path, [string]$target, [string]$arguments, [strin
     $shortcut.Description = $description
     $shortcut.Save()
     Ok "shortcut written: $path"
+}
+
+# ---- 0. USB recovery helper (optional, elevated once) --------------------------
+$usbHelperScript = Join-Path $projectRoot 'video_drop\usb_helper\install_usb_helper.ps1'
+$usbHelperRoot = Join-Path $env:ProgramData 'AutoIphoneUploader\usb-helper'
+
+function Test-UsbHelperInstalled {
+    # Read-only: the SYSTEM-side script is in place and the on-demand task is registered.
+    if (-not (Test-Path -LiteralPath (Join-Path $usbHelperRoot 'usb_helper.ps1'))) { return $false }
+    # A missing task makes schtasks write to stderr, which Windows PowerShell turns into a
+    # terminating error under ErrorActionPreference=Stop when redirected; probe with Continue.
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try { & schtasks.exe /Query /TN '\AutoIphoneUploader\UsbRecovery' 2>$null | Out-Null } finally { $ErrorActionPreference = $previous }
+    return ($LASTEXITCODE -eq 0)
+}
+
+function Invoke-UsbHelperInstaller([string]$mode) {
+    # The app never runs elevated; only this one step does, in its own window, with UAC consent.
+    $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+    $modeArgs = if ($mode -eq 'install') { @('-Install', '-UserSid', $sid) } else { @('-Uninstall') }
+    $isAdmin = (New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())).IsInRole(
+        [Security.Principal.WindowsBuiltInRole]::Administrator)
+    if ($isAdmin) {
+        Say "  running the helper installer ($mode) in this administrator session"
+        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $usbHelperScript @modeArgs
+        $code = $LASTEXITCODE
+    } else {
+        Say "  Windows will ask for administrator rights once (to $mode the USB recovery helper)."
+        $proc = Start-Process -FilePath 'powershell.exe' -Verb RunAs -Wait -PassThru `
+            -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$usbHelperScript`" $($modeArgs -join ' ')"
+        $code = $proc.ExitCode
+    }
+    if ($code -ne 0) { throw "the USB recovery helper $mode step failed (exit $code); see the elevated window's output" }
+}
+
+if ($InstallUsbHelper -or $UninstallUsbHelper) {
+    Say "Auto iPhone Uploader USB recovery helper ($projectRoot)"
+    if ($InstallUsbHelper -and $UninstallUsbHelper) { throw 'pass either -InstallUsbHelper or -UninstallUsbHelper' }
+    if ($InstallUsbHelper) {
+        Invoke-UsbHelperInstaller 'install'
+        if (Test-UsbHelperInstalled) { Ok 'USB recovery helper installed (task \AutoIphoneUploader\UsbRecovery, runs as SYSTEM on demand)' }
+        else { throw 'the helper installer finished but the helper is not in place; run it again and read its output' }
+    } else {
+        Invoke-UsbHelperInstaller 'uninstall'
+        if (-not (Test-UsbHelperInstalled)) { Ok 'USB recovery helper removed' }
+    }
+    exit 0
 }
 
 # ---- 1. Python ---------------------------------------------------------------
@@ -281,7 +340,11 @@ if ($CheckOnly) {
     }
 }
 
-# ---- 6. checklist -------------------------------------------------------------
+# ---- 6. USB recovery helper (read-only here; installed on request) ---------------
+if (Test-UsbHelperInstalled) { Ok 'USB recovery helper installed' }
+else { Todo 'USB recovery helper not installed: run this script with -InstallUsbHelper (asks for administrator rights once) so a stalled USB link never needs a replug' }
+
+# ---- 7. checklist -------------------------------------------------------------
 if (-not $NoChecklist) {
     Say ''
     Say 'Setup checklist (read-only; the same rows the app shows):'

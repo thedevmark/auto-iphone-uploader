@@ -156,7 +156,7 @@ composer state.
   out in a background draft. The default is now `qwen3:14b`: with an 8K context
   and thinking disabled, a direct full Valheim pass returned nonempty title,
   description, tags, captions, transcript, and a visible game in about 30
-  seconds. A subsequent background retry on the existing firstitmedillon draft
+  seconds. A subsequent background retry on the existing first test draft
   completed with title, description hashtags, tags, and platform captions;
   saved public text remained untouched. Suggestions remain editable and
   unauthorized.

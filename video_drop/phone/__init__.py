@@ -14,4 +14,12 @@ Modules (import the one you need; nothing here spawns a process on import):
 - ``signing``     re-sign WebDriverAgent after Sideloadly (a user step)
 
 Only ``video_drop.link_supervisor`` starts or stops the go-ios processes.
+
+``wda_profiles`` runs first: WDA_SETTINGS_PROFILE (env or .env) fills in
+defaults for the WDA_* / MJPEG_* keys before ``config`` reads them; an
+explicitly set key always wins. It touches the process environment only.
 """
+
+from . import wda_profiles as _wda_profiles
+
+_wda_profiles.apply_profile()

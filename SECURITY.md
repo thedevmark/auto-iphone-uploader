@@ -38,13 +38,39 @@ never does, and how to check the code you run is the code published here.
     window), and runs the read-only checklist. It installs no drivers or
     services and does not touch the phone. `-CheckOnly` downloads and writes
     nothing.
+- The **USB recovery helper** is installed only when you run
+  `scripts/install_windows.ps1 -InstallUsbHelper` and accept Windows'
+  administrator prompt. It is the one piece that runs elevated: an on-demand
+  scheduled task (`\AutoIphoneUploader\UsbRecovery`, no trigger) that runs as
+  SYSTEM a script copied to `%ProgramData%\AutoIphoneUploader\usb-helper\`,
+  a folder only SYSTEM and Administrators can write. It can do exactly two
+  things: restart Apple Mobile Device Service, and restart the iPhone's own
+  USB device node (`USB\VID_05AC&PID_12A8`). It takes no parameters and runs
+  no command built from a request; it only acts on a request file owned by
+  the account that installed it, less than 120 s old, at most once every
+  30 s, and logs every accepted or refused request. The app itself never runs
+  elevated. `-UninstallUsbHelper` removes the task and the folder. The design
+  and threat model are in
+  [docs/usb-recovery-helper.md](docs/usb-recovery-helper.md), and
+  `tests/test_usb_helper.py` pins those properties against the source.
+- To find the YouTube rows the app hides from accessibility, the YouTube
+  runner reads a phone screenshot with Windows' built-in OCR engine
+  (`Windows.Media.Ocr`, through `video_drop/ocr/winocr.ps1`). It runs offline;
+  the screenshot is written to a temporary folder and deleted after the read.
 - The setup checklist only reads: it imports the driver in a child process,
   counts USB iPhones with `ios list` (it keeps the count, not the device ID),
   asks the phone link and Ollama whether they are running, reads the
   WebDriverAgent signing profile's expiry off the phone, checks whether
   `PHONE_PASSCODE` is set (never its value), queries the Apple Mobile Device
-  Service and Windows USB power settings, and looks for OneDrive, Google
-  Drive, Dropbox and iCloud Drive folders on this PC.
+  Service and Windows USB power settings, checks whether the USB recovery
+  helper's script and task exist, reads the iPhone's USB path up to its
+  controller from Windows' device tree (it keeps the controller type and the
+  hub count, not the device ID), reads the phone's battery level and charging
+  current once with `ios batteryregistry`, asks Windows whether an OCR
+  language is installed, and looks for OneDrive, Google Drive, Dropbox and
+  iCloud Drive folders on this PC.
+- `scripts/set_passcode.py` (optional) asks for the passcode at a hidden
+  prompt and writes it to `.env` as `PHONE_PASSCODE`; it never prints it.
 - Drafts, settings, the local database, the phone link's pid files and logs,
   cover screenshots and the re-sign material stay in the ignored `.state/`
   folder. Keep that folder private: go-ios logs there can name your device.
@@ -60,13 +86,22 @@ never does, and how to check the code you run is the code published here.
   anywhere else, and scrubs it from error messages. It is never logged,
   shown in the editor or sent anywhere.
 - The runners open OneDrive to find the exact video, share it into the app,
-  check the signed-in account matches the one you set, fill in the text you
+  check the signed-in account matches the one you set (when Instagram is on
+  another of your signed-in accounts, the runner switches to the one you set
+  through Instagram's own account switcher and proves it from the profile
+  header; it never signs in or out), fill in the text you
   approved in the editor, and check the cover is the video's first frame
   before the final tap. **Post now** posts through the YouTube app, through
   Instagram via Meta's Edits app (with Instagram's own Facebook and Threads
   "Also share on" switches), and through the TikTok app. In **Schedule**
   mode the YouTube and Instagram runners enter your slot in each app's own
   scheduler; TikTok is posted by the app at the slot; Threads is left for you.
+- After a final tap, the app looks at Instagram's and Threads' own profile
+  screens up to four times in the next hour to confirm the post (read-only:
+  it opens the app, taps the Profile tab and reads the screen; it never
+  posts, edits or deletes). It waits while another phone action runs or the
+  link is not ready. **Settings → Check each post in the apps afterwards**
+  turns it off.
 - A post is only submitted for text you confirmed, to the account you set.
   A final tap that times out is recorded as unconfirmed and never retried
   automatically.
