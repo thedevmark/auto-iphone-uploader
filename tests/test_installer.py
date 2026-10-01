@@ -69,5 +69,11 @@ class InstallDocsTests(unittest.TestCase):
                 self.assertIn("phone_resign.py", text)
 
 
+class ExitCodeTests(unittest.TestCase):
+    def test_a_report_with_steps_to_do_still_exits_zero(self):
+        text = (Path(__file__).resolve().parent.parent / "scripts" / "install_windows.ps1").read_text(encoding="utf-8")
+        self.assertTrue(text.rstrip().endswith("exit 0"))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -49,7 +49,7 @@ same commit that changes the fact.
 | Privacy sweep of the public tree | done at port time | From the public checkout: `git grep -n -i -E "deutschmark|00008[0-9]{3}-[0-9A-F]{16}|Users\\\\mark|Users/mark|D:\\\\OneDrive|terry|day5td|61594285786303" -- . ":!CHANGELOG.md" ":!LICENSE" ":!docs/launch-checklist.md"` prints nothing (the LICENSE holder line is the author's own). |
 | Release build runs the tests first and fails when they fail | done (`release.yml` `tests` job gates `source`) | A release published from a commit with a failing test uploads nothing. |
 | VirusTotal scan | optional (runs only with a `VT_API_KEY` secret) | The release notes gain a VirusTotal link when the secret exists. |
-| Tag `v1.0.0` | not done (current candidate `1.0.0-rc.3`) | `gh release view v1.0.0` lists the zip, `SHA256SUMS.txt` and the attestation. |
+| Tag `v1.0.0` | not done (current candidate `1.0.0-rc.4`) | `gh release view v1.0.0` lists the zip, `SHA256SUMS.txt` and the attestation. |
 | 60-second demo video | not done | Linked from the README's first screen. |
 | Three outside testers | not done | Three issues or messages from people who reached a first scheduled post on their own phone, with the setup time. |
 

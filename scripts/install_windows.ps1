@@ -434,3 +434,7 @@ if (-not $CheckOnly -and -not $NoLaunch) {
     Say 'one-time signing with your Apple ID (Sideloadly), the one step Apple does not let a script do.'
     Start-Process -FilePath $launcher -ArgumentList $launchScript -WorkingDirectory $projectRoot | Out-Null
 }
+# A report with steps still to do is not a failure: real errors throw above. Without this the
+# script would return the exit code of its last probe (e.g. the re-sign tool check), which
+# failed the release build on a clean CI machine (2026-10-01).
+exit 0

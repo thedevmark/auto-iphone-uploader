@@ -3,7 +3,7 @@
 All notable changes to Auto iPhone Uploader. Versions match the Git tags that
 [release.yml](.github/workflows/release.yml) builds release zips from.
 
-## 1.0.0 (current candidate 1.0.0-rc.3)
+## 1.0.0 (current candidate 1.0.0-rc.4)
 
 Post finished videos from a Windows PC through the real iPhone apps: YouTube
 Shorts with title, description and a first-frame thumbnail; Instagram Reels
@@ -14,6 +14,18 @@ and a setup checklist. The README's
 [Requirements and limits](README.md#requirements-and-limits) and
 [docs/launch-checklist.md](docs/launch-checklist.md) say what has been
 verified on the reference phone.
+
+### 1.0.0-rc.4 (2026-10-01)
+
+#### Fixed
+
+- The iPhone passcode is kept encrypted at rest with Windows DPAPI
+  (`PHONE_PASSCODE_DPAPI`, readable only by your Windows account on this PC);
+  `scripts\set_passcode.py` removes a plain-text line. Run it once to
+  encrypt a passcode saved by an earlier version.
+- `install_windows.ps1 -CheckOnly` exits 0 when it reports steps still to do,
+  so the release build no longer stops on a clean machine (rc.3 published no
+  download for this reason).
 
 ### 1.0.0-rc.3 (2026-10-01)
 
