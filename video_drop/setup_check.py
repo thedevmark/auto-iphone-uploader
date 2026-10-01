@@ -343,7 +343,12 @@ def passcode_item(passcode: dict | None) -> dict:
         return item("passcode", "ok", title,
                     "Read from the installed SideTap's .env for now · " + LEGACY_ENV_NOTE.format(keys="PHONE_PASSCODE")
                     + f" ({env_path}).", step="control")
-    return item("passcode", "ok", title, f"Saved in {env_path} (never shown).", step="control")
+    if passcode.get("source") == "dotenv":
+        return item("passcode", "ok", title,
+                    f"Saved in {env_path} as plain text. Run the command once to keep it encrypted instead.",
+                    step="control", commands=["python scripts\\set_passcode.py"])
+    return item("passcode", "ok", title, f"Saved in {env_path}, encrypted for your Windows account (never shown).",
+                step="control")
 
 
 def apple_service_item(service: dict | None) -> dict:
@@ -821,7 +826,10 @@ def passcode_probe() -> dict:
     env_path = str(config.ENV_FILE)
     if os.environ.get("PHONE_PASSCODE"):
         return {"set": True, "source": "env", "envPath": env_path}
-    if config._load_env(config.ENV_FILE).get("PHONE_PASSCODE"):  # re-read: the user may have just saved .env
+    saved = config._load_env(config.ENV_FILE)  # re-read: the user may have just saved .env
+    if saved.get("PHONE_PASSCODE_DPAPI"):
+        return {"set": True, "source": "encrypted", "envPath": env_path}
+    if saved.get("PHONE_PASSCODE"):
         return {"set": True, "source": "dotenv", "envPath": env_path}
     if config._legacy.get("PHONE_PASSCODE"):
         return {"set": True, "source": "legacy", "envPath": env_path}

@@ -12,6 +12,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from .. import secret_store as _secret_store
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 # VIDEO_DROP_ENV_FILE points tests (or a second install) at another file so the owner's real
 # .env, which holds the passcode, is never read by the test suite.
@@ -94,7 +96,9 @@ WDA_URL = f"http://127.0.0.1:{WDA_PORT}"
 # Optional overrides
 # Read by device.detect_wda_bundle; else auto-detected from installed apps.
 WDA_BUNDLE_ID = get("WDA_BUNDLE_ID")
-PHONE_PASSCODE = get("PHONE_PASSCODE")  # opt-in: lets helpers.unlock() type it
+# Opt-in: lets helpers.unlock() type it. Saved encrypted (DPAPI) by scripts/set_passcode.py;
+# a plain PHONE_PASSCODE set on purpose still wins.
+PHONE_PASSCODE = get("PHONE_PASSCODE") or _secret_store.passcode(_env)
 
 # Post-gesture waits, applied by whichever client creates the shared session.
 # Measured on device: WDA's default animationCoolOffTimeout=2 made every swipe
