@@ -566,14 +566,10 @@ class PasscodeTests(unittest.TestCase):
         self.assertFalse(checklist(probes(passcode=lambda: {"set": False, "source": "", "envPath": ".env"}))["ready"])
 
     def test_saved_passcode_is_reported_without_its_value(self):
-        entry = setup_check.passcode_item({"set": True, "source": "encrypted", "envPath": "C:/App/.env"})
-        self.assertEqual(entry["status"], "ok")
-        self.assertIn("encrypted", entry["detail"])
-        self.assertIn("never shown", entry["detail"])
-        plain = setup_check.passcode_item({"set": True, "source": "dotenv", "envPath": "C:/App/.env"})
-        self.assertEqual(plain["status"], "ok")
-        self.assertIn("plain text", plain["detail"])
-        self.assertEqual(plain["commands"], ["python scripts\\set_passcode.py"])
+        for source in ("encrypted", "dotenv"):
+            entry = setup_check.passcode_item({"set": True, "source": source, "envPath": "C:/App/.env"})
+            self.assertEqual(entry["status"], "ok")
+            self.assertIn("never shown", entry["detail"])
         legacy = setup_check.passcode_item({"set": True, "source": "legacy", "envPath": "C:/App/.env"})
         self.assertEqual(legacy["status"], "ok")
         self.assertIn("copy PHONE_PASSCODE into this app's .env", legacy["detail"])

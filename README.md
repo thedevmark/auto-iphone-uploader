@@ -4,7 +4,7 @@
 
 [![Tests](https://github.com/thedevmark/auto-iphone-uploader/actions/workflows/tests.yml/badge.svg)](https://github.com/thedevmark/auto-iphone-uploader/actions/workflows/tests.yml)
 [![CodeQL](https://github.com/thedevmark/auto-iphone-uploader/actions/workflows/codeql.yml/badge.svg)](https://github.com/thedevmark/auto-iphone-uploader/actions/workflows/codeql.yml)
-[![VirusTotal v1.0.0-rc.4: 0/66](https://img.shields.io/badge/VirusTotal%20v1.0.0--rc.4-0%2F66%20flagged-brightgreen)](https://www.virustotal.com/gui/file/99a63f3afa00cd935ab98da4005bebb1056662d1fe16943c04f2fb0bdc5d590c)
+[![VirusTotal](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fthedevmark%2Fauto-iphone-uploader%2Fbadges%2Fvirustotal.json)](https://github.com/thedevmark/auto-iphone-uploader/blob/badges/virustotal.md)
 
 Finish a video on your Windows PC, write its title and captions once, and let
 your PC post it through the real social apps on your iPhone. Posting from the
