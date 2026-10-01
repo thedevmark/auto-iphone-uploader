@@ -1555,3 +1555,30 @@ def test_press_home_leaves_a_video_app_over_usb_without_asking_wda(monkeypatch):
     helpers.note_front_app("com.apple.Preferences")
     helpers.press_home()
     assert launched == []
+
+
+def test_unlock_never_asks_activeappinfo_on_a_lit_playing_screen(monkeypatch):
+    # Run 3b (2026-10-01): unlock() -> /wda/activeAppInfo with TikTok's feed in front stalled the link.
+    import io
+    import os as _os
+    from PIL import Image
+
+    def frame(seed):
+        image = Image.frombytes("RGB", (300, 600), _os.urandom(300 * 600 * 3) if seed else bytes(300 * 600 * 3))
+        out = io.BytesIO()
+        image.save(out, format="PNG", compress_level=0)
+        return out.getvalue()
+
+    class Fake:
+        timeout = 999
+        def __init__(self):
+            self.frames = [frame(1), frame(2)]
+        def screenshot(self):
+            return self.frames.pop(0) if self.frames else frame(3)
+        def active_app(self):
+            raise AssertionError("activeAppInfo must not be asked on a playing screen")
+
+    monkeypatch.setattr(helpers, "_front_bundle", None)
+    monkeypatch.setattr(helpers, "_LIT_SCREEN_BYTES", 1000)
+    monkeypatch.setattr(helpers.time, "sleep", lambda s: None)
+    helpers.unlock(Fake())  # returns: in use, nothing asked

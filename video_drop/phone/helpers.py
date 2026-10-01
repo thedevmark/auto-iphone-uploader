@@ -891,6 +891,19 @@ def unlock(c: WDAClient | None = None) -> None:
         patient = WDAClient(base_url=c.base_url, timeout=_UNLOCK_TIMEOUT)
         patient.session_id = c.session_id
         c = patient
+    # /wda/activeAppInfo is an accessibility request: on a playing feed it hangs and, on a weak
+    # USB path, the phone's USB controller starts aborting transfers until the link stalls
+    # (Run 3b, 2026-10-01: run 2 stalled inside unlock() with TikTok's feed in front). A lit,
+    # moving screen (or a video app this process put in front) is a phone in use: no request.
+    # WDA's /screenshot is accessibility-free (140/140 on a playing feed, run 2) and goes through
+    # the client passed in, so tests stay off the real phone.
+    first = c.screenshot()
+    if len(first) >= _LIT_SCREEN_BYTES:
+        if _front_bundle in config.AX_VIDEO_APPS:
+            return
+        time.sleep(_VIDEO_FRAME_GAP)
+        if _frames_moving(first, c.screenshot()):
+            return
     try:
         frontmost = c.active_app().get("bundleId")
     except WDAError as exc:
