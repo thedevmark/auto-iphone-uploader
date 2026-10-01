@@ -24,6 +24,9 @@ from pathlib import Path
 
 from . import config
 
+# CREATE_NO_WINDOW exists only on Windows; 0 keeps the same calls importable and testable elsewhere.
+_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
 
 class DeviceError(RuntimeError):
     pass
@@ -96,7 +99,7 @@ def _run(args: list[str], timeout: float = 30.0) -> subprocess.CompletedProcess:
         capture_output=True,
         text=True,
         timeout=timeout,
-        creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+        creationflags=_NO_WINDOW,
     )
 
 
@@ -314,7 +317,7 @@ def _pid_alive(pid: int) -> bool:
             ["tasklist", "/FI", f"PID eq {pid}", "/NH"],
             capture_output=True,
             text=True,
-            creationflags=subprocess.CREATE_NO_WINDOW,
+            creationflags=_NO_WINDOW,
         )
         return str(pid) in proc.stdout
     try:
@@ -333,7 +336,7 @@ def _pid_image(pid: int) -> str:
             ["tasklist", "/FI", f"PID eq {pid}", "/NH", "/FO", "CSV"],
             capture_output=True,
             text=True,
-            creationflags=subprocess.CREATE_NO_WINDOW,
+            creationflags=_NO_WINDOW,
         )
         first = proc.stdout.strip().splitlines()
         if first and first[0].startswith('"'):
@@ -361,7 +364,7 @@ def _safe_kill(pid: int, expected_prefix: str, tree: bool = True) -> bool:
         subprocess.run(
             cmd,
             capture_output=True,
-            creationflags=subprocess.CREATE_NO_WINDOW,
+            creationflags=_NO_WINDOW,
         )
     else:
         import os
@@ -459,7 +462,7 @@ def _free_port(port: int) -> None:
             ["netstat", "-ano", "-p", "tcp"],
             capture_output=True,
             text=True,
-            creationflags=subprocess.CREATE_NO_WINDOW,
+            creationflags=_NO_WINDOW,
         )
     except OSError:
         return
@@ -477,13 +480,13 @@ def _free_port(port: int) -> None:
             ["tasklist", "/FI", f"PID eq {pid}", "/NH"],
             capture_output=True,
             text=True,
-            creationflags=subprocess.CREATE_NO_WINDOW,
+            creationflags=_NO_WINDOW,
         )
         if "ios.exe" in info.stdout.lower():
             subprocess.run(
                 ["taskkill", "/F", "/PID", pid],
                 capture_output=True,
-                creationflags=subprocess.CREATE_NO_WINDOW,
+                creationflags=_NO_WINDOW,
             )
 
 

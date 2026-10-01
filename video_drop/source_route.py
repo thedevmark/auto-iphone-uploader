@@ -84,7 +84,9 @@ def choose_route(source: PurePath, clouds: list[tuple[str, PurePath]], *, force_
                                "folder on this PC, so the iPhone cannot open it. Nothing was opened")
     provider, root = cloud
     kind = route_kind(provider, force_files=force_files)
-    return Route(kind, provider, files_path(provider, root, source) if kind == FILES_APP else None)
+    # Compare on-disk paths: a short (8.3) or junction spelling of either side must not break the route.
+    real_root, real_source = Path(root).resolve(strict=False), Path(source).resolve(strict=False)
+    return Route(kind, provider, files_path(provider, real_root, real_source) if kind == FILES_APP else None)
 
 
 def release_source(db: Path, release_id: int) -> tuple[Path, str, int, bool]:

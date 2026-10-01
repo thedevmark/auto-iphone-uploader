@@ -7,6 +7,7 @@ recordings of the Files app. They carry placeholder names only ("example-video",
 
 from __future__ import annotations
 
+import os
 import json
 import sqlite3
 import tempfile
@@ -543,3 +544,19 @@ class RecordedFilesTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PathSpellingTests(unittest.TestCase):
+    def test_another_spelling_of_the_same_folder_is_still_inside(self):
+        # GitHub's Windows runners hand out C:\Users\RUNNER~1\... temp paths while stored sources are
+        # the long form; a junction or a relative path is the same case on a user's PC.
+        from video_drop.setup_check import inside
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder) / "OneDrive"
+            (root / "_Clips").mkdir(parents=True)
+            clip = root / "_Clips" / "clip.mp4"
+            clip.write_bytes(b"x")
+            spelled = Path(os.path.relpath(clip)) if Path.cwd().drive == clip.drive else clip
+            self.assertTrue(inside(spelled, root.resolve()))
+            self.assertTrue(inside(clip.resolve(), root))
+            self.assertFalse(inside(Path(folder) / "elsewhere.mp4", root))

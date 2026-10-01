@@ -489,9 +489,18 @@ def detected_cloud_folders() -> list[tuple[str, Path]]:
                          lambda path: path.read_text(encoding="utf-8"))
 
 
+def _real(path: Path) -> str:
+    # Resolve junctions and 8.3 short names (RUNNER~1 vs the long form) wherever the path exists.
+    try:
+        path = Path(path).resolve(strict=False)
+    except OSError:
+        pass
+    return os.path.normcase(os.path.normpath(str(path)))
+
+
 def inside(folder: Path, root: Path) -> bool:
-    folder_text = os.path.normcase(os.path.normpath(str(folder)))
-    root_text = os.path.normcase(os.path.normpath(str(root))).rstrip("\\/")
+    folder_text = _real(folder)
+    root_text = _real(root).rstrip("\\/")
     return folder_text == root_text or folder_text.startswith(root_text + os.sep)
 
 
