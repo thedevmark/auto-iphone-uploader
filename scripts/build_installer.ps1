@@ -150,10 +150,10 @@ Install-Packages $appPython 'requirements.txt' $true
 # tkinter backs the file and folder pickers (scripts\pick_video.py, pick_folder.py); the
 # embeddable Python leaves it out, so copy it from the build machine's matching Python.
 $hostDlls = Join-Path $hostBase 'DLLs'
-# Python 3.11-3.13 ship Tcl/Tk 8.6 (tcl86t.dll, tk86t.dll); 3.14 ships 9.0 (tcl90.dll, tk90.dll).
+# Python 3.11-3.13 ship Tcl/Tk 8.6 (tcl86t.dll, tk86t.dll); 3.14 can ship 9.0 (tcl90.dll, tcl9tk90.dll).
 # Copy whichever this build Python has; _tkinter.pyd plus one tcl and one tk DLL are required.
-$tkFiles = @(Get-ChildItem -LiteralPath $hostDlls -File | Where-Object { $_.Name -match '^(_tkinter\.pyd|tcl\d+t?\.dll|tk\d+t?\.dll|zlib1\.dll)$' })
-foreach ($need in '^_tkinter\.pyd$', '^tcl\d+t?\.dll$', '^tk\d+t?\.dll$') {
+$tkFiles = @(Get-ChildItem -LiteralPath $hostDlls -File | Where-Object { $_.Name -match '^(_tkinter\.pyd|tcl\d+t?\.dll|(tcl\d+)?tk\d+t?\.dll|zlib1\.dll)$' })
+foreach ($need in '^_tkinter\.pyd$', '^tcl\d+t?\.dll$', '^(tcl\d+)?tk\d+t?\.dll$') {
     if (-not ($tkFiles | Where-Object { $_.Name -match $need })) {
         throw "The build Python has no file matching $need in $hostDlls; use a Python with tcl/tk (the python.org installer, or setup-python)."
     }
