@@ -170,3 +170,17 @@ class RotationLockTests(unittest.TestCase):
         with run_guards(phone, {"doNotDisturb": True, "lockRotation": True}):
             self.assertEqual((phone.focus, phone.rotation), ("Do Not Disturb", "1"))
         self.assertEqual((phone.focus, phone.rotation), ("", "0"))
+
+
+@mock.patch("video_drop.phone_focus.time.sleep", lambda seconds: None)
+class RealHomeTests(unittest.TestCase):
+    def test_closing_control_center_forgets_a_noted_video_app_first(self):
+        # Soak 2026-10-02: Home via go-ios (taken for a noted video app) left Control Center up.
+        from video_drop.phone_focus import close_control_center
+        calls = []
+        phone = FakePhone()
+        phone.note_front_app = lambda bundle: calls.append(("note", bundle))
+        home = phone.press_home
+        phone.press_home = lambda: (calls.append(("home",)), home())
+        close_control_center(phone)
+        self.assertEqual(calls, [("note", None), ("home",)])
