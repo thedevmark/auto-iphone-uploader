@@ -91,9 +91,26 @@ def _real_home(phone) -> None:
     phone.press_home()
 
 
+# Empty space below Control Center's modules, above the home indicator, on the 440 x 956
+# reference phone. Measured 2026-10-02 11:34: a WDA Home press left Control Center open (both
+# soak flows then read it), a tap here closed it.
+CC_EMPTY = (220.0, 930.0)
+
+
+def _cc_open(elements) -> bool:
+    return any(e.name in (MODULE, ROTATION_LOCK) for e in elements)
+
+
 def close_control_center(phone) -> None:
-    _real_home(phone)
-    time.sleep(0.8)
+    """Close Control Center by a tap on its empty space, only while it is provably up, then prove it."""
+    for _ in range(2):
+        if not _cc_open(_elements(phone)):
+            return
+        layout = PhoneLayout.from_info(phone.screen_info())
+        phone.tap(*layout.reference_point(*CC_EMPTY))
+        time.sleep(0.8)
+    if _cc_open(_elements(phone)):
+        raise FocusError("Control Center did not close; nothing more was done on the phone")
 
 
 def _choose_dnd(phone, elements: tuple[Element, ...]) -> None:

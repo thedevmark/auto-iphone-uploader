@@ -48,6 +48,9 @@ class FakePhone:
 
     def tap(self, x, y):
         self.taps.append((x, y))
+        if self.in_control and not self.in_menu and (x, y) == (220.0, 930.0):
+            self.in_control = False
+            return
         if getattr(self, "stuck_menu", False):
             # Recorded 2026-10-01: Home leaves this menu up; only empty space closes it.
             self.stuck_menu = (x, y) != (220, 790)
@@ -92,7 +95,7 @@ class PhoneFocusTests(unittest.TestCase):
         with upload_focus(phone):
             self.assertEqual(phone.focus, "Do Not Disturb")
         self.assertEqual(phone.focus, "Do Not Disturb")
-        self.assertEqual(phone.taps, [])
+        self.assertEqual(set(phone.taps) - {(220.0, 930.0)}, set())  # only closing Control Center
 
     def test_another_focus_is_kept_and_the_run_proceeds(self):
         # 2026-09-30: the owner was live with the "Streaming" Focus on; it already silences the phone.
@@ -100,7 +103,7 @@ class PhoneFocusTests(unittest.TestCase):
         with upload_focus(phone):
             self.assertEqual(phone.focus, "Streaming")
         self.assertEqual(phone.focus, "Streaming")
-        self.assertEqual(phone.taps, [])
+        self.assertEqual(set(phone.taps) - {(220.0, 930.0)}, set())  # only closing Control Center
 
     def test_an_owner_focus_is_read_once_per_session_window(self):
         import video_drop.phone_focus as focus
@@ -173,14 +176,21 @@ class RotationLockTests(unittest.TestCase):
 
 
 @mock.patch("video_drop.phone_focus.time.sleep", lambda seconds: None)
-class RealHomeTests(unittest.TestCase):
-    def test_closing_control_center_forgets_a_noted_video_app_first(self):
-        # Soak 2026-10-02: Home via go-ios (taken for a noted video app) left Control Center up.
+
+
+@mock.patch("video_drop.phone_focus.time.sleep", lambda seconds: None)
+class CloseControlCenterTests(unittest.TestCase):
+    def test_an_open_control_center_is_closed_by_empty_space_and_proven(self):
         from video_drop.phone_focus import close_control_center
-        calls = []
         phone = FakePhone()
-        phone.note_front_app = lambda bundle: calls.append(("note", bundle))
-        home = phone.press_home
-        phone.press_home = lambda: (calls.append(("home",)), home())
+        phone.in_control = True
+        phone.press_home = lambda: None  # measured 2026-10-02: Home leaves Control Center up
         close_control_center(phone)
-        self.assertEqual(calls, [("note", None), ("home",)])
+        self.assertFalse(phone.in_control)
+        self.assertEqual(phone.taps, [(220.0, 930.0)])
+
+    def test_nothing_is_tapped_when_control_center_is_not_up(self):
+        from video_drop.phone_focus import close_control_center
+        phone = FakePhone()
+        close_control_center(phone)
+        self.assertEqual(phone.taps, [])
