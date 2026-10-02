@@ -41,6 +41,8 @@ from PIL import Image, ImageChops, ImageStat
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from video_drop import phone_lock  # noqa: E402
+from video_drop import ocr  # noqa: E402
+from video_drop.phone.helpers import VideoSurfaceError  # noqa: E402
 
 from video_drop import native_schedule as ns  # noqa: E402
 from video_drop import receipts  # noqa: E402
@@ -226,13 +228,42 @@ def edits_export(data: dict) -> None:
     deadline = time.monotonic() + EXPORT_TIMEOUT
     while True:
         time.sleep(10)
-        items = elements()
+        try:
+            items = elements()
+        except VideoSurfaceError:
+            # The finished export's share sheet plays the clip (captured 2026-10-02 12:28), so its
+            # tree is refused: read it by OCR and tap the one "Instagram" share target instead.
+            target = ocr_share_target()
+            if target is not None:
+                share.stage("edits_exported")
+                phone.tap(target["x"], target["y"])
+                time.sleep(6)
+                return
+            items = ()
         if any(e.name == "bsl_export_share_instagram_button" for e in items):
             break
         if time.monotonic() >= deadline:
             raise Stop("Edits export did not finish; nothing was posted")
     share.stage("edits_exported")
     tap(by_name(items, "bsl_export_share_instagram_button", "Button"), 6)
+
+
+SHARE_SHEET = "choose where to share"
+
+
+def ocr_share_target(rows: list[dict] | None = None) -> dict | None:
+    """Edits' share sheet read by OCR: the single exact "Instagram" target in the lower half,
+    or None while the sheet is not up. The heading's "...on Instagram." never matches exactly."""
+    if rows is None:
+        rows = ocr.screen_rows(share.screen_pixels(), share.layout().width)
+    texts = [" ".join(str(row.get("text", "")).split()).casefold() for row in rows]
+    if not any(text.startswith(SHARE_SHEET) for text in texts):
+        return None
+    targets = [row for row, text in zip(rows, texts)
+               if text == "instagram" and row["y"] > share.layout().height / 2]
+    if len(targets) != 1:
+        raise Stop(f"Edits' share sheet shows {len(targets)} Instagram targets; nothing was posted")
+    return targets[0]
 
 
 # ---- Instagram composer ---------------------------------------------------------

@@ -118,3 +118,18 @@ class CoverTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_the_edits_share_sheet_read_by_ocr_taps_the_one_instagram_target():
+    # Captured 2026-10-02 12:28: the share sheet plays the clip, so its tree is refused.
+    from unittest.mock import patch
+    from scripts import phone_instagram as ig
+    from video_drop.phone_ui import PhoneLayout
+    rows = [{"text": "Choose where to share", "x": 220, "y": 470},
+            {"text": "Videos are optimized for high-quality playback", "x": 220, "y": 500},
+            {"text": "on Instagram.", "x": 220, "y": 520},
+            {"text": "Instagram", "x": 60, "y": 820}, {"text": "Facebook", "x": 140, "y": 820},
+            {"text": "Stories", "x": 220, "y": 820}]
+    with patch.object(ig.share, "layout", lambda **k: PhoneLayout(440, 956)):
+        assert ig.ocr_share_target(rows) == {"text": "Instagram", "x": 60, "y": 820}
+        assert ig.ocr_share_target([{"text": "Exporting", "x": 1, "y": 1}]) is None
