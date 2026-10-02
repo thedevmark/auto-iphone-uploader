@@ -109,11 +109,19 @@ def open_instagram():
 def selected_instagram_account() -> str:
     elements = open_instagram()
     # Instagram can reopen inside a story viewer (seen 2026-10-01 02:40), which has no tab bar.
+    # It can also reopen inside a single Reel opened from the profile (seen 2026-10-02 00:29:
+    # "Insights on Edits", "Boost", a back-button and no tab bar): go Back to the grid.
     for _ in range(3):
         dismiss = [e for e in elements if e.type == "Button" and e.name == "story-dismiss-button"]
-        if len(dismiss) != 1:
+        back = [e for e in elements if e.type == "Button" and e.name == "back-button"]
+        has_tabs = any(e.type == "Button" and e.label == "Profile" for e in elements)             or any(e.name == "user-switch-title-button" for e in elements)
+        if len(dismiss) == 1:
+            target = dismiss[0]
+        elif len(back) == 1 and not has_tabs:
+            target = back[0]
+        else:
             break
-        phone.tap(dismiss[0].x, dismiss[0].y)
+        phone.tap(target.x, target.y)
         time.sleep(1.5)
         elements = elements_from_tree(phone.ui_tree())
     profile = [e for e in elements if e.type == "Button" and e.label == "Profile"]

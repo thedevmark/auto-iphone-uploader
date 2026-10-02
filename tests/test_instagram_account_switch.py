@@ -17,6 +17,7 @@ class FakeInstagram:
         self.signed_in = signed_in
         self.switcher = False
         self.story = False
+        self.reel = False
         self.taps = []
 
     def open_app(self, bundle, wait_seconds=0):
@@ -29,6 +30,10 @@ class FakeInstagram:
         return {handle: (220, 541 + 64 * i) for i, handle in enumerate(self.signed_in)}
 
     def ui_tree(self):
+        if self.reel:  # recorded 2026-10-02: one of the owner's Reels, no tab bar
+            return {"type": "XCUIElementTypeApplication", "children": [
+                node("Button", "back-button", 40, 87, "Back"),
+                node("Button", "Insights on Edits", 98, 909)]}
         if self.story:  # recorded 2026-10-01: the story viewer has no tab bar
             return {"type": "XCUIElementTypeApplication", "children": [
                 node("Button", "story-header", 120, 88, "creator's story."),
@@ -43,6 +48,9 @@ class FakeInstagram:
 
     def tap(self, x, y):
         self.taps.append((x, y))
+        if self.reel:
+            self.reel = (x, y) != (40, 87)
+            return
         if self.story:
             self.story = (x, y) != (420, 96)
             return
@@ -69,8 +77,15 @@ class AccountSwitchTests(unittest.TestCase):
             self.assertEqual(preflight.ensure_instagram_account("@examplechannel"), "@examplechannel")
         self.assertEqual(phone.taps[0], (420, 96))
 
+    def test_a_single_reel_is_left_with_back_before_the_profile_is_read(self):
+        phone = FakeInstagram("examplechannel")
+        phone.reel = True
+        with patch.object(preflight, "phone", phone):
+            self.assertEqual(preflight.ensure_instagram_account("@examplechannel"), "@examplechannel")
+        self.assertEqual(phone.taps[0], (40, 87))
+
     def test_the_wrong_account_is_switched_through_instagram_and_proven(self):
-        # 2026-09-30 reference release: Instagram was on @secondchannel and the run stopped for a hand switch.
+        # 2026-09-30 day7: Instagram was on @secondchannel and the run stopped for a hand switch.
         phone = FakeInstagram("secondchannel")
         with patch.object(preflight, "phone", phone):
             self.assertEqual(preflight.ensure_instagram_account("@examplechannel"), "@examplechannel")
