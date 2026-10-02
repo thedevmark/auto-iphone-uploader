@@ -114,12 +114,38 @@ def open_instagram():
                      "stop before Edits export")
 
 
+def discard_composer(elements) -> bool:
+    """Close a restored reel composer without saving: Cancel, then "Continue without saving".
+
+    Recorded 2026-10-02 12:50: Instagram reopened on an earlier run's "New reel" composer
+    (Buttons Cancel, save-draft-button, share-sheet-share-button); Cancel asks "Changes won't be
+    saved" with "Save draft" and "Continue without saving"; discarding lands on the feed.
+    Returns True when a composer was discarded. Never taps Share."""
+    if not any(e.type == "Button" and e.name == "share-sheet-share-button" for e in elements):
+        return False
+    cancel = [e for e in elements if e.type == "Button" and e.name == "Cancel"]
+    if len(cancel) != 1:
+        raise ValueError("A reel composer is open without a single Cancel; stop before Edits export")
+    phone.tap(cancel[0].x, cancel[0].y)
+    time.sleep(1.5)
+    after = elements_from_tree(phone.ui_tree())
+    discard = [e for e in after if e.type == "Button" and e.label == "Continue without saving"]
+    if len(discard) != 1:
+        raise ValueError("Instagram did not offer to discard the open composer; stop before Edits export")
+    phone.tap(discard[0].x, discard[0].y)
+    time.sleep(2.0)
+    return True
+
+
 def selected_instagram_account() -> str:
     elements = open_instagram()
     # Instagram can reopen inside a story viewer (seen 2026-10-01 02:40), which has no tab bar.
     # It can also reopen inside a single Reel opened from the profile (seen 2026-10-02 00:29:
     # "Insights on Edits", "Boost", a back-button and no tab bar): go Back to the grid.
     for _ in range(3):
+        if discard_composer(elements):
+            elements = elements_from_tree(phone.ui_tree())
+            continue
         dismiss = [e for e in elements if e.type == "Button" and e.name == "story-dismiss-button"]
         back = [e for e in elements if e.type == "Button" and e.name == "back-button"]
         has_tabs = any(e.type == "Button" and e.label == "Profile" for e in elements)             or any(e.name == "user-switch-title-button" for e in elements)

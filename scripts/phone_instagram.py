@@ -650,6 +650,8 @@ def run(release_id: int, db: Path, *, commit: bool = False, now=None) -> dict:
             count = len(data["crossposts"])
             post = composer_ready(data["caption"], profiles=f"{count} profile{'s' if count != 1 else ''}" if count else "")
             if not commit:
+                # A dry run leaves no composer behind: a later run would reopen on it (2026-10-02).
+                preflight.discard_composer(elements())
                 return {"kind": "ready", "platform": "instagram", "releaseId": release_id, "cover": cover,
                         "crossposts": crossposts}
             # Record uncertainty before the one final tap: a timeout after it can mean a live post.
