@@ -318,9 +318,13 @@ class WDAClient:
         """Errors a fresh session fixes. "invalid session" is the dead one;
         "point.x != INFINITY" is a session that crossed a screen lock — it
         still answers perception GETs but every /actions fails forever
-        (seen live 2026-08-09; the unlock button only woke the phone)."""
+        (seen live 2026-08-09; the unlock button only woke the phone).
+        "stale element reference ... Application '<bundle>' is not present" is a
+        session still bound to an app that was closed (every request failed,
+        soak 2026-10-01 23:57 after YouTube was killed between flows)."""
         msg = str(exc).lower()
-        return "invalid session" in msg or "point.x != infinity" in msg
+        return ("invalid session" in msg or "point.x != infinity" in msg
+                or ("stale element reference" in msg and "application" in msg and "is not present" in msg))
 
     def _session_request(
         self, method: str, path: str, payload: dict | None = None

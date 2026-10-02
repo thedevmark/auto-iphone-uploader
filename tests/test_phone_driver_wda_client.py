@@ -785,3 +785,12 @@ def test_set_clipboard_runs_bare_without_a_known_runner(wda):
     wda.set_clipboard("hello")
     assert not any(p.endswith("/activate") for m, p in FakeWDA.requests_seen)
     assert FakeWDA.pasteboard == base64.b64encode(b"hello").decode()
+
+
+def test_a_session_bound_to_a_closed_app_is_replaced():
+    # Soak 2026-10-01 23:57: every request failed once YouTube had been killed between flows.
+    from video_drop.phone.wda_client import WDAClient, WDAError
+    err = WDAError("GET /session/X/window/size: stale element reference: The previously found element "
+                   "\"Application 'com.google.ios.youtube'\" is not present in the current view anymore")
+    assert WDAClient._session_unusable(err)
+    assert not WDAClient._session_unusable(WDAError("stale element reference: Button 'Next' is not present"))
