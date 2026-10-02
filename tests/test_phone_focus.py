@@ -1,4 +1,5 @@
 import unittest
+from contextlib import nullcontext
 from unittest.mock import MagicMock
 
 from video_drop import phone_focus
@@ -160,22 +161,38 @@ class RotationLockTests(unittest.TestCase):
     def test_locks_for_the_run_and_restores_only_what_it_changed(self):
         from video_drop.phone_focus import run_guards
         phone = FakePhone()
-        with run_guards(phone, {"doNotDisturb": False, "lockRotation": True}):
-            self.assertEqual(phone.rotation, "1")
-        self.assertEqual(phone.rotation, "0")
-        already = FakePhone(rotation="1")
-        with run_guards(already, {"doNotDisturb": False, "lockRotation": True}):
-            pass
+        with mock.patch("video_drop.phone_awake.stay_awake", lambda p: nullcontext()):
+            with run_guards(phone, {"preparePhone": True}):
+                self.assertEqual((phone.focus, phone.rotation), ("Do Not Disturb", "1"))
+            self.assertEqual((phone.focus, phone.rotation), ("", "0"))
+            already = FakePhone(rotation="1")
+            with run_guards(already, {"preparePhone": True}):
+                pass
         self.assertEqual(already.rotation, "1")  # the owner's own lock stays on
 
-    def test_both_guards_are_separate_settings(self):
+    def test_one_setting_turns_the_whole_preparation_off(self):
         from video_drop.phone_focus import run_guards
         phone = FakePhone()
-        with run_guards(phone, {"doNotDisturb": True, "lockRotation": False}):
-            self.assertEqual((phone.focus, phone.rotation), ("Do Not Disturb", "0"))
-        with run_guards(phone, {"doNotDisturb": True, "lockRotation": True}):
-            self.assertEqual((phone.focus, phone.rotation), ("Do Not Disturb", "1"))
-        self.assertEqual((phone.focus, phone.rotation), ("", "0"))
+        with mock.patch("video_drop.phone_awake.stay_awake", side_effect=AssertionError("touched Settings")):
+            with run_guards(phone, {"preparePhone": False}):
+                self.assertEqual((phone.focus, phone.rotation), ("", "0"))
+
+    def test_preparation_runs_in_order_and_unwinds_in_reverse(self):
+        from contextlib import contextmanager
+        from video_drop import phone_focus
+        order = []
+
+        def guard(name):
+            @contextmanager
+            def cm(phone):
+                order.append(name)
+                yield
+                order.append("undo " + name)
+            return cm
+        with mock.patch("video_drop.phone_awake.stay_awake", guard("awake")),                 mock.patch.object(phone_focus, "upload_focus", guard("dnd")),                 mock.patch.object(phone_focus, "rotation_lock", guard("rotation")):
+            with phone_focus.prepare_phone(object(), True):
+                order.append("run")
+        self.assertEqual(order, ["awake", "dnd", "rotation", "run", "undo rotation", "undo dnd", "undo awake"])
 
 
 @mock.patch("video_drop.phone_focus.time.sleep", lambda seconds: None)

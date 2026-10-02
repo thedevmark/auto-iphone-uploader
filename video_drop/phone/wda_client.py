@@ -599,6 +599,21 @@ class WDAClient:
         """Empty a text field outright, whatever length its contents."""
         self._session_request("POST", f"/element/{element_id}/clear", {})
 
+    def elements_by_id(self, identifier: str) -> list[dict]:
+        """Every element whose accessibility id is `identifier`, with its type, label, value and
+        frame. Measured 2026-10-02 in Control Center: 0.87 s against 20.6 s for the full tree."""
+        found = self._session_request("POST", "/elements", {"using": "accessibility id", "value": identifier}) or []
+        out = []
+        for item in found:
+            eid = item.get("ELEMENT") or item.get("element-6066-11e4-a52e-4f735466cecf")
+            rect = self._session_request("GET", f"/element/{eid}/rect")
+            out.append({"type": str(self._session_request("GET", f"/element/{eid}/name") or ""),
+                        "label": str(self._session_request("GET", f"/element/{eid}/attribute/label") or ""),
+                        "name": identifier,
+                        "value": str(self._session_request("GET", f"/element/{eid}/attribute/value") or ""),
+                        "rect": rect})
+        return out
+
     def element_value(self, element_id: str) -> str:  # noqa: vulture  (called by helpers.py)
         """The field's REAL typed contents, not its placeholder label."""
         value = self._session_request("GET", f"/element/{element_id}/attribute/value")

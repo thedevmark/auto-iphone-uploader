@@ -14,7 +14,7 @@ run leaves Control Center and reopens it to prove the new state.
 from __future__ import annotations
 
 import time
-from contextlib import contextmanager, nullcontext
+from contextlib import ExitStack, contextmanager, nullcontext
 
 from .phone_ui import PhoneLayout
 from .screens.snapshot import Element, elements_from_tree
@@ -28,8 +28,22 @@ class FocusError(RuntimeError):
     pass
 
 
-def _elements(phone) -> tuple[Element, ...]:
-    return elements_from_tree(phone.ui_tree())
+# Every name this module reads. Looked up by accessibility id where the driver can (0.87 s),
+# not by reading the whole of Control Center (16-25 s each, measured 2026-10-02).
+NAMES = ("focus-module", "orientation-lock", "focus-modes-ui", "mode-Do Not Disturb")
+
+
+def _elements(phone, names: tuple[str, ...] = NAMES) -> tuple[Element, ...]:
+    lookup = getattr(phone, "elements_by_ids", None)
+    if lookup is None:
+        return elements_from_tree(phone.ui_tree())
+    out = []
+    for item in lookup(names):
+        rect = item["rect"]
+        out.append(Element(item["type"].removeprefix("XCUIElementType"), item["label"], item["name"],
+                           item["value"], float(rect["x"]), float(rect["y"]),
+                           float(rect["width"]), float(rect["height"])))
+    return tuple(out)
 
 
 def _one(elements: tuple[Element, ...], name: str) -> Element:
@@ -53,7 +67,7 @@ def focus_state(elements: tuple[Element, ...]) -> str:
 def _settle(phone, name: str, timeout: float = 4.0, poll: float = 0.4) -> tuple[Element, ...]:
     deadline = time.monotonic() + timeout
     while True:
-        elements = _elements(phone)
+        elements = _elements(phone, (name,) + ((ROTATION_LOCK,) if name == MODULE else ()))
         if any(e.type == "Button" and e.name == name for e in elements):
             return elements
         if time.monotonic() >= deadline:
@@ -68,7 +82,7 @@ def open_control_center(phone, *, retry: bool = True) -> tuple[Element, ...]:
     phone.swipe(layout.width * .92, 1, layout.width * .92, layout.height * .30, .3)
     time.sleep(1.0)
     # Not under the shallow media profile: depth 15 hid the Focus module (2026-09-30 23:44).
-    elements = _elements(phone)
+    elements = _elements(phone, (MODULE, ROTATION_LOCK, "focus-modes-ui"))
     if any(e.type == "Button" and e.name == MODULE for e in elements):
         return elements  # the usual case: one read proves Control Center, no second read
     if retry and any(e.name == "focus-modes-ui" for e in elements):
@@ -113,12 +127,12 @@ def _cc_open(elements) -> bool:
 def close_control_center(phone) -> None:
     """Close Control Center by a tap on its empty space, only while it is provably up, then prove it."""
     for _ in range(2):
-        if not _cc_open(_elements(phone)):
+        if not _cc_open(_elements(phone, (MODULE,))):
             return
         layout = PhoneLayout.from_info(phone.screen_info())
         phone.tap(*layout.reference_point(*CC_EMPTY))
         time.sleep(0.8)
-    if _cc_open(_elements(phone)):
+    if _cc_open(_elements(phone, (MODULE,))):
         raise FocusError("Control Center did not close; nothing more was done on the phone")
 
 
@@ -270,12 +284,29 @@ def upright(phone, *, settle: float = 1.5) -> None:
         raise FocusError("The phone is sideways and could not be turned upright; stand it in portrait")
 
 
+def prepare_phone(phone, enabled: bool):
+    """One Setting (owner, 2026-10-02: "bundle it all as one thing"): Low Power Mode off and
+    Auto-Lock at Never, Do Not Disturb on, rotation locked. Each is restored afterwards only
+    if this run changed it, in reverse order."""
+    if not enabled:
+        return nullcontext()
+    from .phone_awake import stay_awake
+    stack = ExitStack()
+    try:
+        stack.enter_context(stay_awake(phone))
+        stack.enter_context(upload_focus(phone))
+        stack.enter_context(rotation_lock(phone))
+    except BaseException:
+        stack.close()
+        raise
+    return stack
+
+
 @contextmanager
 def run_guards(phone, checks: dict):
-    """The phone-state guards a run holds, each its own Setting: Do Not Disturb, then rotation lock."""
+    """Upright always, then the phone preparation the owner keeps on (see prepare_phone)."""
     upright(phone)
-    with optional_focus(phone, checks.get("doNotDisturb", True)), \
-            (rotation_lock(phone) if checks.get("lockRotation", True) else nullcontext()):
+    with prepare_phone(phone, checks.get("preparePhone", True)):
         try:
             yield
         except BaseException as exc:
