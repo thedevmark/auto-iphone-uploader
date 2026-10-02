@@ -82,6 +82,9 @@ to create, no cloud service of ours, and no tracking.
   port on the CPU's own USB controller (usually a rear port), not a chipset
   port or a hub, keep it charged, and turn off USB selective suspend; the
   checklist shows each of these.
+- **Supported iPhones: Face ID models (iPhone X and newer) on iOS 17.4 or
+  newer.** iPhones with a Home button (iPhone 8, SE) aren't supported; the
+  setup checklist says so if one is plugged in.
 - Tested on an iPhone 16 Pro Max with iOS 26.7. The YouTube flow is covered
   on other screen sizes by tests
   ([docs/size-independence-audit.md](docs/size-independence-audit.md)). App

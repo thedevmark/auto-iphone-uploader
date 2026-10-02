@@ -145,6 +145,26 @@ def driver_item(driver: dict) -> dict:
     return item("driver", "ok", title, detail)
 
 
+# Supported: Face ID iPhones (no Home button: Control Center opens from the top-right corner)
+# on iOS 17.4 or later (go-ios's userspace tunnel). Tested live on iPhone 16 Pro Max, iOS 26.7.
+MIN_IOS = (17, 4)
+HOME_BUTTON_MODELS = {"iPhone10,1", "iPhone10,2", "iPhone10,4", "iPhone10,5",  # iPhone 8, 8 Plus
+                      "iPhone12,8", "iPhone14,6"}  # iPhone SE (2nd, 3rd generation)
+
+
+def unsupported_reason(model: str, ios: str) -> str:
+    """Why this iPhone is outside what the app supports, or "" when it is supported or unknown."""
+    match = re.fullmatch(r"iPhone(\d+),\d+", model or "")
+    if match and (int(match[1]) < 10 or model in HOME_BUTTON_MODELS):
+        return "This iPhone has a Home button; the app supports Face ID iPhones (iPhone X and newer)"
+    parts = re.findall(r"\d+", ios or "")
+    if len(parts) >= 2 and (int(parts[0]), int(parts[1])) < MIN_IOS:
+        return f"This iPhone runs iOS {ios}; the app needs iOS 17.4 or newer"
+    if len(parts) == 1 and (int(parts[0]), 0) < MIN_IOS:
+        return f"This iPhone runs iOS {ios}; the app needs iOS 17.4 or newer"
+    return ""
+
+
 def phone_item(ios: dict, driver_ok: bool) -> dict:
     title = "iPhone connected"
     if not ios.get("found"):
@@ -163,6 +183,10 @@ def phone_item(ios: dict, driver_ok: bool) -> dict:
     if count > 1:
         return item("phone", "action", title, f"{count} iPhones are connected.",
                     "Unplug the others so only the iPhone you post from stays connected.")
+    reason = unsupported_reason(str(ios.get("model", "")), str(ios.get("ios", "")))
+    if reason:
+        return item("phone", "action", title, reason + ".",
+                    "Use a Face ID iPhone on iOS 17.4 or newer (Settings > General > Software Update).")
     return item("phone", "ok", title, "One iPhone is connected over USB.")
 
 
@@ -860,7 +884,7 @@ def ios_devices(executable: str | None) -> dict:
     if not executable:
         return {"found": False, "count": 0, "error": ""}
     try:
-        completed = subprocess.run([executable, "list"], capture_output=True, text=True, timeout=15,
+        completed = subprocess.run([executable, "list", "--details"], capture_output=True, text=True, timeout=15,
                                    creationflags=NO_WINDOW)
     except (OSError, subprocess.TimeoutExpired) as exc:
         return {"found": True, "count": 0, "error": str(exc)}
@@ -872,7 +896,10 @@ def ios_devices(executable: str | None) -> dict:
             last = line.strip() or last
             continue
         if isinstance(data, dict) and isinstance(data.get("deviceList"), list):
-            return {"found": True, "count": len(data["deviceList"]), "error": ""}
+            devices = data["deviceList"]
+            first = devices[0] if devices and isinstance(devices[0], dict) else {}
+            return {"found": True, "count": len(devices), "error": "",
+                    "model": str(first.get("ProductType") or ""), "ios": str(first.get("ProductVersion") or "")}
         if isinstance(data, dict):
             last = str(data.get("msg") or data.get("err") or data.get("error") or last)
     return {"found": True, "count": 0, "error": last or f"ios list exited with {completed.returncode}"}

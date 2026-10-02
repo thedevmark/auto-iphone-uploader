@@ -48,6 +48,10 @@ def exit_target(labels: list[str]) -> str | None:
         return "Back"
     if "Add details" in labels and "Back" in labels:
         return "Back"
+    # The description editor of an unfinished upload YouTube restored (recorded 2026-10-02 11:47:
+    # title "Add description", "Back" at the top left, keyboard up). Back closes it.
+    if "Add description" in labels and "Back" in labels:
+        return "Back"
     if "Exit editor" in labels:
         return "Exit editor"
     if "Exit trim" in labels:

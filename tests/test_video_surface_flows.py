@@ -213,3 +213,10 @@ def test_a_playing_trim_screen_read_by_ocr_exits_by_its_measured_x():
     labels = ["1:08", "Chat can pay to", "30.2s", "Choose a part of the video", "Next"]
     assert youtube_nav.exit_target(labels) == youtube_nav.TRIM_X
     assert youtube_nav.TRIM_X_POINT == (20.0, 86.0)
+
+
+def test_a_restored_description_editor_is_left_by_back():
+    # Recorded 2026-10-02: YouTube reopened on an unfinished upload's description editor.
+    from video_drop import youtube_nav
+    labels = ["id.creation.modes.view", "Back", "Add description", "Hashtags", "Q", "W"]
+    assert youtube_nav.exit_target(labels) == "Back"
