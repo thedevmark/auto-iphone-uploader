@@ -39,8 +39,8 @@ class PhoneLockTests(unittest.TestCase):
         self.assertFalse(self.lock.exists())
 
     def test_a_hand_written_lock_is_always_honoured(self):
-        self.lock.write_text("lead: reference release real post on stream", encoding="utf-8")
-        self.assertEqual(phone_lock.holder(self.state, alive=lambda pid: False), "lead: reference release real post on stream")
+        self.lock.write_text("lead: day7 real post on stream", encoding="utf-8")
+        self.assertEqual(phone_lock.holder(self.state, alive=lambda pid: False), "lead: day7 real post on stream")
         with self.assertRaises(phone_lock.PhoneLockHeld):
             with phone_lock.hold(self.state, "receipt check"):
                 pass
@@ -86,3 +86,40 @@ class ServerLockTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FailureCaptureTests(unittest.TestCase):
+    def test_a_failing_flow_leaves_its_screen_and_error_behind(self):
+        from unittest.mock import patch
+        from video_drop import failure_capture
+        from video_drop.phone import capture as phone_capture
+        with tempfile.TemporaryDirectory() as folder:
+            state = Path(folder)
+
+            @phone_lock.locked("TikTok")
+            def run(release_id, db):
+                raise RuntimeError("Expected one Post button")
+
+            with patch.object(phone_capture, "pixels_png", lambda: b"PNGDATA"), \
+                    patch("video_drop.ocr.read_png", lambda png: []):
+                with self.assertRaisesRegex(RuntimeError, "Expected one Post button"):
+                    run(1, state / "video-drop.sqlite")
+            [saved] = list((state / "failures").iterdir())
+            self.assertEqual((saved / "screen.png").read_bytes(), b"PNGDATA")
+            self.assertIn("Expected one Post button", (saved / "error.txt").read_text(encoding="utf-8"))
+            self.assertFalse((state / phone_lock.LOCK_FILE).exists())
+
+    def test_capture_never_hides_the_flow_error(self):
+        from unittest.mock import patch
+        from video_drop.phone import capture as phone_capture
+        with tempfile.TemporaryDirectory() as folder:
+            @phone_lock.locked("YouTube")
+            def run(release_id, db):
+                raise ValueError("real error")
+
+            def broken():
+                raise OSError("no screenshot")
+
+            with patch.object(phone_capture, "pixels_png", broken):
+                with self.assertRaisesRegex(ValueError, "real error"):
+                    run(1, Path(folder) / "video-drop.sqlite")
