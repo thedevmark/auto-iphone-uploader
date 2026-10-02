@@ -237,7 +237,7 @@ def run(release: str | int, db: Path, *, commit: bool = False, now=None) -> dict
         for attempt in range(3):
             try:
                 yt.phone.unlock()
-                with yt.busy("YouTube schedule", 900), yt.optional_focus(yt.phone, store.phone_checks()["doNotDisturb"]):
+                with yt.busy("YouTube schedule", 900), yt.run_guards(yt.phone, store.phone_checks()):
                     yt.layout(refresh=True)
                     yt.ensure_youtube_channel(data["expectedAccount"])
                     yt.open_source_file(data)

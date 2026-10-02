@@ -102,7 +102,7 @@ class YouTubePostNowTests(unittest.TestCase):
 
             with patch.object(phone_youtube, "connect_sidetap"), \
                     patch.object(phone_youtube, "phone", fake), \
-                    patch.object(phone_youtube, "optional_focus", return_value=nullcontext()), \
+                    patch.object(phone_youtube, "run_guards", return_value=nullcontext()), \
                     patch.object(phone_youtube, "layout", return_value=PhoneLayout(440, 956)), \
                     patch.object(phone_youtube, "ensure_youtube_channel"), \
                     patch.object(phone_youtube, "open_source_file"), \
@@ -160,7 +160,7 @@ class YouTubePostNowTests(unittest.TestCase):
             with patch.object(phone_youtube, "connect_sidetap"), \
                     patch.object(phone_youtube, "phone", fake), \
                     patch.object(phone_youtube, "WDAError", LinkLost), \
-                    patch.object(phone_youtube, "optional_focus", return_value=nullcontext()), \
+                    patch.object(phone_youtube, "run_guards", return_value=nullcontext()), \
                     patch.object(phone_youtube, "layout"), \
                     patch.object(phone_youtube, "ensure_youtube_channel"), \
                     patch.object(phone_youtube, "open_source_file"), \
