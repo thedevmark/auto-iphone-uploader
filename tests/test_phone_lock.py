@@ -39,8 +39,8 @@ class PhoneLockTests(unittest.TestCase):
         self.assertFalse(self.lock.exists())
 
     def test_a_hand_written_lock_is_always_honoured(self):
-        self.lock.write_text("lead: day7 real post on stream", encoding="utf-8")
-        self.assertEqual(phone_lock.holder(self.state, alive=lambda pid: False), "lead: day7 real post on stream")
+        self.lock.write_text("lead: real post on stream", encoding="utf-8")
+        self.assertEqual(phone_lock.holder(self.state, alive=lambda pid: False), "lead: real post on stream")
         with self.assertRaises(phone_lock.PhoneLockHeld):
             with phone_lock.hold(self.state, "receipt check"):
                 pass
