@@ -31,3 +31,14 @@ def capture(state: Path, flow: str, exc: BaseException) -> Path | None:
         return folder
     except Exception:
         return None
+
+
+# The run in progress, set by phone_lock.locked: lets the phone guards capture the failing screen
+# BEFORE they restore Do Not Disturb / rotation lock (which opens Control Center and goes Home).
+CURRENT: dict = {"state": None, "flow": None, "done": False}
+
+
+def snap(exc: BaseException) -> None:
+    """Capture once per run, at the first place that sees the failure."""
+    if CURRENT["state"] is not None and not CURRENT["done"]:
+        CURRENT["done"] = capture(CURRENT["state"], CURRENT["flow"] or "flow", exc) is not None

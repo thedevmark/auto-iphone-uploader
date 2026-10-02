@@ -91,17 +91,19 @@ def locked(owner: str):
     def wrap(run):
         def runner(*args, **kwargs):
             db = kwargs["db"] if "db" in kwargs else args[1]
+            from . import failure_capture as fc
             with hold(Path(db).parent, owner):
+                fc.CURRENT.update(state=Path(db).parent, flow=owner, done=False)
                 try:
                     result = run(*args, **kwargs)
+                    if isinstance(result, dict) and result.get("kind") == "error":
+                        fc.snap(RuntimeError(str(result.get("message", ""))))
+                    return result
                 except Exception as exc:
-                    from .failure_capture import capture  # evidence of the screen it failed on
-                    capture(Path(db).parent, owner, exc)
+                    fc.snap(exc)  # no-op when the guards already captured the failing screen
                     raise
-                if isinstance(result, dict) and result.get("kind") == "error":
-                    from .failure_capture import capture
-                    capture(Path(db).parent, owner, RuntimeError(str(result.get("message", ""))))
-                return result
+                finally:
+                    fc.CURRENT.update(state=None, flow=None, done=False)
         runner.__wrapped__ = run
         runner.__name__, runner.__doc__ = run.__name__, run.__doc__
         return runner

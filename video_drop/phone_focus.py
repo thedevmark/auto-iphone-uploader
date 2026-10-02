@@ -249,4 +249,10 @@ def run_guards(phone, checks: dict):
     """The phone-state guards a run holds, each its own Setting: Do Not Disturb, then rotation lock."""
     with optional_focus(phone, checks.get("doNotDisturb", True)), \
             (rotation_lock(phone) if checks.get("lockRotation", True) else nullcontext()):
-        yield
+        try:
+            yield
+        except BaseException as exc:
+            # Capture the failing screen now: restoring the guards below opens Control Center.
+            from .failure_capture import snap
+            snap(exc)
+            raise
