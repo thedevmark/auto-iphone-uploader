@@ -156,3 +156,70 @@ def upload_focus(phone):
 def optional_focus(phone, enabled: bool):
     """Hold Do Not Disturb for an upload only when the operator keeps that check on."""
     return upload_focus(phone) if enabled else nullcontext()
+
+
+# ---- rotation lock ---------------------------------------------------------------
+# Recorded on iOS 26.7 (2026-10-02): Control Center's rotation lock is a Switch named
+# "orientation-lock" (label "Lock Rotation"), value "1" when locked. A phone left unlocked
+# turned sideways mid-soak and every later flow failed on a 956 x 440 screen.
+ROTATION_LOCK = "orientation-lock"
+
+
+def _rotation_switch(elements: tuple[Element, ...]) -> Element:
+    found = {(e.left, e.top): e for e in elements if e.type == "Switch" and e.name == ROTATION_LOCK}
+    if len(found) != 1:
+        raise FocusError(f"Expected one rotation lock control in Control Center; found {len(found)}")
+    return next(iter(found.values()))
+
+
+def _rotation_locked(elements: tuple[Element, ...]) -> bool:
+    return _rotation_switch(elements).value.strip() == "1"
+
+
+def _toggle_rotation(phone, elements: tuple[Element, ...], want: bool) -> None:
+    switch = _rotation_switch(elements)
+    phone.tap(switch.x, switch.y)
+    time.sleep(0.8)
+    close_control_center(phone)
+    elements = open_control_center(phone)
+    try:
+        if _rotation_locked(elements) != want:
+            raise FocusError("Rotation lock did not " + ("turn on" if want else "turn off") + "; check the phone")
+    finally:
+        close_control_center(phone)
+
+
+def lock_rotation(phone) -> bool:
+    """Lock the screen upright for the run. True only if this run turned the lock on."""
+    elements = open_control_center(phone)
+    if _rotation_locked(elements):
+        close_control_center(phone)
+        return False
+    _toggle_rotation(phone, elements, True)
+    return True
+
+
+def restore_rotation(phone) -> None:
+    elements = open_control_center(phone)
+    if not _rotation_locked(elements):
+        close_control_center(phone)
+        return
+    _toggle_rotation(phone, elements, False)
+
+
+@contextmanager
+def rotation_lock(phone):
+    changed = lock_rotation(phone)
+    try:
+        yield
+    finally:
+        if changed:
+            restore_rotation(phone)
+
+
+@contextmanager
+def run_guards(phone, checks: dict):
+    """The phone-state guards a run holds, each its own Setting: Do Not Disturb, then rotation lock."""
+    with optional_focus(phone, checks.get("doNotDisturb", True)), \
+            (rotation_lock(phone) if checks.get("lockRotation", True) else nullcontext()):
+        yield

@@ -18,6 +18,8 @@ DEFAULT_SLOTS = ("10:00", "19:00")
 # safety gates, not preferences, so they are deliberately absent here.
 PHONE_CHECK_DEFAULTS = {
     "doNotDisturb": True,
+    # Lock the screen upright in Control Center for each run (restored after if the app locked it).
+    "lockRotation": True,
     "youtubeQualityEveryUpload": False,
     "inspectPhoneOnOpen": True,
     # Once Instagram has its native receipt, move the Edits project its 4K export left behind

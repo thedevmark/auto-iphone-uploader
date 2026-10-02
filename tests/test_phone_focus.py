@@ -13,8 +13,9 @@ def node(kind, name, x, y, value="", label=""):
 class FakePhone:
     """Control Center as recorded on iOS 26.7 (fixtures/control-center/*)."""
 
-    def __init__(self, focus=""):
+    def __init__(self, focus="", rotation="0"):
         self.focus = focus
+        self.rotation = rotation
         self.in_control = False
         self.in_menu = False
         self.taps = []
@@ -38,7 +39,9 @@ class FakePhone:
             children = [node("Button", "mode-Do Not Disturb", 220, 263, label="Do Not Disturb, Silence all notifications"),
                         node("Button", "mode-Work", 220, 435, label="Work")]
         elif self.in_control:
-            children = [node("Button", "focus-module", 129, 450, self.focus, "Focus")]
+            children = [node("Button", "focus-module", 129, 450, self.focus, "Focus"),
+                        dict(node("Switch", "orientation-lock", 84, 359, self.rotation, "Lock Rotation"),
+                             type="XCUIElementTypeSwitch")]
         else:
             children = [node("Button", "Video composer", 200, 200)]
         return {"type": "XCUIElementTypeApplication", "children": children}
@@ -51,6 +54,8 @@ class FakePhone:
             return
         if self.in_menu and (x, y) == (220, 263):
             self.focus = "" if self.focus == "Do Not Disturb" else "Do Not Disturb"
+        elif self.in_control and (x, y) == (84, 359):
+            self.rotation = "0" if self.rotation == "1" else "1"
         elif self.in_control and (x, y) == (129, 450):
             self.in_menu = True
 
@@ -138,3 +143,30 @@ class PhoneFocusTests(unittest.TestCase):
         self.assertEqual(focus_state(module("Do Not Disturb")), "dnd")
         with self.assertRaisesRegex(FocusError, "found 0"):
             focus_state(())
+
+
+@mock.patch("video_drop.phone_focus.time.sleep", lambda seconds: None)
+class RotationLockTests(unittest.TestCase):
+    def setUp(self):
+        import video_drop.phone_focus as focus
+        focus._quiet_until = 0.0
+
+    def test_locks_for_the_run_and_restores_only_what_it_changed(self):
+        from video_drop.phone_focus import run_guards
+        phone = FakePhone()
+        with run_guards(phone, {"doNotDisturb": False, "lockRotation": True}):
+            self.assertEqual(phone.rotation, "1")
+        self.assertEqual(phone.rotation, "0")
+        already = FakePhone(rotation="1")
+        with run_guards(already, {"doNotDisturb": False, "lockRotation": True}):
+            pass
+        self.assertEqual(already.rotation, "1")  # the owner's own lock stays on
+
+    def test_both_guards_are_separate_settings(self):
+        from video_drop.phone_focus import run_guards
+        phone = FakePhone()
+        with run_guards(phone, {"doNotDisturb": True, "lockRotation": False}):
+            self.assertEqual((phone.focus, phone.rotation), ("Do Not Disturb", "0"))
+        with run_guards(phone, {"doNotDisturb": True, "lockRotation": True}):
+            self.assertEqual((phone.focus, phone.rotation), ("Do Not Disturb", "1"))
+        self.assertEqual((phone.focus, phone.rotation), ("", "0"))

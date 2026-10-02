@@ -48,7 +48,7 @@ from video_drop.core import Store, digest  # noqa: E402
 from video_drop.accounts import load_targets, require_target  # noqa: E402
 from video_drop.instagram_schedule import first_frame  # noqa: E402
 from video_drop.media_color import edits_color_mode  # noqa: E402
-from video_drop.phone_focus import optional_focus  # noqa: E402
+from video_drop.phone_focus import optional_focus, run_guards  # noqa: E402
 from video_drop.phone_link import release_frozen_app  # noqa: E402
 from video_drop.screens.snapshot import Element, elements_from_tree  # noqa: E402
 from scripts import phone_youtube as share  # noqa: E402
@@ -585,7 +585,7 @@ def run(release_id: int, db: Path, *, commit: bool = False, now=None) -> dict:
         phone = share.phone
         preflight.phone = phone
         phone.unlock()
-        with share.busy("Instagram via Edits", 1800), optional_focus(phone, store.phone_checks()["doNotDisturb"]):
+        with share.busy("Instagram via Edits", 1800), run_guards(phone, store.phone_checks()):
             try:
                 preflight.ensure_instagram_account(data["account"])
             except ValueError as exc:

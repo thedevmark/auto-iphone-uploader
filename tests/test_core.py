@@ -51,7 +51,7 @@ class VideoDropTests(unittest.TestCase):
             self.store.reserve_slot(other, now, at=tomorrow_ten)
 
     def test_phone_checks_default_on_and_persist(self):
-        self.assertEqual(self.store.phone_checks(), {"doNotDisturb": True, "youtubeQualityEveryUpload": False,
+        self.assertEqual(self.store.phone_checks(), {"doNotDisturb": True, "lockRotation": True, "youtubeQualityEveryUpload": False,
                                                      "inspectPhoneOnOpen": True, "removeAfterPost": True,
                                                      "crosspostFacebook": True, "crosspostThreads": True,
                                                      "threadsSeparatePost": False, "postNowInOrder": True,

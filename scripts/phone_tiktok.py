@@ -49,7 +49,7 @@ from video_drop import phone_lock  # noqa: E402
 from video_drop.core import Store, digest, utc_now  # noqa: E402
 from video_drop.accounts import load_targets, require_target  # noqa: E402
 from video_drop.instagram_schedule import first_frame  # noqa: E402
-from video_drop.phone_focus import optional_focus  # noqa: E402
+from video_drop.phone_focus import optional_focus, run_guards  # noqa: E402
 from video_drop.phone_link import release_frozen_app  # noqa: E402
 from video_drop.phone_ui import PhoneLayout  # noqa: E402
 from video_drop.phone.helpers import VideoSurfaceError  # noqa: E402
@@ -332,7 +332,7 @@ def run(release_id: int, db: Path, *, commit: bool = False, not_after: datetime 
         global phone
         phone = share.phone
         phone.unlock()
-        with share.busy("TikTok preparation", 900), optional_focus(phone, store.phone_checks()["doNotDisturb"]):
+        with share.busy("TikTok preparation", 900), run_guards(phone, store.phone_checks()):
             # Nothing is public before mark_unconfirmed, so preparation can start over after a link hiccup.
             for attempt in range(PREPARE_ATTEMPTS):
                 try:

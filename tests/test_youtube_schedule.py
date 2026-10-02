@@ -292,7 +292,7 @@ class FinalTapTests(unittest.TestCase):
                                          if d["platform"] == "youtube"))
 
             with mock.patch.object(yt, "connect_sidetap"), mock.patch.object(yt, "phone", Phone()), \
-                    mock.patch.object(yt, "optional_focus", return_value=nullcontext()), \
+                    mock.patch.object(yt, "run_guards", return_value=nullcontext()), \
                     mock.patch.object(yt, "busy", return_value=nullcontext()), \
                     mock.patch.object(yt, "layout", return_value=PhoneLayout(440, 956)), \
                     mock.patch.object(yt, "ensure_youtube_channel"), \
@@ -317,7 +317,7 @@ class FinalTapTests(unittest.TestCase):
                     raise AssertionError("tapped")
 
             with mock.patch.object(yt, "connect_sidetap"), mock.patch.object(yt, "phone", Phone()), \
-                    mock.patch.object(yt, "optional_focus", return_value=nullcontext()), \
+                    mock.patch.object(yt, "run_guards", return_value=nullcontext()), \
                     mock.patch.object(yt, "busy", return_value=nullcontext()), \
                     mock.patch.object(yt, "layout", return_value=PhoneLayout(440, 956)), \
                     mock.patch.object(yt, "ensure_youtube_channel"), \
@@ -351,7 +351,7 @@ class FinalTapTests(unittest.TestCase):
             phone = Phone()
             with mock.patch.object(yt, "connect_sidetap"), mock.patch.object(yt, "phone", phone), \
                     mock.patch.object(yt, "WDAError", LinkLost), \
-                    mock.patch.object(yt, "optional_focus", return_value=nullcontext()), \
+                    mock.patch.object(yt, "run_guards", return_value=nullcontext()), \
                     mock.patch.object(yt, "busy", return_value=nullcontext()), \
                     mock.patch.object(yt, "layout", return_value=PhoneLayout(440, 956)), \
                     mock.patch.object(yt, "ensure_youtube_channel"), \
