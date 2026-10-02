@@ -194,3 +194,25 @@ class CloseControlCenterTests(unittest.TestCase):
         phone = FakePhone()
         close_control_center(phone)
         self.assertEqual(phone.taps, [])
+
+
+@mock.patch("video_drop.phone_focus.time.sleep", lambda seconds: None)
+class SwipeRetryTests(unittest.TestCase):
+    def test_a_swipe_that_does_not_open_control_center_is_tried_once_more(self):
+        from video_drop.phone_focus import open_control_center
+        phone = FakePhone()
+        real = phone.swipe
+        missed = []
+
+        def swipe(*args):
+            if not missed:  # captured 2026-10-02 12:15: the first swipe left the Home Screen up
+                missed.append(1)
+                phone.swipes = getattr(phone, "swipes", 0) + 1
+                return
+            real(*args)
+
+        phone.swipe = swipe
+        with mock.patch("video_drop.phone_focus.time.monotonic", side_effect=[0, 0, 10, 10, 20, 20, 30, 30]):
+            elements = open_control_center(phone)
+        self.assertTrue(any(e.name == "focus-module" for e in elements))
+        self.assertEqual(phone.swipes, 2)
