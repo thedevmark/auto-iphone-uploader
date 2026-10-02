@@ -497,3 +497,33 @@ class OpenProfileTests(unittest.TestCase):
         self.assertEqual(len(taps), 2)
         self.assertEqual(taps[0], taps[1])
         self.assertGreaterEqual(sleeps[1], 2.0)  # never a double tap (Instagram's account switch)
+
+
+class ThreadsAccountSwitch(unittest.TestCase):
+    """Recorded 2026-10-02: fixtures threads/profile-*, threads/account-switcher-*."""
+
+    PROFILE = [element("Button", "Jacob & Willie", (15, 133, 159, 29)),
+               element("Image", "", (179, 141, 13, 13), name="ig_icon_chevron_down_filled_12"),
+               element("Button", "Edit profile", (15, 287, 178, 36))]
+    SHEET = [element("Button", "Dismiss", (203, 389, 34, 2), name="Button"),
+             element("Button", "Log in as @first.acct", (24, 400, 392, 86)),
+             element("Image", "", (384, 435, 16, 16), name="ig_icon_check_outline_24"),
+             element("Button", "Log in as @creator", (24, 486, 392, 86)),
+             element("Button", "Log in as @other.one", (24, 572, 392, 86))]
+
+    def test_the_display_name_beside_the_chevron_opens_the_switcher(self):
+        self.assertEqual(rc.threads_switcher_button(self.PROFILE).label, "Jacob & Willie")
+
+    def test_rows_and_the_checked_account(self):
+        self.assertEqual(set(rc.threads_switch_rows(self.SHEET)), {"first.acct", "creator", "other.one"})
+        self.assertEqual(rc.threads_active_switch_row(self.SHEET), "first.acct")
+
+    def test_no_check_mark_fails_closed(self):
+        with self.assertRaises(rc.ReceiptError):
+            rc.threads_active_switch_row([e for e in self.SHEET if e.name != "ig_icon_check_outline_24"])
+
+    def test_the_password_sheet_is_recognised_and_the_profile_is_not(self):
+        login = [element("Button", "", (0, 0, 440, 78), name="bottom_sheet_background"),
+                 element("Button", "Close", (14, 106, 28, 28))]
+        self.assertEqual(rc.threads_login_prompt(login).label, "Close")
+        self.assertIsNone(rc.threads_login_prompt(self.PROFILE))

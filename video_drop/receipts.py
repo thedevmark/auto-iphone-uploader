@@ -349,6 +349,57 @@ def verified_instagram_post(header, grid, screenshot: Image.Image, layout: Phone
 # ---- Threads profile ----------------------------------------------------------------
 
 
+# Recorded 2026-10-02 (fixtures threads/profile-*, threads/account-switcher-*): the profile
+# header's display name is a Button with a chevron-down image beside it; tapping it opens a
+# sheet of "Log in as @<handle>" Buttons, the active one with a check image on its row.
+THREADS_SWITCH_CHEVRON = "ig_icon_chevron_down_filled_12"
+THREADS_SWITCH_CHECK = "ig_icon_check_outline_24"
+
+
+def threads_switcher_button(elements) -> Element:
+    """The display-name Button that opens Threads' account switcher (left of its chevron)."""
+    chevron = _one([e for e in elements if e.name == THREADS_SWITCH_CHEVRON], "Threads account switcher")
+    return _one([e for e in elements if e.type == "Button" and abs(e.y - chevron.y) < 6 and e.x < chevron.x],
+                "Threads display name")
+
+
+def threads_switch_rows(elements) -> dict[str, Element]:
+    """{handle: its "Log in as @handle" Button} on the account-switcher sheet."""
+    rows = {}
+    for e in elements:
+        match = re.fullmatch(r"Log in as @([A-Za-z0-9._]+)", e.label) if e.type == "Button" else None
+        if match:
+            rows.setdefault(match.group(1).casefold(), []).append(e)
+    if not rows:
+        raise ReceiptError("Threads' account switcher shows no accounts")
+    if any(len({(r.left, r.top) for r in found}) != 1 for found in rows.values()):
+        raise ReceiptError("Threads' account switcher shows an account twice")
+    return {name: found[0] for name, found in rows.items()}
+
+
+def threads_active_switch_row(elements) -> str:
+    """The handle whose switcher row carries the check mark."""
+    rows = threads_switch_rows(elements)
+    checks = [e for e in elements if e.name == THREADS_SWITCH_CHECK]
+    active = [name for name, row in rows.items()
+              if any(row.top <= c.y <= row.top + row.height for c in checks)]
+    if len(active) != 1:
+        raise ReceiptError("Threads' account switcher does not mark exactly one active account")
+    return active[0]
+
+
+def threads_login_prompt(elements) -> Element | None:
+    """The Close button of the password sheet Threads sometimes shows instead of switching
+    (measured 2026-10-02: one of two taps on the same saved account). Closing it keeps the
+    account that was active."""
+    if any(e.name == THREADS_SWITCH_CHEVRON for e in elements):
+        return None
+    if not any(e.name == "bottom_sheet_background" for e in elements):
+        return None
+    close = [e for e in elements if e.type == "Button" and e.label == "Close"]
+    return close[0] if len(close) == 1 else None
+
+
 def threads_newest_post(elements, layout: PhoneLayout, *, account: str, caption: str) -> dict:
     """The newest post on the Threads profile is the account's, finished, with the exact caption.
 

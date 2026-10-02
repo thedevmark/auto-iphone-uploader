@@ -55,6 +55,8 @@ INSTAGRAM_PROFILE_TAB = (370.5, 904.0)  # profile-tab, fixtures instagram/profil
 THREADS_PROFILE_TAB = (372.5, 904.0)  # Profile, fixtures threads/posting-banner-*
 LAUNCH_SETTLE = 4.0
 TAB_SETTLE = 2.5
+SHEET_SETTLE = 1.5
+SWITCH_SETTLE = 4.0
 SCHEDULED_ROW = "Scheduled content"
 MENU_SCROLLS = 4
 
@@ -224,14 +226,70 @@ def instagram_schedule(store: Store, release: dict, state: Path) -> dict:
             "verification": "native_caption_time_first_frame"}
 
 
+def _threads_switcher() -> list:
+    """Open Threads' account switcher from the profile header and return the sheet's elements."""
+    name = rc.threads_switcher_button(elements())
+    phone.tap(name.x, name.y)
+    time.sleep(SHEET_SETTLE)
+    return elements()
+
+
+def _threads_dismiss(sheet) -> None:
+    grabber = [e for e in sheet if e.type == "Button" and e.label == "Dismiss"]
+    if len(grabber) != 1:
+        raise Stop("Threads' account switcher has no Dismiss control")
+    phone.tap(grabber[0].x, grabber[0].y)
+    time.sleep(SHEET_SETTLE)
+
+
+def threads_use_account(account: str) -> str | None:
+    """Make `account` the active Threads account. Returns the handle that was active before
+    when this switched it (to be switched back), None when it already was.
+
+    2026-10-02: the receipt read failed ("the newest post is by" another handle) because the Threads
+    app was on another of the owner's accounts; the crosspost itself was fine.
+    """
+    want = rc.handle(account)
+    sheet = _threads_switcher()
+    before = rc.threads_active_switch_row(sheet)
+    if before == want:
+        _threads_dismiss(sheet)
+        return None
+    rows = rc.threads_switch_rows(sheet)
+    if want not in rows:
+        _threads_dismiss(sheet)
+        raise Stop(f"The Threads app is not signed in to {account}; add that profile in Threads first")
+    phone.tap(rows[want].x, rows[want].y)
+    time.sleep(SWITCH_SETTLE)
+    close = rc.threads_login_prompt(elements())
+    if close is not None:
+        phone.tap(close.x, close.y)  # never types a password; the active account stays
+        time.sleep(SHEET_SETTLE)
+        raise Stop(f"Threads asked for the password of {account}. Log in to it once in the Threads "
+                   "app (the uploader never types passwords), then check again")
+    open_profile(THREADS_BUNDLE, THREADS_PROFILE_TAB)
+    sheet = _threads_switcher()
+    now = rc.threads_active_switch_row(sheet)
+    _threads_dismiss(sheet)
+    if now != want:
+        raise Stop(f"Threads did not switch to {account}; it shows @{now}")
+    return before
+
+
 def threads_post(store: Store, release: dict, state: Path, *, record: bool) -> dict:
     release_id = release["id"]
+    account = destination(release, "threads")["account"]
     open_profile(THREADS_BUNDLE, THREADS_PROFILE_TAB)
-    items = elements()
-    stem = evidence_stem(state, release_id, "threads")
-    stem.with_suffix(".png").write_bytes(screenshot()[0])
-    verified = rc.threads_newest_post(items, share.layout(), account=destination(release, "threads")["account"],
-                                      caption=expected_caption(release, "threads"))
+    before = threads_use_account(account)
+    try:
+        items = elements()
+        stem = evidence_stem(state, release_id, "threads")
+        stem.with_suffix(".png").write_bytes(screenshot()[0])
+        verified = rc.threads_newest_post(items, share.layout(), account=account,
+                                          caption=expected_caption(release, "threads"))
+    finally:
+        if before is not None:  # leave the owner's Threads on the account it was on
+            threads_use_account("@" + before)
     return record_post(store, release_id, "threads", verified, stem, record=record)
 
 
