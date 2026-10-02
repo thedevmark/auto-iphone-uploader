@@ -259,7 +259,11 @@ def run(release: str | int, db: Path, *, commit: bool = False, now=None) -> dict
                         raise Stop("Upload Short button is missing or ambiguous")
                     store.mark_unconfirmed(data["releaseId"], "youtube", expected_revision=data["revisionHash"])
                     with yt.busy("YouTube upload", 30, linger=yt.upload_linger(data.get("sizeBytes", 0))):
+                        yt.note_upload(yt.YOUTUBE_BUNDLE, yt.upload_linger(data.get("sizeBytes", 0)) * 3)
                         yt.phone.tap(upload[0]["x"], upload[0]["y"])
+                        # Same as Post now: a scheduled Short still has to finish uploading in front.
+                        if yt.wait_for_upload(data.get("sizeBytes", 0)):
+                            yt.clear_upload(yt.YOUTUBE_BUNDLE)
                     # TODO(receipt): YouTube's scheduled list (You > Your videos, or Studio) is not
                     # recorded yet; until it is, a native read-back cannot mark this "scheduled".
                     return {"kind": "unconfirmed", **result,
