@@ -78,7 +78,16 @@ def open_control_center(phone, *, retry: bool = True) -> tuple[Element, ...]:
         phone.tap(*layout.reference_point(220, 790))
         time.sleep(1.0)
         return open_control_center(phone, retry=False)
-    return _settle(phone, MODULE)
+    try:
+        return _settle(phone, MODULE)
+    except FocusError:
+        if not retry or _cc_open(elements):
+            raise
+        # The edge swipe sometimes lands on the Home Screen without opening Control Center
+        # (2026-10-02 12:15, captured). One more swipe, proven by the same read.
+        phone.swipe(layout.width * .92, 1, layout.width * .92, layout.height * .30, .3)
+        time.sleep(1.0)
+        return _settle(phone, MODULE)
 
 
 def _real_home(phone) -> None:
