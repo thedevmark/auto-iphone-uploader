@@ -62,7 +62,7 @@ body[data-onboarding] #dropSection,body[data-onboarding] #draftRail,body[data-on
 .obTask .obFix{font-size:1rem;margin-top:4px}.obAsk{margin:4px 0 0;font-size:1rem;line-height:1.5;max-width:52ch}.obWait{display:flex;align-items:center;gap:8px;margin:6px 0 0;color:var(--muted);font-size:.9rem}.obWait .toastSpin{width:12px;height:12px;border-width:1.5px}
 .obHow{margin:14px 0 0}.obHow summary{cursor:pointer;color:var(--muted);font-size:.84rem;padding:6px 0;list-style:none;display:flex;align-items:center;gap:8px;width:max-content}.obHow summary::-webkit-details-marker{display:none}.obHow summary::before{content:"";width:6px;height:6px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(-45deg);transition:transform 160ms ease;flex:none}.obHow[open] summary::before{transform:rotate(45deg)}.obHow summary:hover{color:var(--ink)}.obHowBody{padding:4px 0 0}.obHowBody .obDetail{margin:0}.obHowBody .obFix{font-size:.9rem;color:var(--muted);margin-top:8px}
 .obThen{margin:18px 0 0;color:var(--muted);font-size:.82rem}
-.obDoneLine{margin:20px 0 0}.obDoneLine summary{cursor:pointer;color:var(--muted);font-size:.84rem;list-style:none;display:flex;align-items:center;gap:7px;width:max-content;padding:4px 0}.obDoneLine summary::-webkit-details-marker{display:none}.obDoneLine summary svg{width:14px;height:14px;fill:none;stroke:var(--ok);stroke-width:2.6;stroke-linecap:round;stroke-linejoin:round;flex:none}.obDoneLine .obDone{margin-top:6px;padding-left:21px}
+.obDoneLine{margin:20px 0 0}.obDoneLine{display:flex;align-items:center;gap:7px;color:var(--muted);font-size:.8rem;margin:18px 0 0}.obDoneLine svg{width:13px;height:13px;fill:none;stroke:var(--ok);stroke-width:2.6;stroke-linecap:round;stroke-linejoin:round;flex:none}.obDoneLine summary::-webkit-details-marker{display:none}.obDoneLine summary svg{width:14px;height:14px;fill:none;stroke:var(--ok);stroke-width:2.6;stroke-linecap:round;stroke-linejoin:round;flex:none}.obDoneLine .obDone{margin-top:6px;padding-left:21px}
 .obTask{display:grid;grid-template-columns:minmax(0,1fr);padding:4px 0 0}
 .obTask[data-status=blocked] .setupMark{border-style:dashed;border-color:var(--line-2);color:var(--muted)}.obTask[data-status=blocked] strong,.obTask[data-status=blocked] .obDetail{color:var(--muted)}
 .obTask .setupMark{margin-top:0}.obTask strong{display:block;font-size:.95rem;font-weight:650;line-height:28px}
@@ -125,7 +125,7 @@ body[data-onboarding] #dropSection,body[data-onboarding] #draftRail,body[data-on
 
 /* Connect step: a PC tower seen from the side, FRONT and BACK labelled, the iPhone's cable in a
    back port. Motion is deliberately quiet: the port glows slowly and the plug settles 2px. */
-.obPlug{margin:4px 0 18px;padding:18px 16px 14px;border-radius:18px;background:var(--inset);border:1px solid var(--line)}
+.obPlug{margin:8px 0 22px;padding:0;background:none;border:0}
 .obPlug svg{display:block;width:100%;max-width:400px;height:auto;margin:0 auto;color:var(--ink)}
 .obPlug .shape{fill:none;stroke:currentColor;stroke-width:2;stroke-linejoin:round;opacity:.85}
 .obPlug .detail{fill:currentColor;opacity:.22}
@@ -336,7 +336,7 @@ function consoleNode(commands,runIn){const box=document.createElement('div');box
 function stepsNode(steps){const list=document.createElement('ol');list.className='obFixSteps';for(const step of steps){const li=document.createElement('li');li.textContent=step;list.append(li)}return list}
 function fixNodes(item){const nodes=[];if(item.fix){const p=document.createElement('p');p.className='obFix';p.textContent=item.more?item.fix+' '+item.more:item.fix;nodes.push(p)}const steps=item.steps?.length?stepsNode(item.steps):null,commands=item.commands?.length?consoleNode(item.commands,item.runIn):null;nodes.push(...(item.commandsFirst===false?[steps,commands]:[commands,steps]).filter(Boolean));return nodes}
 function obDoneList(items){const list=document.createElement('ul');list.className='obDone';for(const item of items){const li=document.createElement('li');li.innerHTML=SETUP_CHECK;li.append(item.title);list.append(li)}return list}
-function obDoneLine(items){const box=document.createElement('details');box.className='obDoneLine';const summary=document.createElement('summary');summary.innerHTML=SETUP_CHECK;summary.append(`${items.length} ${items.length===1?'thing':'things'} already done`);box.append(summary,obDoneList(items));return box}
+function obDoneLine(items){const line=document.createElement('p');line.className='obDoneLine';line.innerHTML=SETUP_CHECK;line.append(`${items.length} already done`);line.title=items.map(item=>item.title).join(', ');return line}
 /* A check the app can run itself just runs: the apps read starts once per session, without a click. */
 let obAutoRan=new Set();function obAutoRun(item){if(item.status!=='action'||item.action!=='inspect'||obAutoRan.has(item.key))return;obAutoRan.add(item.key);SETUP_ACTIONS.inspect[1]().then(()=>refreshSetup()).catch(()=>{})}
 function renderObStatus(){const status=$('obStatus');if(setupChecking)return;status.textContent=obStep<obSteps().length?'Checks again every few seconds. Nothing here taps the iPhone.':''}
