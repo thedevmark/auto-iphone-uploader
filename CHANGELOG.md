@@ -3,7 +3,7 @@
 All notable changes to Auto iPhone Uploader. Versions match the Git tags that
 [release.yml](.github/workflows/release.yml) builds release zips from.
 
-## 1.0.0 (current candidate 1.0.0-rc.5)
+## 1.0.0 (current candidate 1.0.0-rc.6)
 
 Post finished videos from a Windows PC through the real iPhone apps: YouTube
 Shorts with title, description and a first-frame thumbnail; Instagram Reels
@@ -14,6 +14,20 @@ and a setup checklist. The README's
 [Requirements and limits](README.md#requirements-and-limits) and
 [docs/launch-checklist.md](docs/launch-checklist.md) say what has been
 verified on the reference phone.
+
+### 1.0.0-rc.6 (2026-10-01)
+
+#### Fixed
+
+- **The Windows installer is attached.** rc.5's installer build stopped on
+  Python 3.14's Tcl/Tk 9 files; the build now copies whichever Tcl/Tk it has.
+  Download `AutoiPhoneUploader-Setup-v1.0.0-rc.6.exe`.
+- **No accessibility reads on any playing screen.** The video guard covered
+  TikTok only; a front-port soak stalled inside the YouTube flow. It now
+  covers TikTok, YouTube, Instagram, Edits, Threads and Facebook, for both
+  screen reads and the "which app is in front" check, and YouTube's playing
+  screens are read with Windows OCR. `unlock()` no longer asks which app is
+  in front while a lit screen is playing.
 
 ### 1.0.0-rc.5 (2026-10-01)
 
