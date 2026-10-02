@@ -17,9 +17,10 @@ DEFAULT_SLOTS = ("10:00", "19:00")
 # Phone checks the operator can switch off. Account and exact-file checks are
 # safety gates, not preferences, so they are deliberately absent here.
 PHONE_CHECK_DEFAULTS = {
-    "doNotDisturb": True,
-    # Lock the screen upright in Control Center for each run (restored after if the app locked it).
-    "lockRotation": True,
+    # One Setting for the phone's state during a run: Low Power Mode off and Auto-Lock at Never
+    # (the phone locked mid-export, 2026-10-02), Do Not Disturb on, rotation locked. Each is put
+    # back afterwards only if the run changed it. video_drop/phone_focus.prepare_phone.
+    "preparePhone": True,
     "youtubeQualityEveryUpload": False,
     "inspectPhoneOnOpen": True,
     # Once Instagram has its native receipt, move the Edits project its 4K export left behind

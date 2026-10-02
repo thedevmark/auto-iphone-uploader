@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 from video_drop import server
 
-ON = {"doNotDisturb": True, "youtubeQualityEveryUpload": True, "inspectPhoneOnOpen": True}
+ON = {"preparePhone": True, "youtubeQualityEveryUpload": True, "inspectPhoneOnOpen": True}
 OFF = {**ON, "youtubeQualityEveryUpload": False}
 
 

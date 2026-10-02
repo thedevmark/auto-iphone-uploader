@@ -51,16 +51,16 @@ class VideoDropTests(unittest.TestCase):
             self.store.reserve_slot(other, now, at=tomorrow_ten)
 
     def test_phone_checks_default_on_and_persist(self):
-        self.assertEqual(self.store.phone_checks(), {"doNotDisturb": True, "lockRotation": True, "youtubeQualityEveryUpload": False,
+        self.assertEqual(self.store.phone_checks(), {"preparePhone": True, "youtubeQualityEveryUpload": False,
                                                      "inspectPhoneOnOpen": True, "removeAfterPost": True,
                                                      "crosspostFacebook": True, "crosspostThreads": True,
                                                      "threadsSeparatePost": False, "postNowInOrder": True,
                                                      "filesAppForOneDrive": False, "readReceipts": True})
-        self.store.set_phone_checks({"doNotDisturb": False})
+        self.store.set_phone_checks({"preparePhone": False})
         with Store(self.root / "state.sqlite") as reopened:
-            self.assertFalse(reopened.phone_checks()["doNotDisturb"])
+            self.assertFalse(reopened.phone_checks()["preparePhone"])
             self.assertTrue(reopened.phone_checks()["inspectPhoneOnOpen"])
-        for bad in ({}, {"accountCheck": False}, {"doNotDisturb": "no"}):
+        for bad in ({}, {"accountCheck": False}, {"preparePhone": "no"}):
             with self.subTest(bad=bad), self.assertRaises(ValueError):
                 self.store.set_phone_checks(bad)
 

@@ -262,6 +262,12 @@ class media_profile:
         return False
 
 
+def elements_by_ids(identifiers) -> list[dict]:
+    """Named elements only, without reading the whole screen (see WDAClient.elements_by_id)."""
+    _invalidate_tree()
+    return [found for identifier in identifiers for found in client().elements_by_id(identifier)]
+
+
 def ui_tree() -> dict:
     """Raw UI element tree (nested dicts). The precise view of the screen.
 
