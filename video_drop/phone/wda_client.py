@@ -549,6 +549,11 @@ class WDAClient:
         """
         return str(self._session_request("GET", "/orientation"))
 
+    def set_orientation(self, orientation: str) -> None:
+        """Turn the screen (XCUIDevice orientation). Measured 2026-10-02 in Photos: LANDSCAPE
+        then PORTRAIT took 956 x 440 back to 440 x 956; the Home Screen refuses LANDSCAPE."""
+        self._session_request("POST", "/orientation", {"orientation": orientation})
+
     def source(self) -> dict:  # noqa: vulture  (called by helpers.py)
         """Full UI element tree as nested dicts (type, label, name, value, rect, children)."""
         return self._session_request("GET", "/source?format=json")

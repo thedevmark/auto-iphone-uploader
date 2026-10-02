@@ -253,9 +253,27 @@ def rotation_lock(phone):
             restore_rotation(phone)
 
 
+def upright(phone, *, settle: float = 1.5) -> None:
+    """Turn a sideways screen back to portrait before anything reads its layout.
+
+    Soak 2026-10-02 16:38: the phone was left sideways with rotation unlocked; WDA read
+    956 x 440 and YouTube and Instagram stopped before their first step. WDA can set the
+    orientation (measured in Photos); rotation lock then holds it for the run.
+    """
+    info = phone.screen_info()
+    if float(info["width"]) <= float(info["height"]):
+        return
+    phone.set_portrait()
+    time.sleep(settle)
+    info = phone.screen_info()
+    if float(info["width"]) > float(info["height"]):
+        raise FocusError("The phone is sideways and could not be turned upright; stand it in portrait")
+
+
 @contextmanager
 def run_guards(phone, checks: dict):
     """The phone-state guards a run holds, each its own Setting: Do Not Disturb, then rotation lock."""
+    upright(phone)
     with optional_focus(phone, checks.get("doNotDisturb", True)), \
             (rotation_lock(phone) if checks.get("lockRotation", True) else nullcontext()):
         try:

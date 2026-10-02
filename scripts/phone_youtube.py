@@ -22,7 +22,7 @@ from PIL import Image
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from video_drop import phone_lock  # noqa: E402
 from video_drop.phone import capture as phone_capture  # noqa: E402
-from video_drop.phone_ui import (PhoneLayout, filled_radio, first_frame_point, share_app_position, share_rail_y,
+from video_drop.phone_ui import (PhoneLayout, filled_radio, first_frame_point, share_app_position, share_rail_labels, share_rail_y,
                                   size_shown, youtube_identity, youtube_page_account)
 from video_drop.screens.labels import Labels
 from video_drop.screens.matcher import MatchError, find
@@ -30,7 +30,7 @@ from video_drop.screens.model import Locator
 from video_drop.screens.snapshot import Element, Snapshot, elements_from_tree
 from video_drop import ocr
 from video_drop.youtube_nav import open_tabs
-from video_drop.phone_focus import FocusError, optional_focus, run_guards
+from video_drop.phone_focus import FocusError, optional_focus, run_guards, upright
 from video_drop.core import Store
 from video_drop.phone_manifest import verify_youtube_manifest, youtube_input
 from video_drop.accounts import load_targets
@@ -63,6 +63,7 @@ _layout: PhoneLayout | None = None
 def layout(*, refresh: bool = False) -> PhoneLayout:
     global _layout
     if _layout is None or refresh:
+        upright(phone)
         _layout = PhoneLayout.from_info(phone.screen_info())
     return _layout
 
@@ -370,13 +371,26 @@ def share_landed(name: str, expected_bundle: str, timeout: float = 10) -> None:
     raise PhoneUploadError(f"Share selection did not open {name}; stop before composing")
 
 
+def _share_missing(rows: list[dict], name: str) -> bool:
+    return not any(row.get("type") == "Cell" and row.get("text", "").casefold() == name.casefold() for row in rows)
+
+
 def choose_share_app(name: str, *, expected_bundle: str | None = None) -> None:
     bundle = expected_bundle or SHARE_BUNDLES.get(name)
-    for _ in range(10):
+    # An app iOS does not list is searched for in one direction until the rail stops moving,
+    # then the other. Soak 2026-10-02 16:43: the rail was already scrolled to its end with
+    # TikTok clipped off the left edge, and always scrolling toward the right end never found it.
+    sweep, last_rail = "left", None
+    for _ in range(14):
         rows = screen()
         if not any(row["text"] == "shareSheet.activity.contentView" for row in rows):
             raise PhoneUploadError("iOS share sheet disappeared before app selection")
         direction, target = share_app_position(rows, name, layout())
+        if direction == "left" and target is None and _share_missing(rows, name):
+            rail = share_rail_labels(rows, layout())
+            if rail == last_rail:
+                sweep = "right" if sweep == "left" else "left"
+            last_rail, direction = rail, sweep
         # Scroll on the requested app's own row when iOS exposes it; the
         # measured 440 x 956 row is only a fallback while it is off-screen.
         rail_y = share_rail_y(rows, name, layout(), layout().reference_point(0, 392)[1])

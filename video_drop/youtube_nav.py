@@ -65,6 +65,28 @@ def exit_target(labels: list[str]) -> str | None:
     raise ValueError("YouTube is not on an observed navigation screen")
 
 
+def feed_with_hidden_tabs(rows: list[dict], layout: PhoneLayout) -> bool:
+    """A YouTube feed scrolled down hides the tab bar; its "All" chip stays at the top.
+
+    Soak 2026-10-02 16:56 (captured): Home feed scrolled, a mini-player in the corner, no tab
+    bar, so no "You" to read. A short scroll back up brings the tab bar back.
+    """
+    return any(row.get("text") == "All" and row.get("y", layout.height) < 0.2 * layout.height for row in rows)
+
+
+def reveal_tab_bar(phone, rows: list[dict]) -> bool:
+    if not any(row.get("text") == "All" for row in rows):
+        return False
+    layout = PhoneLayout.from_info(phone.screen_info())
+    if not feed_with_hidden_tabs(rows, layout):
+        return False
+    # Left of center and above the corner mini-player; a downward drag scrolls the feed up.
+    x = layout.width * 0.3
+    phone.swipe(x, layout.height * 0.40, x, layout.height * 0.62, 0.4)
+    time.sleep(1.0)
+    return True
+
+
 def open_tabs(phone) -> None:
     phone.press_home()
     try:
@@ -74,6 +96,7 @@ def open_tabs(phone) -> None:
         phone.open_app(YOUTUBE, wait_seconds=4)
     except VideoSurfaceError:
         pass
+    reveals = 0
     for _ in range(5):
         deadline = time.monotonic() + 12
         while True:
@@ -83,6 +106,9 @@ def open_tabs(phone) -> None:
                 target = exit_target(labels)
                 break
             except ValueError:
+                if reveals < 2 and reveal_tab_bar(phone, rows):
+                    reveals += 1
+                    continue
                 if time.monotonic() >= deadline:
                     raise
                 time.sleep(0.4)
