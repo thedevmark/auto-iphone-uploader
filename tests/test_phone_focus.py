@@ -1,4 +1,7 @@
 import unittest
+from unittest.mock import MagicMock
+
+from video_drop import phone_focus
 from unittest import mock
 
 from video_drop.phone_focus import FocusError, focus_state, optional_focus, upload_focus
@@ -216,3 +219,27 @@ class SwipeRetryTests(unittest.TestCase):
             elements = open_control_center(phone)
         self.assertTrue(any(e.name == "focus-module" for e in elements))
         self.assertEqual(phone.swipes, 2)
+
+
+class Upright(unittest.TestCase):
+    """Soak 2026-10-02 16:38: a sideways phone stopped two flows before their first step."""
+
+    def phone(self, sizes):
+        sizes = iter(sizes)
+        phone = MagicMock()
+        phone.screen_info.side_effect = lambda: dict(zip(("width", "height"), next(sizes)))
+        return phone
+
+    def test_a_sideways_phone_is_turned_upright(self):
+        phone = self.phone([(956, 440), (440, 956)])
+        phone_focus.upright(phone, settle=0)
+        phone.set_portrait.assert_called_once()
+
+    def test_an_upright_phone_is_left_alone(self):
+        phone = self.phone([(440, 956)])
+        phone_focus.upright(phone, settle=0)
+        phone.set_portrait.assert_not_called()
+
+    def test_a_phone_that_stays_sideways_stops_with_a_plain_message(self):
+        with self.assertRaisesRegex(phone_focus.FocusError, "stand it in portrait"):
+            phone_focus.upright(self.phone([(956, 440), (956, 440)]), settle=0)

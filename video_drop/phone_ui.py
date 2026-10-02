@@ -100,6 +100,12 @@ def _share_cell(rows: list[dict], name: str, layout: PhoneLayout) -> dict | None
     return found[0] if found else None
 
 
+def share_rail_labels(rows: list[dict], layout: PhoneLayout) -> tuple:
+    """What the app rail shows now, to tell a scroll that moved it from one at its end."""
+    return tuple(sorted((row.get("text", ""), round(row.get("x", 0))) for row in rows if row.get("type") == "Cell"
+                        and 0.3 * layout.height <= row.get("y", -1) <= 0.55 * layout.height))
+
+
 def share_rail_y(rows: list[dict], name: str, layout: PhoneLayout, fallback: float) -> float:
     """Scroll the rail on the row where iOS shows the requested app, even while clipped.
 

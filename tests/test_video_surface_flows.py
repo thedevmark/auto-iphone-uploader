@@ -114,6 +114,31 @@ class YouTubePlayingScreens(unittest.TestCase):
             phone_youtube.choose_share_app("YouTube", expected_bundle="com.google.ios.youtube")
         self.assertEqual(self.phone.events, [("note", "com.google.ios.youtube"), ("tap", (100, 392))])
 
+    def test_an_app_scrolled_past_the_rail_start_is_found_by_reversing(self):
+        # Soak 2026-10-02 16:43: the rail sat at its end with TikTok clipped off the left edge,
+        # unlisted, and scrolling only toward the end never found it.
+        apps = ["TikTok", "Instagram", "X", "YouTube", "Snapchat", "More"]
+        rail = {"offset": 200}
+
+        def screen():
+            rows = [{"text": "shareSheet.activity.contentView", "x": 220, "y": 500}]
+            for i, app in enumerate(apps):
+                x = 60 + 100 * i - rail["offset"]
+                if -50 <= x <= 490:
+                    rows.append({"text": app, "type": "Cell", "x": x, "y": 400})
+            return rows
+
+        def swipe(x1, y1, x2, y2, duration):
+            rail["offset"] = max(0, min(200, rail["offset"] - (x2 - x1)))
+
+        taps = []
+        phone = MagicMock()
+        phone.swipe.side_effect = swipe
+        phone.tap.side_effect = lambda x, y: taps.append(x)
+        with patch.object(phone_youtube, "phone", phone), patch.object(phone_youtube, "screen", screen),                 patch.object(phone_youtube, "layout", lambda **k: PhoneLayout(440, 956)),                 patch.object(phone_youtube.time, "sleep"):
+            phone_youtube.choose_share_app("TikTok")
+        self.assertEqual(taps, [60])
+
     def test_a_still_share_destination_is_still_confirmed_by_bundle(self):
         phone = MagicMock()
         phone.current_app.side_effect = [{"bundleId": "com.microsoft.skydrive"}, {"bundleId": "com.burbn.barcelona"}]
@@ -162,6 +187,24 @@ class YouTubeHomeFeed(unittest.TestCase):
         phone.current_app.assert_not_called()
         phone.tap.assert_not_called()
 
+
+    def test_a_scrolled_feed_is_scrolled_back_until_the_tab_bar_shows(self):
+        # Soak 2026-10-02 16:56: Home scrolled down, mini-player up, tab bar hidden.
+        phone = MagicMock()
+        phone.screen_info.return_value = {"width": 440, "height": 956}
+        feed = [{"text": "Your custom feed", "x": 210, "y": 131}, {"text": "All", "x": 260, "y": 131},
+                {"text": "A video title", "x": 170, "y": 200}]
+        screens = iter([feed, [{"text": "Home", "x": 40, "y": 904}, {"text": "You", "x": 400, "y": 904}]])
+        with patch("video_drop.youtube_nav.visible_rows", lambda p: next(screens)),                 patch("video_drop.youtube_nav.time.sleep"):
+            youtube_nav.open_tabs(phone)
+        phone.swipe.assert_called_once()
+        x1, y1, x2, y2, _ = phone.swipe.call_args[0]
+        self.assertLess(y1, y2)  # a downward drag scrolls the feed up
+        phone.tap.assert_not_called()
+
+    def test_an_unknown_screen_without_the_feed_chip_still_stops(self):
+        self.assertFalse(youtube_nav.feed_with_hidden_tabs([{"text": "All", "x": 200, "y": 600}],
+                                                           youtube_nav.PhoneLayout(440, 956)))
 
 @patch("scripts.phone_instagram_preflight.time.sleep", lambda seconds: None)
 class InstagramOpensOnAPlayingScreen(unittest.TestCase):

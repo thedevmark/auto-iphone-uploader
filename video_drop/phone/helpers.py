@@ -46,6 +46,10 @@ def screenshot(path: str | None = None) -> bytes:
     return png
 
 
+def set_portrait() -> None:
+    client().set_orientation("PORTRAIT")
+
+
 def screen_info() -> dict:
     """Window size in points; tap coordinates must stay inside this."""
     w, h = _window_size()
