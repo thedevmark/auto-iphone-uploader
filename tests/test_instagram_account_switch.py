@@ -110,3 +110,28 @@ class AccountSwitchTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PlayingScreenTests(unittest.TestCase):
+    """Leaving a playing Instagram screen from OCR text only (no accessibility request)."""
+
+    def leave(self, texts):
+        taps, swipes = [], []
+        fake = type("P", (), {"screen_info": lambda self: {"width": 440, "height": 956},
+                              "tap": lambda self, x, y: taps.append((x, y)),
+                              "swipe": lambda self, *a: swipes.append(a)})()
+        with patch.object(preflight, "phone", fake), \
+                patch.object(preflight, "_playing_rows", lambda: [{"text": t} for t in texts]), \
+                patch("scripts.phone_instagram_preflight.time.sleep", lambda s: None):
+            preflight._leave_playing_screen()
+        return taps, swipes
+
+    def test_a_single_reel_taps_back_not_the_missing_tab_bar(self):
+        # Recorded 2026-10-02 00:29: "Insights on Edits", "245K views", "Boost", no tab bar.
+        taps, swipes = self.leave(["examplechannel", "Insights on Edits", "245K views", "Boost"])
+        self.assertEqual((taps, swipes), ([(40.0, 87.0)], []))
+
+    def test_a_story_is_swiped_closed_and_a_feed_taps_profile(self):
+        self.assertEqual(len(self.leave(["Send message"])[1]), 1)
+        taps, _ = self.leave(["For you", "Following"])
+        self.assertEqual(taps, [(370.5, 904.0)])

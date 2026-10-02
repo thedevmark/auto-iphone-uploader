@@ -205,3 +205,11 @@ class InstagramOpensOnAPlayingScreen(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_a_playing_trim_screen_read_by_ocr_exits_by_its_measured_x():
+    # Soak 2026-10-02: YouTube reopened on an unfinished upload's trim screen; OCR cannot read the X icon.
+    from video_drop import youtube_nav
+    labels = ["1:08", "Chat can pay to", "30.2s", "Choose a part of the video", "Next"]
+    assert youtube_nav.exit_target(labels) == youtube_nav.TRIM_X
+    assert youtube_nav.TRIM_X_POINT == (20.0, 86.0)

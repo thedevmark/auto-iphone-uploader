@@ -31,6 +31,10 @@ INSTAGRAM = "com.burbn.instagram"
 PROFILE_TAB = (370.5, 904.0)
 # A story's reply bar ("Send message", "Reply to <name>..."): no tab bar under it.
 STORY_REPLY = ("send message", "reply to")
+# A single Reel opened from the owner's profile (recorded 2026-10-02 00:29): no tab bar, its own
+# footer ("Insights on Edits", "Boost") and a back-button at the top left.
+REEL_FOOTER = ("insights on edits", "boost")
+REEL_BACK = (40.0, 87.0)
 
 
 def connect_sidetap() -> None:
@@ -73,6 +77,10 @@ def _leave_playing_screen() -> None:
     texts = [" ".join(row["text"].split()).casefold() for row in _playing_rows()]
     if any(text.startswith(STORY_REPLY) for text in texts):
         phone.swipe(layout.width / 2, layout.height * 0.3, layout.width / 2, layout.height * 0.85, 0.3)
+        time.sleep(1.5)
+        return
+    if any(text.startswith(REEL_FOOTER) for text in texts):
+        phone.tap(*layout.reference_point(*REEL_BACK))  # back to the profile grid
         time.sleep(1.5)
         return
     phone.tap(*layout.bottom_sheet_point(*PROFILE_TAB))
