@@ -38,7 +38,7 @@ from video_drop.phone import device as phone_device
 from video_drop.phone import helpers as phone_helpers
 from video_drop.phone.helpers import VideoSurfaceError
 from video_drop.phone.wda_client import WDAError
-from video_drop.phone_link import busy, recover, release_frozen_app, upload_linger
+from video_drop.phone_link import busy, clear_upload, note_upload, recover, release_frozen_app, upload_linger
 from video_drop import setup_check, source_route
 from video_drop.files_app import FilesApp, FilesError
 
@@ -348,7 +348,8 @@ def open_source_file(data: dict, *, db: Path | None = None, clouds: list | None 
 
 
 # The share destinations the flows pick, so the video guard is armed before the tap lands.
-SHARE_BUNDLES = {"YouTube": "com.google.ios.youtube", "TikTok": "com.zhiliaoapp.musically",
+YOUTUBE_BUNDLE = "com.google.ios.youtube"
+SHARE_BUNDLES = {"YouTube": YOUTUBE_BUNDLE, "TikTok": "com.zhiliaoapp.musically",
                  "Threads": "com.burbn.barcelona", "Edits": "com.burbn.basel", "Instagram": "com.burbn.instagram"}
 
 
@@ -782,8 +783,12 @@ def run(release: str, db: Path, *, commit: bool = False, resume_share: bool = Fa
                                            expected_revision=data["revisionHash"])
                     # YouTube uploads on its own after this tap; shield the link for that long.
                     with busy("YouTube upload", 30, linger=upload_linger(data.get("sizeBytes", 0))):
+                        # Nothing force-quits a frozen YouTube while this upload may still run.
+                        note_upload(YOUTUBE_BUNDLE, upload_linger(data.get("sizeBytes", 0)) * 3)
                         phone.tap(upload[0]["x"], upload[0]["y"])
                         uploaded = wait_for_upload(data.get("sizeBytes", 0))
+                        if uploaded:
+                            clear_upload(YOUTUBE_BUNDLE)
                     return {"kind": "unconfirmed", "releaseId": data["releaseId"],
                             "account": data["expectedAccount"], "uploaded": uploaded,
                             "message": ("Final tap sent and YouTube showed the upload finished; check the native "

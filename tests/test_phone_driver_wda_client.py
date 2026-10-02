@@ -794,3 +794,79 @@ def test_a_session_bound_to_a_closed_app_is_replaced():
                    "\"Application 'com.google.ios.youtube'\" is not present in the current view anymore")
     assert WDAClient._session_unusable(err)
     assert not WDAClient._session_unusable(WDAError("stale element reference: Button 'Next' is not present"))
+
+
+def test_a_stale_app_after_a_fresh_session_brings_home_forward_and_retries(monkeypatch):
+    from video_drop.phone import device, wda_client
+    c = wda_client.WDAClient(base_url="http://127.0.0.1:1")
+    c.session_id = "old"
+    stale = wda_client.WDAError("stale element reference: \"Application 'com.google.ios.youtube'\" is not present")
+    calls, homes = [], []
+    created = iter(["new1", "new2"])
+
+    def request(method, path, payload=None):
+        calls.append(path)
+        if "new2" in path:
+            return {"width": 440}
+        raise stale
+
+    monkeypatch.setattr(c, "_request", request)
+    monkeypatch.setattr(c, "_create_session", lambda: setattr(c, "session_id", next(created)))
+    monkeypatch.setattr(wda_client, "_read_shared_session", lambda: "old")
+    monkeypatch.setattr(device, "foreground_springboard", lambda: homes.append(1) or True)
+    assert c._session_request("GET", "/window/size") == {"width": 440}
+    assert homes == [1]
+    assert calls[-1] == "/session/new2/window/size"
+
+
+FROZEN = ("stale element reference: The previously found element \"Application 'com.google.ios.youtube'\" is not "
+          "present in the current view anymore. Original error: The application with process identifier 535 did "
+          "not confirm its main run loop is responsive within 2.0 second(s)")
+
+
+def _frozen_client(monkeypatch, tmp_path, fail_until):
+    # Measured 2026-10-02: a frozen background YouTube broke every request until it was quit.
+    from video_drop.phone import device, wda_client
+    monkeypatch.setenv("VIDEO_DROP_STATE", str(tmp_path))
+    c = wda_client.WDAClient(base_url="http://127.0.0.1:1")
+    c.session_id = "old"
+    created = iter(["new1", "new2", "new3", "new4"])
+    killed = []
+
+    def request(method, path, payload=None):
+        if fail_until in path:
+            return {"width": 440}
+        if path.endswith("/actions"):
+            raise wda_client.WDAError("POST /actions: Invalid parameter not satisfying: point.x != INFINITY")
+        raise wda_client.WDAError(FROZEN)
+
+    monkeypatch.setattr(c, "_request", request)
+    monkeypatch.setattr(c, "_create_session", lambda: setattr(c, "session_id", next(created)))
+    monkeypatch.setattr(wda_client, "_read_shared_session", lambda: "old")
+    monkeypatch.setattr(device, "foreground_springboard", lambda: True)
+    monkeypatch.setattr(device, "kill_app", lambda bundle: killed.append(bundle) or True)
+    return c, killed
+
+
+def test_an_unresponsive_app_is_quit_once_and_the_request_retried(monkeypatch, tmp_path):
+    c, killed = _frozen_client(monkeypatch, tmp_path, "new3")
+    assert c._session_request("GET", "/window/size") == {"width": 440}
+    assert killed == ["com.google.ios.youtube"]
+
+
+def test_a_gesture_failing_infinity_asks_which_app_is_frozen(monkeypatch, tmp_path):
+    c, killed = _frozen_client(monkeypatch, tmp_path, "new3")  # new1: the sleep-suspect fresh session
+    assert c._session_request("POST", "/actions", {}) == {"width": 440}
+    assert killed == ["com.google.ios.youtube"]
+
+
+def test_an_app_whose_upload_may_still_run_is_never_quit(monkeypatch, tmp_path):
+    from video_drop import phone_link
+    from video_drop.phone.wda_client import WDAError
+    c, killed = _frozen_client(monkeypatch, tmp_path, "never")
+    phone_link.note_upload("com.google.ios.youtube", 600, tmp_path)
+    with pytest.raises(WDAError):
+        c._session_request("GET", "/window/size")
+    assert killed == []
+    phone_link.clear_upload("com.google.ios.youtube", tmp_path)
+    assert not phone_link.upload_pending("com.google.ios.youtube", tmp_path)

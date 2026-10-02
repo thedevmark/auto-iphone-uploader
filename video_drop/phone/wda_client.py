@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 import sys
 import threading
 import time
@@ -371,7 +372,57 @@ class WDAClient:
                 if not self._session_unusable(exc):
                     raise
         self._create_session()
+        try:
+            return self._request(method, f"/session/{self.session_id}{path}", payload)
+        except WDAError as exc:
+            if not self._stale_app(exc):
+                if self._quit_frozen_app(exc):
+                    self._create_session()
+                    return self._request(method, f"/session/{self.session_id}{path}", payload)
+                raise
+        # A fresh session can still name an app go-ios killed between flows (soak 2026-10-02
+        # 00:03: every new session failed "Application 'com.google.ios.youtube' is not
+        # present"). Put the Home Screen in front over go-ios (no WDA request), then retry.
+        from . import device
+        device.foreground_springboard()
+        self._create_session()
+        try:
+            return self._request(method, f"/session/{self.session_id}{path}", payload)
+        except WDAError as exc:
+            if not self._quit_frozen_app(exc):
+                raise
+        self._create_session()
         return self._request(method, f"/session/{self.session_id}{path}", payload)
+
+    _FROZEN = re.compile(r"Application '([\w.-]+)'.*did not confirm its main run loop is responsive", re.S)
+
+    def _quit_frozen_app(self, exc: WDAError) -> bool:
+        """Force-quit the app WDA names as unresponsive, unless its upload may still be running.
+
+        Measured 2026-10-02: a backgrounded YouTube (owning the lock screen's Now Playing) stopped
+        answering; every gesture then failed "point.x != INFINITY" and every read named YouTube's
+        run loop, through fresh sessions and a Home Screen launch. Quitting YouTube over go-ios
+        fixed it at once. An INFINITY error names no app, so one read asks WDA which app it is.
+        """
+        found = self._FROZEN.search(str(exc))
+        if not found and "point.x != infinity" in str(exc).lower():
+            try:
+                self._request("GET", f"/session/{self.session_id}/window/size")
+            except WDAError as probe:
+                found = self._FROZEN.search(str(probe))
+        if not found:
+            return False
+        bundle = found.group(1)
+        from .. import phone_link
+        if bundle == "com.apple.springboard" or phone_link.upload_pending(bundle):
+            return False
+        from . import device
+        return device.kill_app(bundle)
+
+    @staticmethod
+    def _stale_app(exc: WDAError) -> bool:
+        msg = str(exc).lower()
+        return "stale element reference" in msg and "application" in msg and "is not present" in msg
 
     # ---- session -----------------------------------------------------------
 

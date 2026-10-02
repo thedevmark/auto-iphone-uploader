@@ -132,6 +132,35 @@ def wda_ready(timeout: float = 3.0) -> bool:
         return False
 
 
+UPLOADS_FILE = "uploads-pending.json"
+
+
+def note_upload(bundle: str, seconds: float, state: Path | None = None) -> None:
+    """Mark an app's upload as possibly still running for `seconds`: nothing force-quits it then."""
+    state = state or link_supervisor.state_dir()
+    path = state / UPLOADS_FILE
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        data = {}
+    data[bundle] = time.time() + seconds
+    state.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data), encoding="utf-8")
+
+
+def clear_upload(bundle: str, state: Path | None = None) -> None:
+    note_upload(bundle, 0, state)
+
+
+def upload_pending(bundle: str, state: Path | None = None, now: float | None = None) -> bool:
+    state = state or link_supervisor.state_dir()
+    try:
+        until = float(json.loads((state / UPLOADS_FILE).read_text(encoding="utf-8")).get(bundle, 0))
+    except (OSError, ValueError, TypeError):
+        return False
+    return until > (now if now is not None else time.time())
+
+
 def release_frozen_app(ios_path: str | None) -> None:
     if ios_path:
         subprocess.run([ios_path, "launch", "com.apple.springboard"], capture_output=True, timeout=30,
