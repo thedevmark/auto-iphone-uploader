@@ -98,7 +98,9 @@ def source_frame(release: dict) -> Image.Image:
 
 
 def elements():
-    return elements_from_tree(phone.ui_tree())
+    # A profile can autoplay a video post: wait for a still screen; the driver refuses the read
+    # while it plays, and a screen that keeps playing ends the check (VideoSurfaceError).
+    return elements_from_tree(share.still_tree(driver=phone))
 
 
 def screenshot() -> tuple[bytes, Image.Image]:
@@ -208,7 +210,8 @@ def instagram_schedule(store: Store, release: dict, state: Path) -> dict:
     open_profile(INSTAGRAM_BUNDLE, INSTAGRAM_PROFILE_TAB)
     account = rc.instagram_profile(elements())["account"]
     open_scheduled_content()
-    rows = share.screen()
+    # Exact rows from the tree for the record, never OCR of a playing screen.
+    rows = phone.compact(phone.collect_texts(share.still_tree(driver=phone)))
     png, _ = screenshot()
     stem = evidence_stem(state, release_id, "instagram")
     image = stem.with_suffix(".png")

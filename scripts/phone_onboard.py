@@ -18,8 +18,8 @@ device = None
 phone = None
 from video_drop.phone_onboarding import build_profile  # noqa: E402
 from video_drop.accounts import load_targets  # noqa: E402
-from video_drop.phone_ui import PhoneLayout, youtube_page_account  # noqa: E402
-from video_drop.youtube_nav import open_tabs  # noqa: E402
+from video_drop.phone_ui import youtube_page_account  # noqa: E402
+from video_drop.youtube_nav import open_tabs, visible_rows  # noqa: E402
 
 HANDLE = re.compile(r"@[A-Za-z0-9._-]+\Z")
 
@@ -31,8 +31,8 @@ def connect_sidetap() -> None:
 
 
 def rows() -> list[dict]:
-    layout = PhoneLayout.from_info(phone.screen_info())
-    return [row for row in phone.compact(phone.ocr()) if layout.contains(row)]
+    # The tree, or OCR while YouTube's Home feed plays its previews (the driver refuses that read).
+    return visible_rows(phone)
 
 
 def tap_unique(label: str) -> None:

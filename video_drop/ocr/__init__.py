@@ -62,6 +62,30 @@ def find(lines: list[Line], label: str, *, exact: bool = True) -> Line:
     return found[0]
 
 
+def rows(lines: list[Line], scale: float) -> list[dict]:
+    """OCR lines as the flows' screen rows (text and center in points), typed "OcrText".
+
+    The type keeps a pixel row from ever satisfying a check that needs a real control
+    ("TextView", "Button", an accessibility id): those wait for a still screen instead."""
+    out = []
+    for line in lines:
+        x, y = line.center_points(scale)
+        out.append({"text": " ".join(line.text.replace("’", "'").split()), "x": x, "y": y,
+                    "w": line.w / scale, "h": line.h / scale, "type": "OcrText"})
+    return out
+
+
+def screen_rows(png: bytes, width_points: float) -> list[dict]:
+    """OCR rows for a whole-phone screenshot whose screen is ``width_points`` wide."""
+    from io import BytesIO
+
+    from PIL import Image
+
+    with Image.open(BytesIO(png)) as image:
+        scale = image.width / width_points
+    return rows(read_png(png), scale)
+
+
 def read_png(png: bytes, *, timeout: float = 30) -> list[Line]:
     """Run Windows' OCR on a PNG screenshot."""
     if os.name != "nt":

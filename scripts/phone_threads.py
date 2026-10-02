@@ -30,6 +30,7 @@ from video_drop import phone_lock  # noqa: E402
 from video_drop.core import Store, digest, threads_post_refusal  # noqa: E402
 from video_drop.accounts import load_targets, require_target  # noqa: E402
 from scripts import phone_youtube as share  # noqa: E402
+from video_drop.phone.helpers import VideoSurfaceError  # noqa: E402
 from video_drop.phone_focus import optional_focus  # noqa: E402
 
 phone = share.phone
@@ -38,6 +39,18 @@ phone = share.phone
 def _plain(text: str) -> str:
     # Threads swaps straight and curly apostrophes between releases ("What’s new?").
     return text.strip().replace("’", "'")
+
+
+def composer_rows() -> list[dict]:
+    """The composer's controls from the tree, once its attached clip is not playing.
+
+    The caption is read back exactly, which OCR cannot do, and the driver refuses the tree
+    while the clip plays: a composer that keeps playing stops the run before any final tap."""
+    try:
+        return phone.compact(phone.collect_texts(share.still_tree(driver=phone)))
+    except VideoSurfaceError as exc:
+        raise share.PhoneUploadError("Threads' composer kept playing the clip, so its text cannot be "
+                                     "read back; nothing was posted") from exc
 
 
 def unique(rows: list[dict], label: str, *, kind: str | None = None) -> dict:
@@ -80,12 +93,12 @@ def paste_exact_caption(caption: str) -> None:
     # hashtag-topic suggestions. Clipboard Paste landed the exact text on the
     # observed phone; read back the whole field before any final action.
     phone.set_clipboard(caption)
-    rows = share.screen()
+    rows = composer_rows()
     field = unique(rows, "What's new?", kind="TextView")
     phone.long_press(field["x"], field["y"])
-    paste = unique(share.screen(), "Paste", kind="MenuItem")
+    paste = unique(composer_rows(), "Paste", kind="MenuItem")
     phone.tap(paste["x"], paste["y"])
-    unique(share.screen(), caption, kind="TextView")
+    unique(composer_rows(), caption, kind="TextView")
 
 
 def prepare(data: dict) -> None:
@@ -93,12 +106,12 @@ def prepare(data: dict) -> None:
     share.layout(refresh=True)
     share.open_source_file(data)
     share.choose_share_app("Threads", expected_bundle="com.burbn.barcelona")
-    rows = share.screen()
+    rows = composer_rows()
     unique(rows, "New thread")
     unique(rows, data["account"], kind="Link")
     unique(rows, "Remove video at attached item #1", kind="Button")
     paste_exact_caption(data["caption"])
-    rows = share.screen()
+    rows = composer_rows()
     unique(rows, data["caption"], kind="TextView")
     unique(rows, data["account"], kind="Link")
     unique(rows, "Remove video at attached item #1", kind="Button")
@@ -131,7 +144,7 @@ def run(release_id: int, db: Path, *, commit: bool = False) -> dict:
             # Record uncertainty before the final tap. A WDA timeout after this
             # point can mean a successful post, so the script cannot replay it.
             store.mark_unconfirmed(release_id, "threads", expected_revision=data["revisionHash"])
-            rows = share.screen()
+            rows = composer_rows()
             unique(rows, data["caption"], kind="TextView")
             unique(rows, data["account"], kind="Link")
             unique(rows, "Remove video at attached item #1", kind="Button")

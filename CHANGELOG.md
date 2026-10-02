@@ -27,6 +27,21 @@ verified on the reference phone.
   code-signed, so SmartScreen warns once. `install_windows.ps1` gained
   `-Python`, `-PackagesBundled` and `-NoDesktopShortcut` for it.
 
+#### Fixed
+
+- **Phone link:** every flow now gets through screens that play video using
+  screenshots and OCR only. The 2026-10-01 soak lost the phone off USB inside
+  the YouTube flow, because the video guard covered TikTok alone. The driver
+  now refuses accessibility requests (the screen tree and the foreground-app
+  query alike) while any app with a playing surface is visibly playing:
+  TikTok, YouTube, Instagram, Edits, Threads or Facebook. The share sheet
+  arms that guard before it hands the clip over. YouTube's Home feed, trim
+  and editor screens are read and tapped by OCR. Instagram's account check
+  leaves a playing feed or story from pixels. Threads, receipts and the
+  Instagram/Edits steps wait for a still screen and stop with a clear
+  message if it keeps playing. `unlock()` no longer asks for the foreground
+  app while a lit screen is playing video.
+
 ### 1.0.0-rc.4 (2026-10-01)
 
 #### Fixed

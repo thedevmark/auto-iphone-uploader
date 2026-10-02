@@ -36,6 +36,7 @@ from video_drop.phone_manifest import verify_youtube_manifest, youtube_input
 from video_drop.accounts import load_targets
 from video_drop.phone import device as phone_device
 from video_drop.phone import helpers as phone_helpers
+from video_drop.phone.helpers import VideoSurfaceError
 from video_drop.phone.wda_client import WDAError
 from video_drop.phone_link import busy, recover, release_frozen_app, upload_linger
 from video_drop import setup_check, source_route
@@ -83,7 +84,36 @@ def screen_pixels() -> bytes:
 
 
 def screen() -> list[dict]:
-    return phone.compact(phone.ocr())
+    """The screen's rows: the accessibility tree, or OCR of a screenshot while a video plays.
+
+    The driver refuses every accessibility request while a video app it knows is in front is
+    visibly playing (VideoSurfaceError); such a screen is read from pixels only, never asked."""
+    try:
+        return phone.compact(phone.ocr())
+    except VideoSurfaceError:
+        return pixel_rows()
+
+
+def still_tree(timeout: float = 15.0, *, driver=None) -> dict:
+    """The accessibility tree once the video app in front stops playing (a preview that ends,
+    a composer's clip that pauses); VideoSurfaceError if it is still playing at ``timeout``."""
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            return (driver or phone).ui_tree()
+        except VideoSurfaceError:
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(1.0)
+
+
+def pixel_rows() -> list[dict]:
+    """Windows OCR of a WDA-free screenshot, as "OcrText" rows in points."""
+    try:
+        return ocr.screen_rows(screen_pixels(), layout().width)
+    except ocr.OcrError as exc:
+        raise PhoneUploadError(f"A playing video screen can only be read by OCR, and OCR failed: {exc}; "
+                               "nothing was uploaded") from exc
 
 
 def live_element(label: str, kind: str) -> Element:
@@ -144,12 +174,24 @@ def youtube_header_account(timeout: float = 10) -> str:
             time.sleep(0.5)
 
 
+def tap_you_tab() -> None:
+    """The one "You" on the tab bar: on a playing feed OCR also reads video titles."""
+    deadline = time.monotonic() + 8
+    while True:
+        found = [row for row in matches("You") if layout().relative_band(row, top=0.85)]
+        if len(found) == 1:
+            phone.tap(found[0]["x"], found[0]["y"])
+            return
+        if time.monotonic() >= deadline:
+            raise PhoneUploadError(f"Expected one YouTube You tab, found {len(found)}")
+        time.sleep(0.5)
+
+
 def ensure_youtube_channel(expected: str) -> None:
     """Select a known signed-in channel before sending the file to YouTube."""
     stage("youtube_account")
     open_tabs(phone)
-    assert_visible("You")
-    tap("You")
+    tap_you_tab()
     assert_visible("Accounts")
     if youtube_header_account() == expected.casefold():
         return
@@ -159,7 +201,7 @@ def ensure_youtube_channel(expected: str) -> None:
         raise PhoneUploadError(f"YouTube account {expected} is missing or ambiguous")
     phone.tap(options[0]["x"], options[0]["y"])
     wait("You", timeout=30)
-    tap("You")
+    tap_you_tab()
     assert_visible("Accounts")
     if youtube_header_account() != expected.casefold():
         raise PhoneUploadError(f"YouTube did not switch to {expected}")
@@ -305,7 +347,30 @@ def open_source_file(data: dict, *, db: Path | None = None, clouds: list | None 
     stage("ios_share_sheet")
 
 
+# The share destinations the flows pick, so the video guard is armed before the tap lands.
+SHARE_BUNDLES = {"YouTube": "com.google.ios.youtube", "TikTok": "com.zhiliaoapp.musically",
+                 "Threads": "com.burbn.barcelona", "Edits": "com.burbn.basel", "Instagram": "com.burbn.instagram"}
+
+
+def share_landed(name: str, expected_bundle: str, timeout: float = 10) -> None:
+    """Wait for the share destination to come forward without asking WDA on a playing screen.
+
+    A destination that opens playing the clip (YouTube's trim, TikTok's editor) refuses
+    activeAppInfo; a moving picture is not the still share sheet, so the share has left it,
+    and the destination's own first screen (read by pixels) proves which app it is."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            if phone.current_app().get("bundleId") == expected_bundle:
+                return
+        except VideoSurfaceError:
+            return
+        time.sleep(0.5)
+    raise PhoneUploadError(f"Share selection did not open {name}; stop before composing")
+
+
 def choose_share_app(name: str, *, expected_bundle: str | None = None) -> None:
+    bundle = expected_bundle or SHARE_BUNDLES.get(name)
     for _ in range(10):
         rows = screen()
         if not any(row["text"] == "shareSheet.activity.contentView" for row in rows):
@@ -321,14 +386,13 @@ def choose_share_app(name: str, *, expected_bundle: str | None = None) -> None:
             stable_direction, stable = share_app_position(screen(), name, layout())
             if stable_direction != "tap" or stable is None or abs(stable["x"] - target["x"]) > 5:
                 continue
+            # Armed before the tap: the destination may open straight onto a playing clip, and
+            # the very next read (activeAppInfo or a tree) must not be the one that stalls USB.
+            if bundle:
+                phone.note_front_app(bundle)
             phone.tap(stable["x"], stable["y"])
             if expected_bundle:
-                deadline = time.monotonic() + 10
-                while time.monotonic() < deadline:
-                    if phone.current_app().get("bundleId") == expected_bundle:
-                        return
-                    time.sleep(0.5)
-                raise PhoneUploadError(f"Share selection did not open {name}; stop before composing")
+                share_landed(name, expected_bundle)
             return
         if direction == "right":
             phone.swipe(layout().width * 0.27, rail_y, layout().width * 0.52, rail_y, 0.5)
@@ -451,25 +515,50 @@ def wait_for_trim_next(timeout: float = 15) -> None:
     raise PhoneUploadError("YouTube trim Next button did not appear")
 
 
+def trim_state(rows: list[dict]) -> str | None:
+    """Which of YouTube's playing screens is up: "editor", "processing", "trim", or None.
+
+    Both screens play the clip, so these rows are usually OCR of a screenshot: the words are
+    compared case- and space-insensitively and "Processing" may carry a percentage."""
+    plain = {" ".join(row["text"].split()).casefold() for row in rows if row.get("text")}
+    if "swipe up to edit" in plain:
+        return "editor"
+    if any(text.startswith("processing") for text in plain):
+        return "processing"
+    if "crop your video" in plain and "next" in plain:
+        return "trim"
+    return None
+
+
+def bottom_next(rows: list[dict]) -> dict:
+    """The one "Next" on the bottom quarter: on a playing screen OCR also reads the clip's own words."""
+    found = [row for row in rows if " ".join(row["text"].split()).casefold() == "next"
+             and layout().relative_band(row, top=0.75)]
+    if len(found) != 1:
+        raise PhoneUploadError(f"Expected one YouTube Next button, found {len(found)}; nothing was uploaded")
+    return found[0]
+
+
 def advance_trim_to_editor() -> None:
     """Wait through processing and retry only if the trim screen clearly remains."""
     for attempt in range(2):
         rows = screen()
-        labels = {row["text"] for row in rows if row.get("text")}
-        if "Swipe up to edit" in labels:
+        state = trim_state(rows)
+        if state == "editor":
             return
-        if "Crop your video" not in labels or "Next" not in labels:
-            raise PhoneUploadError(f"YouTube trim changed before Next: {sorted(labels)[:20]}")
-        tap("Next")
+        if state != "trim":
+            raise PhoneUploadError(f"YouTube trim changed before Next: {sorted(r['text'] for r in rows)[:20]}")
+        target = bottom_next(rows)
+        phone.tap(target["x"], target["y"])
         deadline = time.monotonic() + 90
         crop_since = None
         while time.monotonic() < deadline:
-            labels = {row["text"] for row in screen() if row.get("text")}
-            if "Swipe up to edit" in labels:
+            state = trim_state(screen())
+            if state == "editor":
                 return
-            if "Processing" in labels:
+            if state == "processing":
                 crop_since = None
-            elif "Crop your video" in labels and "Next" in labels:
+            elif state == "trim":
                 crop_since = crop_since or time.monotonic()
                 if time.monotonic() - crop_since > 5:
                     break
@@ -477,13 +566,19 @@ def advance_trim_to_editor() -> None:
     raise PhoneUploadError("YouTube stayed on the trim screen after two verified Next taps")
 
 
+def leave_editor() -> None:
+    """Tap the playing editor's Next, read from pixels, and wait for Add details."""
+    target = bottom_next(screen())
+    phone.tap(target["x"], target["y"])
+    wait("Add details", timeout=20)
+
+
 def prepare_youtube(data: dict) -> None:
     choose_share_app("YouTube", expected_bundle="com.google.ios.youtube")
     stage("youtube_trim")
     wait_for_trim_next(120 if data["sizeBytes"] > 500_000_000 else 30)
     advance_trim_to_editor()
-    tap("Next")
-    assert_visible("Add details")
+    leave_editor()
     stage("youtube_details")
     # YouTube exposes the identity as a combined display-name/handle label.
     # Compare the handle token exactly, not a substring of another handle.

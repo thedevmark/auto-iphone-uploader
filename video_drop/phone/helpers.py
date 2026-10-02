@@ -210,6 +210,18 @@ def note_front_app(bundle: str | None) -> None:
     _front_bundle = bundle
 
 
+def _refuse_if_playing(request: str) -> None:
+    """Raise VideoSurfaceError before an accessibility request while a video app is visibly playing.
+
+    Covers every AX route this module has, not only /source: /wda/activeAppInfo stalled the
+    USB pipe the same way (Run 3b, 2026-10-01)."""
+    if _front_bundle in config.AX_VIDEO_APPS and _video_surface_playing():
+        raise VideoSurfaceError(
+            f"{_front_bundle} is playing video: refusing {request}. "
+            "Read pixels (screenshot()/OCR) on this screen, or press Home first."
+        )
+
+
 class media_profile:
     """`with media_profile():` — shallow, no-wait WDA snapshots while a media screen is up.
 
@@ -264,11 +276,7 @@ def ui_tree() -> dict:
         and act == _tree_cache["act"]
     ):
         return _tree_cache["tree"]
-    if _front_bundle in config.AX_VIDEO_APPS and _video_surface_playing():
-        raise VideoSurfaceError(
-            f"{_front_bundle} is playing video: refusing the accessibility snapshot. "
-            "Read pixels (screenshot()/ocr()) on this screen, or press Home first."
-        )
+    _refuse_if_playing("the accessibility snapshot")
     tree = client().source()
     _tree_cache.update(tree=tree, ts=time.monotonic(), flags=[], act=act)
     return tree
@@ -518,7 +526,11 @@ BUNDLE_IDS = {
 
 
 def current_app() -> dict:
-    """Frontmost app info from WDA (bundleId, name, pid)."""
+    """Frontmost app info from WDA (bundleId, name, pid).
+
+    /wda/activeAppInfo is an accessibility request, so it is refused with VideoSurfaceError
+    while a video app this process put in front is visibly playing, like ui_tree()."""
+    _refuse_if_playing("/wda/activeAppInfo")
     return client().active_app()
 
 
@@ -541,13 +553,23 @@ def wait_for_app(
     a wedging app, so a shorter interval must buy looks and not a burst into
     WDA's one-at-a-time queue. The rest is clamped to the deadline, so `timeout`
     still bounds the call at one read of overshoot rather than two.
+
+    A video app that is playing cannot be asked (current_app() refuses): the wait keeps
+    looking, and if the screen is still playing at the deadline it raises VideoSurfaceError,
+    so the caller proves the app from pixels instead of reading "not in front".
     """
     deadline = time.monotonic() + timeout
     while True:
         started = time.monotonic()
-        if current_app().get("bundleId") == bundle_id:
-            return True
+        refused = None
+        try:
+            if current_app().get("bundleId") == bundle_id:
+                return True
+        except VideoSurfaceError as exc:
+            refused = exc
         if time.monotonic() >= deadline:
+            if refused is not None:
+                raise refused
             return False
         time.sleep(_duty_rest(started, interval, deadline))
 
