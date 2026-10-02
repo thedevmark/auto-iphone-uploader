@@ -135,3 +135,35 @@ class PlayingScreenTests(unittest.TestCase):
         self.assertEqual(len(self.leave(["Send message"])[1]), 1)
         taps, _ = self.leave(["For you", "Following"])
         self.assertEqual(taps, [(370.5, 904.0)])
+
+
+class ComposerDiscardTests(unittest.TestCase):
+    def test_a_restored_composer_is_discarded_never_shared(self):
+        # Recorded 2026-10-02 12:50: Cancel -> "Changes won't be saved" -> Continue without saving.
+        taps = []
+        state = {"screen": "composer"}
+
+        def tree():
+            if state["screen"] == "composer":
+                kids = [node("Button", "Cancel", 42, 84), node("Button", "save-draft-button", 114, 847, "Save draft"),
+                        node("Button", "share-sheet-share-button", 326, 847, "Share")]
+            elif state["screen"] == "prompt":
+                kids = [node("Button", "Save draft", 220, 524), node("Button", "Continue without saving", 220, 576)]
+            else:
+                kids = [node("Button", "main-feed-logo", 60, 80, "Instagram Main Feed")]
+            return {"type": "XCUIElementTypeApplication", "children": kids}
+
+        def tap(x, y):
+            taps.append((x, y))
+            if (x, y) == (42, 84):
+                state["screen"] = "prompt"
+            elif (x, y) == (220, 576):
+                state["screen"] = "feed"
+
+        fake = type("P", (), {"ui_tree": lambda self: tree(), "tap": lambda self, x, y: tap(x, y)})()
+        from video_drop.screens.snapshot import elements_from_tree
+        with patch.object(preflight, "phone", fake), patch("scripts.phone_instagram_preflight.time.sleep", lambda s: None):
+            self.assertTrue(preflight.discard_composer(elements_from_tree(tree())))
+            self.assertFalse(preflight.discard_composer(elements_from_tree(tree())))
+        self.assertEqual(taps, [(42, 84), (220, 576)])
+        self.assertNotIn((326, 847), taps)  # Share is never touched
