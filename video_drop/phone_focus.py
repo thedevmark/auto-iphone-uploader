@@ -63,7 +63,7 @@ def _settle(phone, name: str, timeout: float = 4.0, poll: float = 0.4) -> tuple[
 
 def open_control_center(phone, *, retry: bool = True) -> tuple[Element, ...]:
     layout = PhoneLayout.from_info(phone.screen_info())
-    phone.press_home()
+    _real_home(phone)
     time.sleep(0.8)
     phone.swipe(layout.width * .92, 1, layout.width * .92, layout.height * .30, .3)
     time.sleep(1.0)
@@ -81,8 +81,18 @@ def open_control_center(phone, *, retry: bool = True) -> tuple[Element, ...]:
     return _settle(phone, MODULE)
 
 
-def close_control_center(phone) -> None:
+def _real_home(phone) -> None:
+    """Press Home through WDA. A noted video app makes press_home() take the go-ios springboard
+    launch instead, which brings up the Home Screen beneath an open Control Center and leaves
+    Control Center up (soak 2026-10-02: YouTube and Instagram then read Control Center)."""
+    forget = getattr(phone, "note_front_app", None)
+    if forget is not None:
+        forget(None)
     phone.press_home()
+
+
+def close_control_center(phone) -> None:
+    _real_home(phone)
     time.sleep(0.8)
 
 
