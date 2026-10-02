@@ -154,6 +154,18 @@ class NativeReceiptTests(unittest.TestCase):
         self.assertEqual(result["kind"], "recorded", result)
         self.assertEqual(self.status(release_id)["threads"], "posted")
 
+    def test_a_failed_read_captures_the_screen_before_leaving_the_app(self):
+        # 2026-10-02: a sweep read failed with no trace of what the phone showed.
+        from unittest import mock
+        from video_drop import failure_capture
+        order = []
+        release = {"id": 7, "delivery_mode": "post_now"}
+        with mock.patch.object(phone_receipts.rc, "receipt_route", return_value={"status": "verify"}),                 mock.patch.object(phone_receipts, "threads_post",
+                                  side_effect=phone_receipts.rc.ReceiptError("header found 0")),                 mock.patch.object(failure_capture, "capture", side_effect=lambda *a: order.append(("capture", a[1]))),                 mock.patch.object(phone_receipts, "leave", side_effect=lambda: order.append(("leave", None))):
+            result = phone_receipts.check(self.store, release, "threads", self.state, posts_before=None, record=True)
+        self.assertEqual(result["kind"], "unverified")
+        self.assertEqual(order, [("capture", "receipt threads"), ("leave", None)])
+
 
 if __name__ == "__main__":
     unittest.main()

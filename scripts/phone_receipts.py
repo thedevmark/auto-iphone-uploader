@@ -251,6 +251,10 @@ def check(store: Store, release: dict, platform: str, state: Path, *, posts_befo
             return instagram_post(store, release, state, posts_before=posts_before, record=record)
         return threads_post(store, release, state, record=record)
     except (rc.ReceiptError, Stop, ValueError, share.PhoneUploadError, share.WDAError) as exc:
+        # Before leave(): the sweep's 13:05 Instagram read failed on 2026-10-02 and left no
+        # trace of what the phone showed; the 13:09 read of the same post then verified it.
+        from video_drop import failure_capture
+        failure_capture.capture(state, f"receipt {platform}", exc)
         return {"kind": "unverified", "platform": platform, "releaseId": release["id"], "message": str(exc)}
     finally:
         leave()
