@@ -150,17 +150,20 @@ Install-Packages $appPython 'requirements.txt' $true
 # tkinter backs the file and folder pickers (scripts\pick_video.py, pick_folder.py); the
 # embeddable Python leaves it out, so copy it from the build machine's matching Python.
 $hostDlls = Join-Path $hostBase 'DLLs'
-foreach ($name in '_tkinter.pyd', 'tcl86t.dll', 'tk86t.dll', 'zlib1.dll') {
-    $dll = Join-Path $hostDlls $name
-    if (Test-Path -LiteralPath $dll) { Copy-Item -LiteralPath $dll -Destination $appPython -Force }
-    elseif ($name -ne 'zlib1.dll') { throw "The build Python has no $name; use a Python with tcl/tk (the python.org installer, or setup-python)." }
+# Python 3.11-3.13 ship Tcl/Tk 8.6 (tcl86t.dll, tk86t.dll); 3.14 ships 9.0 (tcl90.dll, tk90.dll).
+# Copy whichever this build Python has; _tkinter.pyd plus one tcl and one tk DLL are required.
+$tkFiles = @(Get-ChildItem -LiteralPath $hostDlls -File | Where-Object { $_.Name -match '^(_tkinter\.pyd|tcl\d+t?\.dll|tk\d+t?\.dll|zlib1\.dll)$' })
+foreach ($need in '^_tkinter\.pyd$', '^tcl\d+t?\.dll$', '^tk\d+t?\.dll$') {
+    if (-not ($tkFiles | Where-Object { $_.Name -match $need })) {
+        throw "The build Python has no file matching $need in $hostDlls; use a Python with tcl/tk (the python.org installer, or setup-python)."
+    }
 }
+foreach ($file in $tkFiles) { Copy-Item -LiteralPath $file.FullName -Destination $appPython -Force }
 Copy-Item -LiteralPath (Join-Path $hostBase 'Lib\tkinter') -Destination (Join-Path $appPython 'Lib\site-packages\tkinter') -Recurse -Force
-foreach ($lib in 'tcl8.6', 'tk8.6', 'tcl8') {
-    $src = Join-Path $hostBase "tcl\$lib"
-    if (Test-Path -LiteralPath $src) { Copy-Item -LiteralPath $src -Destination (Join-Path $appPython $lib) -Recurse -Force }
+foreach ($src in @(Get-ChildItem -LiteralPath (Join-Path $hostBase 'tcl') -Directory | Where-Object { $_.Name -match '^(tcl|tk)\d' })) {
+    Copy-Item -LiteralPath $src.FullName -Destination (Join-Path $appPython $src.Name) -Recurse -Force
 }
-Remove-Item -LiteralPath (Join-Path $appPython 'tk8.6\demos') -Recurse -Force -ErrorAction SilentlyContinue
+Get-ChildItem -LiteralPath $appPython -Directory | Where-Object { $_.Name -match '^tk\d' } | ForEach-Object { Remove-Item -LiteralPath (Join-Path $_.FullName 'demos') -Recurse -Force -ErrorAction SilentlyContinue }
 
 # The re-sign tool gets its own interpreter and never sees the app: no ".." on its path.
 $resignPython = New-Interpreter 'python-resign' @("python$pythonTag.zip", '.', 'Lib\site-packages', 'import site')
