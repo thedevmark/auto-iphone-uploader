@@ -29,6 +29,13 @@ def visible_rows(phone) -> list[dict]:
     return [row for row in rows if layout.contains(row)]
 
 
+# YouTube restores an unfinished upload's trim screen when it reopens (soak 2026-10-02); that screen
+# plays the clip, so it is read by OCR and its X (an icon) is tapped at its measured place:
+# (20, 86) points on the 440 x 956 reference phone, recorded 2026-10-02 01:08.
+TRIM_X = "trim X (measured)"
+TRIM_X_POINT = (20.0, 86.0)
+
+
 def exit_target(labels: list[str]) -> str | None:
     """Return the single observed back control, or None at YouTube's tabs."""
     if "You" in labels:
@@ -45,6 +52,8 @@ def exit_target(labels: list[str]) -> str | None:
         return "Exit editor"
     if "Exit trim" in labels:
         return "Exit trim"
+    if "Choose a part of the video" in labels and "Next" in labels:
+        return TRIM_X  # the playing trim screen read by OCR: its X is an icon OCR cannot read
     if "Collapse video" in labels:
         return "Collapse video"
     if "id.navigation.search.text_field" in labels and "Back" in labels:
@@ -75,10 +84,13 @@ def open_tabs(phone) -> None:
                 time.sleep(0.4)
         if target is None:
             return
-        matches = [row for row in rows if row["text"] == target]
-        if len(matches) != 1:
-            raise ValueError(f"YouTube {target!r} control is ambiguous")
-        phone.tap(matches[0]["x"], matches[0]["y"])
+        if target == TRIM_X:
+            phone.tap(*PhoneLayout.from_info(phone.screen_info()).reference_point(*TRIM_X_POINT))
+        else:
+            matches = [row for row in rows if row["text"] == target]
+            if len(matches) != 1:
+                raise ValueError(f"YouTube {target!r} control is ambiguous")
+            phone.tap(matches[0]["x"], matches[0]["y"])
         deadline = time.monotonic() + 8
         while time.monotonic() < deadline:
             next_labels = [row["text"] for row in visible_rows(phone)]
