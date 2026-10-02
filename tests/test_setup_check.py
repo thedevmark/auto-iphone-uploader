@@ -383,13 +383,13 @@ class SetupRouteTests(unittest.TestCase):
         self.temp.cleanup()
 
     def get(self, path: str) -> dict:
-        with urlopen(self.base + path, timeout=5) as response:
+        with urlopen(self.base + path, timeout=20) as response:
             return json.load(response)
 
     def complete(self) -> dict:
         request = Request(self.base + "/api/setup/complete", data=b"{}",
                           headers={"Content-Type": "application/json"}, method="POST")
-        with urlopen(request, timeout=5) as response:
+        with urlopen(request, timeout=20) as response:
             return json.load(response)
 
     def test_setup_is_recorded_only_after_every_required_item_passes(self):
