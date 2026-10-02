@@ -220,3 +220,20 @@ def test_a_restored_description_editor_is_left_by_back():
     from video_drop import youtube_nav
     labels = ["id.creation.modes.view", "Back", "Add description", "Hashtags", "Q", "W"]
     assert youtube_nav.exit_target(labels) == "Back"
+
+
+def test_youtube_waits_in_front_until_the_upload_is_shown_finished():
+    # Real Post now 2026-10-02: leaving YouTube right after the tap left the Short as a draft.
+    from scripts import phone_youtube as yt
+    reads = iter([["Uploading 34%"], ["Uploading 80%"], ["Uploaded to Your Channel"]])
+    now = [0.0]
+    assert yt.wait_for_upload(83_000_000, clock=lambda: now[0], sleep=lambda s: now.__setitem__(0, now[0] + s),
+                              read=lambda: next(reads)) is True
+
+
+def test_youtube_upload_wait_is_bounded_and_says_so():
+    from scripts import phone_youtube as yt
+    now = [0.0]
+    assert yt.wait_for_upload(10_000_000, clock=lambda: now[0], sleep=lambda s: now.__setitem__(0, now[0] + s),
+                              read=lambda: ["Uploading 10%"]) is False
+    assert now[0] >= (90 + 15) * 1.5

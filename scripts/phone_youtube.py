@@ -541,6 +541,34 @@ def bottom_next(rows: list[dict]) -> dict:
     return found[0]
 
 
+UPLOADED_WORDS = ("uploaded to your channel", "upload complete", "uploaded")
+
+
+def upload_finished(lines: list[str]) -> bool:
+    return any(" ".join(line.split()).casefold().startswith(UPLOADED_WORDS) for line in lines)
+
+
+def wait_for_upload(size_bytes: int, *, clock=time.monotonic, sleep=time.sleep, read=None) -> bool:
+    """Keep YouTube in front after the final tap until it shows the upload finished.
+
+    Real Post now 2026-10-02: the run moved on to Instagram right after the tap, iOS paused
+    the backgrounded YouTube and the Short sat as a draft until YouTube was reopened, when it
+    showed 'Uploaded to Your Channel'. Only the transfer needs YouTube in front; its processing
+    runs on YouTube's side. Nothing is tapped here. Returns False if the time runs out.
+    """
+    from video_drop import ocr as _ocr
+    read = read or (lambda: [line.text for line in _ocr.read_png(screen_pixels())])
+    deadline = clock() + upload_linger(size_bytes) * 1.5
+    while clock() < deadline:
+        try:
+            if upload_finished(read()):
+                return True
+        except Exception:  # a missed read never ends the wait early
+            pass
+        sleep(3)
+    return False
+
+
 def advance_trim_to_editor() -> None:
     """Wait through processing and retry only if the trim screen clearly remains."""
     for attempt in range(2):
@@ -755,9 +783,13 @@ def run(release: str, db: Path, *, commit: bool = False, resume_share: bool = Fa
                     # YouTube uploads on its own after this tap; shield the link for that long.
                     with busy("YouTube upload", 30, linger=upload_linger(data.get("sizeBytes", 0))):
                         phone.tap(upload[0]["x"], upload[0]["y"])
+                        uploaded = wait_for_upload(data.get("sizeBytes", 0))
                     return {"kind": "unconfirmed", "releaseId": data["releaseId"],
-                            "account": data["expectedAccount"],
-                            "message": "Final tap sent; check the native YouTube receipt before any retry"}
+                            "account": data["expectedAccount"], "uploaded": uploaded,
+                            "message": ("Final tap sent and YouTube showed the upload finished; check the native "
+                                        "receipt before any retry" if uploaded else
+                                        "Final tap sent, but YouTube had not shown 'Uploaded' when the wait ended; "
+                                        "open YouTube so it can finish, and check before any retry")}
             except WDAError as exc:
                 destination = next(d for d in store.release(data["releaseId"])["destinations"]
                                    if d["platform"] == "youtube")
