@@ -49,6 +49,9 @@ $PythonSize    = 12601679
 
 $root = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
 if ($OutDir -eq '') { $OutDir = Join-Path $root 'dist' }
+# Absolute before use: iscc resolves a relative OutputDir against the .iss folder, PowerShell against
+# the current folder, so a relative -OutDir (the release workflow passes 'dist') sent the exe elsewhere.
+$OutDir = [System.IO.Path]::GetFullPath($(if ([System.IO.Path]::IsPathRooted($OutDir)) { $OutDir } else { Join-Path (Get-Location).Path $OutDir }))
 if ($WorkDir -eq '') { $WorkDir = Join-Path $root 'build\installer' }
 $cache = Join-Path $WorkDir 'cache'
 $stage = Join-Path $WorkDir 'stage'
