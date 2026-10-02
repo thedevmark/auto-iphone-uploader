@@ -525,7 +525,9 @@ def trim_state(rows: list[dict]) -> str | None:
         return "editor"
     if any(text.startswith("processing") for text in plain):
         return "processing"
-    if "crop your video" in plain and "next" in plain:
+    # Measured by Windows OCR on iOS 26.7 / YouTube 21.38 (soak 2026-10-02): "Choose a part of the
+    # video"; "Crop your video" was the accessibility label the first OCR rewrite guessed.
+    if ("choose a part of the video" in plain or "crop your video" in plain) and "next" in plain:
         return "trim"
     return None
 
