@@ -502,7 +502,7 @@ class OpenProfileTests(unittest.TestCase):
 class ThreadsAccountSwitch(unittest.TestCase):
     """Recorded 2026-10-02: fixtures threads/profile-*, threads/account-switcher-*."""
 
-    PROFILE = [element("Button", "Jacob & Willie", (15, 133, 159, 29)),
+    PROFILE = [element("Button", "Display Name", (15, 133, 159, 29)),
                element("Image", "", (179, 141, 13, 13), name="ig_icon_chevron_down_filled_12"),
                element("Button", "Edit profile", (15, 287, 178, 36))]
     SHEET = [element("Button", "Dismiss", (203, 389, 34, 2), name="Button"),
@@ -512,7 +512,7 @@ class ThreadsAccountSwitch(unittest.TestCase):
              element("Button", "Log in as @other.one", (24, 572, 392, 86))]
 
     def test_the_display_name_beside_the_chevron_opens_the_switcher(self):
-        self.assertEqual(rc.threads_switcher_button(self.PROFILE).label, "Jacob & Willie")
+        self.assertEqual(rc.threads_switcher_button(self.PROFILE).label, "Display Name")
 
     def test_rows_and_the_checked_account(self):
         self.assertEqual(set(rc.threads_switch_rows(self.SHEET)), {"first.acct", "creator", "other.one"})
