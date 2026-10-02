@@ -123,3 +123,29 @@ class FailureCaptureTests(unittest.TestCase):
             with patch.object(phone_capture, "pixels_png", broken):
                 with self.assertRaisesRegex(ValueError, "real error"):
                     run(1, Path(folder) / "video-drop.sqlite")
+
+
+class CaptureBeforeCleanupTests(unittest.TestCase):
+    def test_the_guards_capture_the_failing_screen_before_restoring(self):
+        from contextlib import contextmanager
+        from unittest.mock import patch
+        from video_drop import failure_capture
+        from video_drop.phone import capture as phone_capture
+        screens = iter([b"FAILING-SCREEN", b"HOME-SCREEN"])
+        with tempfile.TemporaryDirectory() as folder:
+            state = Path(folder)
+
+            @phone_lock.locked("YouTube")
+            def run(release_id, db):
+                try:
+                    raise ValueError("did not change the screen")
+                except BaseException as exc:
+                    failure_capture.snap(exc)  # what run_guards does before restoring
+                    raise
+
+            with patch.object(phone_capture, "pixels_png", lambda: next(screens)), \
+                    patch("video_drop.ocr.read_png", lambda png: []):
+                with self.assertRaises(ValueError):
+                    run(1, state / "video-drop.sqlite")
+            [saved] = list((state / "failures").iterdir())
+            self.assertEqual((saved / "screen.png").read_bytes(), b"FAILING-SCREEN")  # one capture, the right one
