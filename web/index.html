@@ -122,6 +122,21 @@ body[data-onboarding] #dropSection,body[data-onboarding] #draftRail,body[data-on
   .processStep[data-running="true"] .motifDot:nth-child(2){animation-delay:.18s}
   .processStep[data-running="true"] .motifDot:nth-child(3){animation-delay:.36s}
 }
+
+/* Connect step: Steam Deck-style illustration. The cable slides into a rear port, pauses, repeats. */
+.obPlug{margin:4px 0 18px;padding:18px 16px 14px;border-radius:18px;background:var(--inset);border:1px solid var(--line)}
+.obPlug svg{display:block;width:100%;max-width:380px;height:auto;margin:0 auto;color:var(--ink)}
+.obPlug .pc,.obPlug .phone{fill:none;stroke:currentColor;stroke-width:2.2;stroke-linejoin:round;opacity:.85}
+.obPlug .vent{stroke:currentColor;stroke-width:1.6;opacity:.35}
+.obPlug .port{fill:var(--signal)}
+.obPlug .portRing{fill:none;stroke:var(--signal);stroke-width:2;opacity:0;transform-box:fill-box;transform-origin:center;animation:obRing 3.2s var(--ease-out,cubic-bezier(.23,1,.32,1)) infinite}
+.obPlug .cable{fill:none;stroke:currentColor;stroke-width:3;stroke-linecap:round;opacity:.75}
+.obPlug .plug{fill:currentColor;animation:obSlide 3.2s var(--ease-out,cubic-bezier(.23,1,.32,1)) infinite}
+.obPlug p{margin:12px 0 0;text-align:center;font-size:.92rem;color:var(--muted)}
+.obPlug p strong{color:var(--ink);font-weight:600}
+@keyframes obSlide{0%{transform:translateX(-26px)}38%,78%{transform:translateX(0)}100%{transform:translateX(-26px)}}
+@keyframes obRing{0%,34%{opacity:0;transform:scale(.6)}44%{opacity:.9;transform:scale(1)}70%,100%{opacity:0;transform:scale(1.6)}}
+@media (prefers-reduced-motion:reduce){.obPlug .plug,.obPlug .portRing{animation:none}.obPlug .portRing{opacity:.9}}
 </style>
 </head>
 <body><main class="shell">
@@ -323,6 +338,8 @@ function obDoneLine(items){const box=document.createElement('details');box.class
 /* A check the app can run itself just runs: the apps read starts once per session, without a click. */
 let obAutoRan=new Set();function obAutoRun(item){if(item.status!=='action'||item.action!=='inspect'||obAutoRan.has(item.key))return;obAutoRan.add(item.key);SETUP_ACTIONS.inspect[1]().then(()=>refreshSetup()).catch(()=>{})}
 function renderObStatus(){const status=$('obStatus');if(setupChecking)return;status.textContent=obStep<obSteps().length?'Checks again every few seconds. Nothing here taps the iPhone.':''}
+const OB_PLUG_SVG='<svg viewBox="0 0 320 150" role="img" aria-label="An iPhone cable plugged into a USB port on the back of a desktop PC"><rect class="pc" x="196" y="10" width="96" height="130" rx="10"/><line class="vent" x1="212" y1="26" x2="276" y2="26"/><line class="vent" x1="212" y1="34" x2="276" y2="34"/><line class="vent" x1="212" y1="42" x2="276" y2="42"/><rect x="214" y="66" width="20" height="9" rx="2" fill="currentColor" opacity=".25"/><rect x="214" y="96" width="20" height="9" rx="2" fill="currentColor" opacity=".25"/><rect class="port" x="214" y="81" width="20" height="9" rx="2"/><rect class="portRing" x="208" y="76" width="32" height="19" rx="5"/><rect class="phone" x="22" y="34" width="46" height="88" rx="10"/><line class="vent" x1="38" y1="42" x2="52" y2="42"/><path class="cable" d="M45 122 C45 142 110 142 130 112 C146 90 160 85.5 178 85.5"/><g class="plug"><rect x="178" y="80" width="22" height="11" rx="3"/><rect x="200" y="82.5" width="12" height="6" rx="1"/></g></svg>';
+function obPlugPanel(){const box=document.createElement('div');box.className='obPlug';box.innerHTML=OB_PLUG_SVG;const p=document.createElement('p');p.innerHTML='<strong>Plug straight into a port on the back of the PC.</strong> On a laptop, any port on its side. Skip front-panel ports, hubs and docks: they can drop the iPhone mid-upload.';box.append(p);return box}
 function renderOnboarding(){
  if(!obVisible||!setupState)return;if(obStep<0)obStep=obFirstOpen();const steps=obSteps(),total=steps.length+1,final=obStep>=steps.length;
  /* Re-render only on a change, so entrance animations play once and focus is not lost on every poll. */
@@ -336,6 +353,7 @@ function renderOnboarding(){
  }else{
   const step=steps[obStep],mine=setupState.items.filter(item=>item.step===step.key),open=mine.filter(item=>item.required&&item.status!=='ok').sort((a,b)=>(a.status==='blocked')-(b.status==='blocked')),done=mine.filter(item=>item.required&&item.status==='ok');
   $('obWhy').textContent=step.why;
+  if(step.key==='connect')body.append(obPlugPanel());
   if(open.length){const list=document.createElement('ul');list.className='obTasks';list.append(obTask(open[0]));body.append(list);if(open.length>1){const then=document.createElement('p');then.className='obThen';then.textContent='Then: '+open.slice(1).map(item=>item.title).join(' · ');body.append(then)}obAutoRun(open[0])}
   if(done.length)body.append(obDoneLine(done));
   $('obBack').hidden=obStep===0;$('obSkip').hidden=step.ready;$('obCheck').hidden=step.ready;$('obNext').hidden=!step.ready;$('obNext').textContent='Continue';$('obNext').className='button';
