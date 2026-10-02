@@ -222,6 +222,13 @@ class StubPhone:
             self.tree = SAMPLE_TREE  # accepted: pad dismissed, home screen
 
 
+@pytest.fixture(autouse=True)
+def _no_leftover_front_app(monkeypatch):
+    """A video app one test launched must not arm the video guard (or mark go-ios dead) for the next."""
+    monkeypatch.setattr(helpers, "_front_bundle", None)
+    monkeypatch.setattr(helpers.capture, "_go_ios_dead_until", 0.0)
+
+
 @pytest.fixture()
 def fast(monkeypatch):
     monkeypatch.setattr(helpers.time, "sleep", lambda _s: None)
@@ -1209,13 +1216,13 @@ def test_open_app_waits_for_the_foreground_when_asked(fake_clock, monkeypatch):
         frontmost=[
             "com.apple.springboard",
             "com.apple.springboard",
-            "com.burbn.instagram",
+            "com.apple.Preferences",
         ],
     )
     monkeypatch.setattr(helpers, "client", lambda: spy)
 
-    assert helpers.open_app("com.burbn.instagram", wait_seconds=5) is None
-    assert launched == ["com.burbn.instagram"]
+    assert helpers.open_app("com.apple.Preferences", wait_seconds=5) is None
+    assert launched == ["com.apple.Preferences"]
     assert spy.app_reads == 3, f"polled {spy.app_reads} times, not until it arrived"
 
 
@@ -1228,9 +1235,9 @@ def test_open_app_raises_when_the_app_never_arrives(fake_clock, monkeypatch):
     monkeypatch.setattr(helpers, "client", lambda: spy)
 
     with pytest.raises(WDAError) as exc:
-        helpers.open_app("com.burbn.instagram", wait_seconds=5)
+        helpers.open_app("com.apple.Preferences", wait_seconds=5)
     assert "foreground" in str(exc.value), str(exc.value)
-    assert launched == ["com.burbn.instagram"], (
+    assert launched == ["com.apple.Preferences"], (
         "the launch itself must still have happened: this is a wait failure, "
         "not a launch failure, and the error has to read that way"
     )
@@ -1582,3 +1589,41 @@ def test_unlock_never_asks_activeappinfo_on_a_lit_playing_screen(monkeypatch):
     monkeypatch.setattr(helpers, "_LIT_SCREEN_BYTES", 1000)
     monkeypatch.setattr(helpers.time, "sleep", lambda s: None)
     helpers.unlock(Fake())  # returns: in use, nothing asked
+
+
+def test_default_guard_covers_every_app_with_a_playing_surface():
+    # 2026-10-01 17:22 soak: the phone fell off USB inside the YouTube flow, which the
+    # TikTok-only guard never covered. Every video app a flow drives is guarded by default.
+    for bundle in ("com.zhiliaoapp.musically", "com.google.ios.youtube", "com.burbn.instagram",
+                   "com.burbn.basel", "com.burbn.barcelona", "com.facebook.Facebook"):
+        assert bundle in config.VIDEO_APP_BUNDLES
+
+
+def test_activeappinfo_refused_while_a_video_app_plays(monkeypatch):
+    spy = _LaunchSpy([], frontmost=["com.google.ios.youtube"])
+    monkeypatch.setattr(helpers, "client", lambda: spy)
+    monkeypatch.setattr(helpers.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(config, "AX_VIDEO_APPS", frozenset({"com.google.ios.youtube"}))
+    helpers.note_front_app("com.google.ios.youtube")
+    frames = iter([_png(1, True), _png(2, True), _png(3, False), _png(3, False)])
+    monkeypatch.setattr(helpers.capture, "_go_ios_screenshot", lambda: next(frames))
+    with pytest.raises(helpers.VideoSurfaceError) as err:
+        helpers.current_app()
+    assert "/wda/activeAppInfo" in str(err.value)
+    assert spy.app_reads == 0  # WDA never asked while the trim screen plays
+    assert helpers.current_app() == {"bundleId": "com.google.ios.youtube"}  # still: asked once
+    assert spy.app_reads == 1
+
+
+def test_wait_for_app_on_a_playing_video_app_says_so_instead_of_absent(fake_clock, monkeypatch):
+    spy = _LaunchSpy([], frontmost=["com.google.ios.youtube"])
+    monkeypatch.setattr(helpers, "client", lambda: spy)
+    monkeypatch.setattr(config, "AX_VIDEO_APPS", frozenset({"com.google.ios.youtube"}))
+    monkeypatch.setattr(helpers, "_video_surface_playing", lambda: True)
+    with pytest.raises(helpers.VideoSurfaceError):
+        helpers.open_app("com.google.ios.youtube", wait_seconds=4)
+    assert spy.sink == ["com.google.ios.youtube"] and spy.app_reads == 0
+    # Once the feed's preview stops, the same wait confirms the app as before.
+    monkeypatch.setattr(helpers, "_video_surface_playing", lambda: False)
+    assert helpers.wait_for_app("com.google.ios.youtube", timeout=4) is True
+    assert spy.app_reads == 1

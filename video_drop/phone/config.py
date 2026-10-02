@@ -141,7 +141,13 @@ MJPEG_SETTINGS = (get("MJPEG_SETTINGS", "1") or "1").lower() not in ("0", "false
 # killed the whole USB data pipe in 37 s; on any port that /source hangs WDA >=30 s, TikTok
 # serves it on its main thread until FrontBoard's watchdog kills the app. Empty = guard off.
 # An EMPTY process-env value switches the guard off (get() would fall through to the default).
-_ax_video_apps = os.environ["AX_VIDEO_APPS"] if "AX_VIDEO_APPS" in os.environ     else (get("AX_VIDEO_APPS", "com.zhiliaoapp.musically") or "")
+# Every app a flow drives that has a playing surface is listed, not just TikTok: the
+# 2026-10-01 17:22 soak lost the phone off USB inside the YouTube flow, whose trim and
+# editor screens play the clip (TikTok, YouTube, Instagram, Edits, Threads, Facebook).
+VIDEO_APP_BUNDLES = ("com.zhiliaoapp.musically", "com.google.ios.youtube", "com.burbn.instagram",
+                     "com.burbn.basel", "com.burbn.barcelona", "com.facebook.Facebook")
+_ax_video_apps = os.environ["AX_VIDEO_APPS"] if "AX_VIDEO_APPS" in os.environ \
+    else (get("AX_VIDEO_APPS", ",".join(VIDEO_APP_BUNDLES)) or "")
 AX_VIDEO_APPS = frozenset(x.strip() for x in _ax_video_apps.split(",") if x.strip())
 
 # Accessibility snapshot timeout (seconds). Added upstream in WDA #1214

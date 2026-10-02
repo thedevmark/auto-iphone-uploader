@@ -4,12 +4,29 @@ from __future__ import annotations
 
 import time
 
+from . import ocr
+from .phone.helpers import VideoSurfaceError
 from .phone_ui import PhoneLayout
+
+YOUTUBE = "com.google.ios.youtube"
 
 
 def visible_rows(phone) -> list[dict]:
+    """On-screen rows from the tree, or from OCR of a go-ios screenshot while YouTube plays.
+
+    YouTube opens on its Home feed, whose previews autoplay: the driver refuses the
+    accessibility read there (VideoSurfaceError), so that screen is read from pixels only."""
     layout = PhoneLayout.from_info(phone.screen_info())
-    return [row for row in phone.compact(phone.ocr()) if layout.contains(row)]
+    try:
+        rows = phone.compact(phone.ocr())
+    except VideoSurfaceError:
+        from .phone import capture
+
+        try:
+            rows = ocr.screen_rows(capture.pixels_png(), layout.width)
+        except ocr.OcrError as exc:
+            raise ValueError(f"YouTube is playing video and OCR could not read it: {exc}") from exc
+    return [row for row in rows if layout.contains(row)]
 
 
 def exit_target(labels: list[str]) -> str | None:
@@ -37,9 +54,13 @@ def exit_target(labels: list[str]) -> str | None:
 
 def open_tabs(phone) -> None:
     phone.press_home()
-    phone.open_app("com.google.ios.youtube", wait_seconds=4)
-    if phone.current_app().get("bundleId") != "com.google.ios.youtube":
-        raise ValueError("YouTube did not open")
+    try:
+        # Confirms the launch with activeAppInfo, unless YouTube is already playing a feed
+        # preview: then the driver refuses to ask, and the tab bar read below (and the You
+        # page the caller opens next) is what proves YouTube is in front.
+        phone.open_app(YOUTUBE, wait_seconds=4)
+    except VideoSurfaceError:
+        pass
     for _ in range(5):
         deadline = time.monotonic() + 12
         while True:

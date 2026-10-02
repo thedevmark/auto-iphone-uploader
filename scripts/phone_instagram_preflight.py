@@ -20,8 +20,17 @@ from video_drop.screens.snapshot import elements_from_tree  # noqa: E402
 from video_drop.core import Store, digest  # noqa: E402
 from video_drop.accounts import load_targets, require_target  # noqa: E402
 from video_drop.phone import helpers as phone_helpers  # noqa: E402
+from video_drop.phone.helpers import VideoSurfaceError  # noqa: E402
+from video_drop.phone_ui import PhoneLayout  # noqa: E402
+from scripts import phone_youtube as share  # noqa: E402
 
 phone = None
+INSTAGRAM = "com.burbn.instagram"
+# Profile tab center on the 440 x 956 reference phone, on the bottom safe area (the same
+# measurement as scripts/phone_receipts.py INSTAGRAM_PROFILE_TAB).
+PROFILE_TAB = (370.5, 904.0)
+# A story's reply bar ("Send message", "Reply to <name>..."): no tab bar under it.
+STORY_REPLY = ("send message", "reply to")
 
 
 def connect_sidetap() -> None:
@@ -42,11 +51,63 @@ def profile_handle(elements) -> str:
     return "@" + next(iter(found)).casefold()
 
 
+def _playing_rows() -> list[dict]:
+    """OCR of a go-ios screenshot: the only read allowed while Instagram plays video."""
+    from video_drop import ocr
+    from video_drop.phone import capture
+
+    try:
+        return ocr.screen_rows(capture.pixels_png(), PhoneLayout.from_info(phone.screen_info()).width)
+    except ocr.OcrError as exc:
+        raise ValueError(f"Instagram is playing video and OCR could not read it: {exc}; "
+                         "stop before Edits export") from exc
+
+
+def _leave_playing_screen() -> None:
+    """Get from a playing feed, Reel or story to the still profile without asking WDA anything.
+
+    A story (OCR reads its reply bar) is swiped down closed, since a tap at the Profile tab's
+    place would land on its reply or like controls. Anywhere else the Profile tab is tapped
+    blind at the place scripts/phone_receipts.py measured for its own receipt reads."""
+    layout = PhoneLayout.from_info(phone.screen_info())
+    texts = [" ".join(row["text"].split()).casefold() for row in _playing_rows()]
+    if any(text.startswith(STORY_REPLY) for text in texts):
+        phone.swipe(layout.width / 2, layout.height * 0.3, layout.width / 2, layout.height * 0.85, 0.3)
+        time.sleep(1.5)
+        return
+    phone.tap(*layout.bottom_sheet_point(*PROFILE_TAB))
+    time.sleep(2.0)
+
+
+def open_instagram():
+    """Instagram in front on a screen whose tree may be read.
+
+    Instagram opens on its feed, a Reel or a story, which autoplay. The driver refuses every
+    accessibility request there (activeAppInfo included), so such a screen is left from pixels
+    only; the profile header read afterwards is what proves the app and the account."""
+    try:
+        phone.open_app(INSTAGRAM, wait_seconds=2)
+    except VideoSurfaceError:
+        pass
+    else:
+        try:
+            if phone.current_app().get("bundleId") != INSTAGRAM:
+                raise ValueError("Instagram is not foreground")
+            return elements_from_tree(phone.ui_tree())
+        except VideoSurfaceError:
+            pass
+    for _ in range(2):
+        _leave_playing_screen()
+        try:
+            return elements_from_tree(share.still_tree(driver=phone))
+        except VideoSurfaceError:
+            continue
+    raise ValueError("Instagram kept playing video after two tries to reach the profile; "
+                     "stop before Edits export")
+
+
 def selected_instagram_account() -> str:
-    phone.open_app("com.burbn.instagram", wait_seconds=2)
-    if phone.current_app().get("bundleId") != "com.burbn.instagram":
-        raise ValueError("Instagram is not foreground")
-    elements = elements_from_tree(phone.ui_tree())
+    elements = open_instagram()
     # Instagram can reopen inside a story viewer (seen 2026-10-01 02:40), which has no tab bar.
     for _ in range(3):
         dismiss = [e for e in elements if e.type == "Button" and e.name == "story-dismiss-button"]

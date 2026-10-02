@@ -106,6 +106,29 @@ final tap (90 s + 1.5 s/MB for the in-app upload), read pixels through go-ios
 (never WDA) on video surfaces (YouTube trim, TikTok editor/post screen), and ask
 the supervisor for recovery instead of restarting the link themselves.
 
+**Every playing screen is read by pixels and OCR only (2026-10-02).** The
+2026-10-01 17:22 soak lost the phone off USB in the YouTube flow: the driver's
+video guard (`config.AX_VIDEO_APPS`) listed TikTok alone, and YouTube's trim and
+editor play the clip. The guard now lists every app with a playing surface
+(TikTok, YouTube, Instagram, Edits, Threads, Facebook) and covers both
+accessibility routes, `/source` (`ui_tree()`) and `/wda/activeAppInfo`
+(`current_app()`, `wait_for_app()`). While the noted app's screen is visibly
+moving (two go-ios frames), both raise `VideoSurfaceError` without asking WDA.
+`choose_share_app()` notes the destination before its tap. The flows then:
+
+| Screen | Read by |
+| --- | --- |
+| YouTube Home feed (previews autoplay), You tab | OCR rows (`youtube_nav.visible_rows`); You is the one on the tab bar |
+| YouTube trim, Processing, editor | OCR words ("Crop your video", "Processing…", "Swipe up to edit") and the one "Next" on the bottom quarter |
+| Share hand-off to a destination that opens playing | A refused `activeAppInfo` counts as "left the share sheet"; the destination's first screen proves the app |
+| Instagram feed, Reel or story at the account check | OCR: a story (its "Send message" bar) is swiped closed, anything else taps the Profile tab at its measured place |
+| Threads composer, receipts, Instagram/Edits steps | Wait up to 15 s for a still screen, then stop with a clear message; exact text is never taken from OCR |
+
+OCR is Windows' built-in engine (`video_drop/ocr`); its rows are typed
+`OcrText`, so they never satisfy a check that needs a real control. Needs
+device check: the OCR words above come from the screens' accessibility labels,
+which these screens draw as visible text. The soak on the front port is the proof.
+
 ### Running it
 
 ```

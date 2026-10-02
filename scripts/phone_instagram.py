@@ -147,7 +147,9 @@ def release_input(store: Store, release_id: int, now: datetime | None = None) ->
 
 
 def elements() -> tuple[Element, ...]:
-    return elements_from_tree(phone.ui_tree())
+    # Waits out a playing clip (Edits, the composer's preview) instead of asking WDA there; the
+    # driver refuses that read, and a screen that keeps playing stops the run (VideoSurfaceError).
+    return elements_from_tree(share.still_tree(driver=phone))
 
 
 def by_name(items, name: str, kind: str | None = None) -> Element:
