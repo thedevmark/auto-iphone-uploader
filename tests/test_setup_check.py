@@ -440,12 +440,12 @@ class GoIosParsingTests(unittest.TestCase):
         completed = type("Completed", (), {"stdout": stdout, "stderr": stderr, "returncode": code})()
         with patch("video_drop.setup_check.subprocess.run", return_value=completed) as run:
             result = setup_check.ios_devices("ios.exe")
-        self.assertEqual(run.call_args.args[0], ["ios.exe", "list"])
+        self.assertEqual(run.call_args.args[0], ["ios.exe", "list", "--details"])
         return result
 
     def test_device_ids_are_counted_not_returned(self):
         result = self.run_list('{"deviceList":["00008140-0001"]}\n')
-        self.assertEqual(result, {"found": True, "count": 1, "error": ""})
+        self.assertEqual(result, {"found": True, "count": 1, "error": "", "model": "", "ios": ""})
 
     def test_go_ios_error_is_reported(self):
         result = self.run_list("", '{"level":"fatal","msg":"could not connect to usbmuxd"}\n', 1)
@@ -767,3 +767,32 @@ class ScreenTextTests(unittest.TestCase):
             self.assertEqual(entry["step"], "control")
             self.assertIn("Optical character recognition", " ".join(entry["steps"]))
             self.assertFalse(result["ready"])
+
+
+class SupportedIphoneTests(unittest.TestCase):
+    def test_face_id_iphones_on_ios_17_4_or_newer_are_supported(self):
+        from video_drop.setup_check import unsupported_reason
+        for model, ios in (("iPhone17,2", "26.7"), ("iPhone10,3", "17.4"), ("iPhone15,2", "18.0.1"), ("", "")):
+            self.assertEqual(unsupported_reason(model, ios), "", (model, ios))
+
+    def test_home_button_iphones_and_old_ios_say_why(self):
+        from video_drop.setup_check import unsupported_reason
+        self.assertIn("Home button", unsupported_reason("iPhone14,6", "26.0"))  # SE 3rd generation
+        self.assertIn("Home button", unsupported_reason("iPhone10,4", "17.6"))  # iPhone 8
+        self.assertIn("17.4", unsupported_reason("iPhone13,2", "17.3.1"))
+        self.assertIn("17.4", unsupported_reason("iPhone13,2", "16"))
+
+    def test_an_unsupported_phone_is_an_action_row(self):
+        from video_drop.setup_check import phone_item
+        row = phone_item({"found": True, "count": 1, "error": "", "model": "iPhone12,8", "ios": "18.1"}, True)
+        self.assertEqual(row["status"], "action")
+        self.assertIn("Face ID", row["fix"])
+
+
+class GoIosDetailsTests(unittest.TestCase):
+    def test_model_and_ios_version_are_read_but_not_the_device_id(self):
+        line = '{"deviceList":[{"ProductType":"iPhone17,2","ProductVersion":"26.7","Udid":"00008140-0001"}]}\n'
+        completed = type("Completed", (), {"stdout": line, "stderr": "", "returncode": 0})()
+        with patch("video_drop.setup_check.subprocess.run", return_value=completed):
+            result = setup_check.ios_devices("ios.exe")
+        self.assertEqual(result, {"found": True, "count": 1, "error": "", "model": "iPhone17,2", "ios": "26.7"})
