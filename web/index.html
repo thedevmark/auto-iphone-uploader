@@ -47,7 +47,7 @@ body[data-onboarding] #dropSection,body[data-onboarding] #draftRail,body[data-on
 .onboarding{display:grid;grid-template-columns:minmax(0,1fr);justify-items:center;padding:clamp(28px,7vh,72px) 0 56px}
 .obProgress{list-style:none;margin:0;padding:0;display:flex;align-items:center;width:min(100%,640px);counter-reset:ob}
 .obProgress li{display:flex;align-items:center;flex:1 1 0;min-width:0}.obProgress li:last-child{flex:0 0 auto}
-.obDot{width:28px;height:28px;border-radius:50%;flex:none;display:grid;place-items:center;border:1.5px solid var(--line-2);color:var(--muted);font-size:.74rem;font-weight:650;font-variant-numeric:tabular-nums;background:var(--bg);transition:background-color 200ms ease,border-color 200ms ease,color 200ms ease}
+.obDot{width:28px;height:28px;border-radius:50%;flex:none;display:grid;place-items:center;line-height:1;text-box:trim-both cap alphabetic;border:1.5px solid var(--line-2);color:var(--muted);font-size:.74rem;font-weight:650;font-variant-numeric:tabular-nums;background:var(--bg);transition:background-color 200ms ease,border-color 200ms ease,color 200ms ease}
 .obDot svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
 .obProgress li[data-state=done] .obDot{border-color:var(--ok);background:var(--ok);color:var(--on-ok)}
 .obProgress li[data-state=current] .obDot{border-color:var(--signal);color:var(--signal);box-shadow:0 0 0 4px color-mix(in srgb,var(--signal) 12%,transparent)}
@@ -123,20 +123,22 @@ body[data-onboarding] #dropSection,body[data-onboarding] #draftRail,body[data-on
   .processStep[data-running="true"] .motifDot:nth-child(3){animation-delay:.36s}
 }
 
-/* Connect step: Steam Deck-style illustration. The cable slides into a rear port, pauses, repeats. */
+/* Connect step: a PC tower seen from the side, FRONT and BACK labelled, the iPhone's cable in a
+   back port. Motion is deliberately quiet: the port glows slowly and the plug settles 2px. */
 .obPlug{margin:4px 0 18px;padding:18px 16px 14px;border-radius:18px;background:var(--inset);border:1px solid var(--line)}
-.obPlug svg{display:block;width:100%;max-width:380px;height:auto;margin:0 auto;color:var(--ink)}
-.obPlug .pc,.obPlug .phone{fill:none;stroke:currentColor;stroke-width:2.2;stroke-linejoin:round;opacity:.85}
-.obPlug .vent{stroke:currentColor;stroke-width:1.6;opacity:.35}
-.obPlug .port{fill:var(--signal)}
-.obPlug .portRing{fill:none;stroke:var(--signal);stroke-width:2;opacity:0;transform-box:fill-box;transform-origin:center;animation:obRing 3.2s var(--ease-out,cubic-bezier(.23,1,.32,1)) infinite}
-.obPlug .cable{fill:none;stroke:currentColor;stroke-width:3;stroke-linecap:round;opacity:.75}
-.obPlug .plug{fill:currentColor;animation:obSlide 3.2s var(--ease-out,cubic-bezier(.23,1,.32,1)) infinite}
+.obPlug svg{display:block;width:100%;max-width:400px;height:auto;margin:0 auto;color:var(--ink)}
+.obPlug .shape{fill:none;stroke:currentColor;stroke-width:2;stroke-linejoin:round;opacity:.85}
+.obPlug .detail{fill:currentColor;opacity:.22}
+.obPlug .edge{stroke:currentColor;stroke-width:1.4;opacity:.35}
+.obPlug .label{fill:var(--muted);font:600 10px/1 Inter,"Segoe UI",system-ui,sans-serif;letter-spacing:.14em}
+.obPlug .port{fill:var(--signal);animation:obGlow 2.8s ease-in-out infinite}
+.obPlug .cable{fill:none;stroke:currentColor;stroke-width:2.6;stroke-linecap:round;opacity:.7}
+.obPlug .plug{fill:currentColor;animation:obSettle 4.8s cubic-bezier(.23,1,.32,1) infinite}
 .obPlug p{margin:12px 0 0;text-align:center;font-size:.92rem;color:var(--muted)}
 .obPlug p strong{color:var(--ink);font-weight:600}
-@keyframes obSlide{0%{transform:translateX(-26px)}38%,78%{transform:translateX(0)}100%{transform:translateX(-26px)}}
-@keyframes obRing{0%,34%{opacity:0;transform:scale(.6)}44%{opacity:.9;transform:scale(1)}70%,100%{opacity:0;transform:scale(1.6)}}
-@media (prefers-reduced-motion:reduce){.obPlug .plug,.obPlug .portRing{animation:none}.obPlug .portRing{opacity:.9}}
+@keyframes obGlow{0%,100%{opacity:.55}50%{opacity:1}}
+@keyframes obSettle{0%,70%,100%{transform:translateX(0)}80%{transform:translateX(2px)}}
+@media (prefers-reduced-motion:reduce){.obPlug .plug,.obPlug .port{animation:none}}
 </style>
 </head>
 <body><main class="shell">
@@ -338,7 +340,7 @@ function obDoneLine(items){const box=document.createElement('details');box.class
 /* A check the app can run itself just runs: the apps read starts once per session, without a click. */
 let obAutoRan=new Set();function obAutoRun(item){if(item.status!=='action'||item.action!=='inspect'||obAutoRan.has(item.key))return;obAutoRan.add(item.key);SETUP_ACTIONS.inspect[1]().then(()=>refreshSetup()).catch(()=>{})}
 function renderObStatus(){const status=$('obStatus');if(setupChecking)return;status.textContent=obStep<obSteps().length?'Checks again every few seconds. Nothing here taps the iPhone.':''}
-const OB_PLUG_SVG='<svg viewBox="0 0 320 150" role="img" aria-label="An iPhone cable plugged into a USB port on the back of a desktop PC"><rect class="pc" x="196" y="10" width="96" height="130" rx="10"/><line class="vent" x1="212" y1="26" x2="276" y2="26"/><line class="vent" x1="212" y1="34" x2="276" y2="34"/><line class="vent" x1="212" y1="42" x2="276" y2="42"/><rect x="214" y="66" width="20" height="9" rx="2" fill="currentColor" opacity=".25"/><rect x="214" y="96" width="20" height="9" rx="2" fill="currentColor" opacity=".25"/><rect class="port" x="214" y="81" width="20" height="9" rx="2"/><rect class="portRing" x="208" y="76" width="32" height="19" rx="5"/><rect class="phone" x="22" y="34" width="46" height="88" rx="10"/><line class="vent" x1="38" y1="42" x2="52" y2="42"/><path class="cable" d="M45 122 C45 142 110 142 130 112 C146 90 160 85.5 178 85.5"/><g class="plug"><rect x="178" y="80" width="22" height="11" rx="3"/><rect x="200" y="82.5" width="12" height="6" rx="1"/></g></svg>';
+const OB_PLUG_SVG='<svg viewBox="0 0 400 184" role="img" aria-label="Side view of a desktop PC tower: the iPhone cable goes into a USB port on the back, not the front"><rect class="shape" x="96" y="10" width="118" height="150" rx="9"/><rect class="detail" x="104" y="160" width="16" height="5" rx="2"/><rect class="detail" x="190" y="160" width="16" height="5" rx="2"/><line class="edge" x1="110" y1="10" x2="110" y2="160"/><circle class="detail" cx="103" cy="26" r="3.2"/><rect class="detail" x="100" y="38" width="6" height="10" rx="1.5"/><rect class="detail" x="100" y="52" width="6" height="10" rx="1.5"/><line class="edge" x1="200" y1="10" x2="200" y2="160"/><rect class="detail" x="204" y="36" width="6" height="11" rx="1.5"/><rect class="port" x="204" y="54" width="6" height="11" rx="1.5"/><rect class="detail" x="204" y="72" width="6" height="11" rx="1.5"/><rect class="detail" x="204" y="90" width="6" height="11" rx="1.5"/><text class="label" x="96" y="180">FRONT</text><text class="label" x="214" y="180" text-anchor="end">BACK</text><rect class="shape" x="318" y="46" width="44" height="84" rx="9"/><line class="edge" x1="333" y1="54" x2="347" y2="54"/><path class="cable" d="M340 130 C340 158 280 156 256 112 C244 90 238 59.5 230 59.5"/><g class="plug"><rect x="216" y="54.5" width="14" height="10" rx="2.5"/><rect x="210" y="56.5" width="6" height="6" rx="1"/></g></svg>';
 function obPlugPanel(){const box=document.createElement('div');box.className='obPlug';box.innerHTML=OB_PLUG_SVG;const p=document.createElement('p');p.innerHTML='<strong>Plug straight into a port on the back of the PC.</strong> On a laptop, any port on its side. Skip front-panel ports, hubs and docks: they can drop the iPhone mid-upload.';box.append(p);return box}
 function renderOnboarding(){
  if(!obVisible||!setupState)return;if(obStep<0)obStep=obFirstOpen();const steps=obSteps(),total=steps.length+1,final=obStep>=steps.length;
