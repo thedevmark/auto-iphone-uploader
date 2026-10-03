@@ -302,11 +302,47 @@ def prepare_phone(phone, enabled: bool):
     return stack
 
 
+# A Post now runs YouTube, Instagram and TikTok in one process. Preparing and restoring the
+# phone around each app cost ~80 s + ~50 s per app (measured 2026-10-02), so a release run holds
+# one prepared session: the first app's guards prepare the phone, the rest find it ready, and
+# everything is restored once when the run ends.
+_session: ExitStack | None = None
+_session_ready = False
+restore_problem: str | None = None
+
+
+@contextmanager
+def prepared_session():
+    """Hold one phone preparation across several runs; restore once at the end.
+
+    A restore that fails is kept in `restore_problem` for the caller to report; it never
+    replaces the outcome of the runs themselves."""
+    global _session, _session_ready, restore_problem
+    _session, _session_ready, restore_problem = ExitStack(), False, None
+    try:
+        yield
+    finally:
+        stack, _session, _session_ready = _session, None, False
+        try:
+            stack.close()
+        except Exception as exc:  # noqa: BLE001 - reported, never raised over the run's result
+            restore_problem = f"The phone could not be put back as it was: {exc}"[:240]
+
+
 @contextmanager
 def run_guards(phone, checks: dict):
     """Upright always, then the phone preparation the owner keeps on (see prepare_phone)."""
+    global _session_ready
     upright(phone)
-    with prepare_phone(phone, checks.get("preparePhone", True)):
+    enabled = checks.get("preparePhone", True)
+    if _session is not None and enabled:
+        if not _session_ready:
+            _session.enter_context(prepare_phone(phone, True))
+            _session_ready = True
+        guard = nullcontext()
+    else:
+        guard = prepare_phone(phone, enabled)
+    with guard:
         try:
             yield
         except BaseException as exc:

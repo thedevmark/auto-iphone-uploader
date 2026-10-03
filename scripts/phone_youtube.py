@@ -494,7 +494,14 @@ def type_description(description: str) -> None:
             time.sleep(0.6)
         phone.type_text(line)
         time.sleep(1.0)
-    values = [e.value for e in elements_from_tree(phone.ui_tree()) if e.type == "TextView"]
+    # Dry run 2026-10-02 19:34 (captured): the field showed the exact approved text, but the
+    # read right after typing listed no text view at all. An empty read is read again; a field
+    # that shows other text still stops at once.
+    for attempt in range(4):
+        values = [e.value for e in elements_from_tree(phone.ui_tree()) if e.type == "TextView"]
+        if description in values or values or attempt == 3:
+            break
+        time.sleep(2.2)  # past the 2 s tree cache, so the next read is a fresh one
     if description not in values:
         raise PhoneUploadError(f"YouTube description does not match the approved text: {values!r}")
 
