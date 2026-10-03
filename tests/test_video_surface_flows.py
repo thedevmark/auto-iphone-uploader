@@ -280,3 +280,54 @@ def test_youtube_upload_wait_is_bounded_and_says_so():
     assert yt.wait_for_upload(10_000_000, clock=lambda: now[0], sleep=lambda s: now.__setitem__(0, now[0] + s),
                               read=lambda: ["Uploading 10%"]) is False
     assert now[0] >= (90 + 15) * 1.5
+
+
+class DescriptionReadBack(unittest.TestCase):
+    """Dry run 2026-10-02 19:34: the typed text was on screen but the first read listed no field."""
+
+    def tree(self, *values):
+        return {"type": "XCUIElementTypeApplication", "children": [
+            {"type": "XCUIElementTypeTextView", "name": "", "label": "", "value": v, "isVisible": "1",
+             "rect": {"x": 10, "y": 100, "width": 400, "height": 80}} for v in values]}
+
+    def test_an_empty_read_is_read_again(self):
+        phone = MagicMock()
+        phone.ui_tree.side_effect = [self.tree(), self.tree("one line")]
+        with patch.object(phone_youtube, "phone", phone), patch.object(phone_youtube.time, "sleep"):
+            phone_youtube.type_description("one line")
+        self.assertEqual(phone.ui_tree.call_count, 2)
+
+    def test_a_field_with_other_text_still_stops_at_once(self):
+        phone = MagicMock()
+        phone.ui_tree.side_effect = [self.tree("wrong"), self.tree("one line")]
+        with patch.object(phone_youtube, "phone", phone), patch.object(phone_youtube.time, "sleep"), \
+                self.assertRaisesRegex(phone_youtube.PhoneUploadError, "does not match"):
+            phone_youtube.type_description("one line")
+
+
+class DescriptionEditorByOcr(unittest.TestCase):
+    def test_the_ocr_read_editor_is_left_by_its_measured_back_chevron(self):
+        # Dry run 2026-10-02 19:42: OCR read "< Add description" and no "Back".
+        labels = ["7:42", "< Add description", "#a #b", "Hashtags", "space", "return"]
+        self.assertEqual(youtube_nav.exit_target(labels), youtube_nav.DESCRIPTION_BACK)
+        self.assertEqual(youtube_nav.exit_target(["Add description", "Back"]), "Back")
+
+    def test_a_tree_holding_only_the_keyboard_is_read_by_ocr(self):
+        # Dry run 2026-10-02 19:46: the tree showed only the keyboard on the description editor.
+        phone = MagicMock()
+        phone.screen_info.return_value = {"width": 440, "height": 956}
+        keyboard = [{"text": "space", "x": 221, "y": 858}, {"text": "return", "x": 385, "y": 858}]
+        tabs = [{"text": "Home", "x": 40, "y": 904}, {"text": "You", "x": 400, "y": 904}]
+        trees = iter([keyboard, tabs, tabs])
+        with patch("video_drop.youtube_nav.visible_rows", lambda p: next(trees)), \
+                patch("video_drop.youtube_nav.pixel_rows",
+                      lambda p: [{"text": "< Add description", "x": 13, "y": 74}]), \
+                patch("video_drop.youtube_nav.time.sleep"):
+            youtube_nav.open_tabs(phone)
+        phone.tap.assert_called_once_with(20.0, 86.0)
+
+    def test_the_ocr_read_shorts_editor_is_left_by_its_measured_back_arrow(self):
+        # Dry run 2026-10-02 19:51: Discard led to the playing editor; OCR has no "Exit editor".
+        labels = ["7:51", "Add sound", "Swipe up to edit", "Edit", "Next"]
+        self.assertEqual(youtube_nav.exit_target(labels), youtube_nav.EDITOR_BACK)
+        self.assertEqual(youtube_nav.exit_target(labels + ["Exit editor"]), "Exit editor")

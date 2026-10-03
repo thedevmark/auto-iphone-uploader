@@ -260,3 +260,43 @@ class Upright(unittest.TestCase):
     def test_a_phone_that_stays_sideways_stops_with_a_plain_message(self):
         with self.assertRaisesRegex(phone_focus.FocusError, "stand it in portrait"):
             phone_focus.upright(self.phone([(956, 440), (956, 440)]), settle=0)
+
+
+class PreparedSession(unittest.TestCase):
+    """2026-10-02: preparing around each app cost ~80 s + ~50 s per app; a Post now prepares once."""
+
+    def test_the_phone_is_prepared_by_the_first_run_and_restored_once_at_the_end(self):
+        from contextlib import contextmanager
+        from video_drop import phone_focus
+        order = []
+
+        @contextmanager
+        def prepare(phone, enabled):
+            order.append("prepare")
+            yield
+            order.append("restore")
+        with mock.patch.object(phone_focus, "prepare_phone", prepare), \
+                mock.patch.object(phone_focus, "upright", lambda phone: None):
+            with phone_focus.prepared_session():
+                for app in ("youtube", "instagram", "tiktok"):
+                    with phone_focus.run_guards(object(), {"preparePhone": True}):
+                        order.append(app)
+            with phone_focus.run_guards(object(), {"preparePhone": True}):  # outside: per run again
+                order.append("alone")
+        self.assertEqual(order, ["prepare", "youtube", "instagram", "tiktok", "restore",
+                                 "prepare", "alone", "restore"])
+
+    def test_a_failed_restore_is_reported_not_raised(self):
+        from contextlib import contextmanager
+        from video_drop import phone_focus
+
+        @contextmanager
+        def prepare(phone, enabled):
+            yield
+            raise RuntimeError("Control Center did not open")
+        with mock.patch.object(phone_focus, "prepare_phone", prepare), \
+                mock.patch.object(phone_focus, "upright", lambda phone: None):
+            with phone_focus.prepared_session():
+                with phone_focus.run_guards(object(), {"preparePhone": True}):
+                    pass
+        self.assertIn("could not be put back", phone_focus.restore_problem)

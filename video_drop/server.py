@@ -523,6 +523,9 @@ def run_release_steps(release_id: int, mode: str, platforms: list[str], steps: l
                 follower.update(state="stopped", message="Not sent: Instagram stopped before its final tap.")
         return status
 
+    from . import phone_focus
+    session = phone_focus.prepared_session()
+    session.__enter__()
     try:
         for index, platform in enumerate(platforms):
             name = platform_name(platform)
@@ -571,6 +574,10 @@ def run_release_steps(release_id: int, mode: str, platforms: list[str], steps: l
         save(status="failed", message=f"The run stopped: {str(exc)[:200]}")
         return state
     finally:
+        # One restore for the whole run (Low Power Mode, Auto-Lock, Do Not Disturb, rotation).
+        session.__exit__(None, None, None)
+        if phone_focus.restore_problem:
+            save(message=f"{state.get('message') or ''} {phone_focus.restore_problem}".strip())
         with PHONE_ACTION_LOCK:
             PHONE_ACTION_RUNNING = False
 

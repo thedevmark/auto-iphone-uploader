@@ -104,7 +104,7 @@ class StayAwake(unittest.TestCase):
     def test_an_unrecorded_settings_layout_stops_before_changing_anything(self):
         phone = FakeSettings()
         with mock.patch.object(phone_awake, "_elements", lambda p, names=None: ()):
-            with self.assertRaisesRegex(phone_awake.AwakeError, "nothing was changed"):
+            with self.assertRaisesRegex(phone_awake.AwakeError, "has no"):
                 with phone_awake.stay_awake(phone):
                     pass
         self.assertEqual(phone.taps, [])

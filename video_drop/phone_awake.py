@@ -87,6 +87,9 @@ def find_row(phone, name: str, types: tuple[str, ...]) -> Element:
             continue
         elements = _elements(phone)
         shown = tuple((e.name, round(e.y)) for e in elements if e.type in ("Button", "Cell", "Switch"))
+        if len(shown) <= 1:  # only the back button: the page is still loading (Battery builds charts)
+            time.sleep(1.0)
+            continue
         if shown == last:  # the page did not move: that end is reached
             if turns:
                 break
@@ -97,7 +100,7 @@ def find_row(phone, name: str, types: tuple[str, ...]) -> Element:
         else:
             phone.swipe(x, layout.height * 0.30, x, layout.height * 0.75, 0.4)
         time.sleep(0.6)
-    raise AwakeError(f"Settings has no {name!r} row on this iPhone; nothing was changed")
+    raise AwakeError(f"Settings has no {name!r} row on this iPhone")
 
 
 def _open(phone, name: str, types: tuple[str, ...] = ("Button", "Cell"), settle: float = 2.0) -> None:
