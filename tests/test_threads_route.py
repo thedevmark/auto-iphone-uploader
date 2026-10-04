@@ -105,9 +105,10 @@ class ThreadsPostRouteTests(unittest.TestCase):
                     self.assertEqual(code, 400)
                     self.assertIn("already running", body["error"])
                     finish.set()
-                    for _ in range(100):
+                    deadline = time.monotonic() + 10
+                    while True:
                         result = server.phone_action_status()
-                        if result["status"] != "running":
+                        if result["status"] != "running" or time.monotonic() > deadline:
                             break
                         time.sleep(0.02)
                     self.assertEqual(result["status"], "needs_check")

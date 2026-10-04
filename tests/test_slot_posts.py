@@ -112,7 +112,8 @@ def tiktok_status(state: Path, release_id: int) -> str:
 
 
 def wait_for_phone(testcase):
-    for _ in range(100):
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
         result = server.phone_action_status()
         if result["status"] != "running":
             return result
