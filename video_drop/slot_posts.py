@@ -1,7 +1,7 @@
 """Decide when the app itself must post a Schedule-mode destination at its slot.
 
-Most apps schedule natively. Those in core.APP_POSTED_DESTINATIONS (none since the
-owner's 2026-10-04 decision) would be posted by the running app at the slot. This
+Most apps schedule natively. Those in core.APP_POSTED_DESTINATIONS (currently none)
+are posted by the running app at the slot. This
 module only decides; the server does the phone work. Every rule fails toward
 "missed", which the UI surfaces with a Post now button, never toward a late or
 repeated post:

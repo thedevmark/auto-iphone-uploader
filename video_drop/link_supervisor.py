@@ -715,8 +715,8 @@ def try_supervisor_lock(state: Path):
     Returns the open lock file (keep it open for as long as this process is the
     supervisor) or None when another process holds it. The OS drops the lock
     when the holder exits, crashes included, so a stale pid file can never
-    block a start or hide a running supervisor. On 2026-10-03 two supervisors
-    started twice from a stale pid record and fought over the phone."""
+    block a start or hide a running supervisor, and two starts at once cannot
+    both win."""
     state.mkdir(parents=True, exist_ok=True)
     handle = open(state / LOCK_FILE, "a+b")
     try:

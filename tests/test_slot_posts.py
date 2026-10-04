@@ -235,7 +235,7 @@ class SlotSchedulerTests(unittest.TestCase):
 
 
 class OwnerPostsTikTokTests(unittest.TestCase):
-    """Owner decision 2026-10-04: Schedule happens only on the platforms' own schedulers.
+    """Schedule happens only on the platforms' own schedulers.
 
     TikTok's phone app cannot schedule, so this app never posts it at the slot; the owner
     posts it themselves or presses Post now, whenever they choose."""

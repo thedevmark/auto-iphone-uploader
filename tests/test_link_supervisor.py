@@ -567,7 +567,7 @@ class ExternalTunnelRunnerTests(unittest.TestCase):
 
 
 class OneSupervisorTests(unittest.TestCase):
-    """Only one supervisor may own the link; on 2026-10-03 two ran twice and fought over the phone."""
+    """Only one supervisor may own the link; two would fight over the phone."""
 
     def setUp(self):
         self.folder = TemporaryDirectory()

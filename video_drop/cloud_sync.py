@@ -1,10 +1,9 @@
 """Can the phone reach the finished video through OneDrive yet?
 
 The phone apps pick the video from the OneDrive app, so the PC's copy must be
-uploaded before a run touches the phone. On 2026-10-03 OneDrive was not
-running after a restart, the video never uploaded, and YouTube stopped on the
-phone at "No Results". This check refuses the run on the PC instead, with a
-plain reason, before anything on the phone changes.
+uploaded before a run touches the phone. Without it the phone's search finds
+nothing and the run stops mid-flow. This check refuses the run on the PC
+instead, with a plain reason, before anything on the phone changes.
 
 Windows reports a synced file's state through the shell property
 System.StorageProviderState. Values (propkey.h, STORAGE_PROVIDER_STATE):

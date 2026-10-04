@@ -20,7 +20,6 @@ class CloudSyncTests(unittest.TestCase):
                 self.assertIsNone(refusal(state=state))
 
     def test_onedrive_not_running_refuses_before_the_phone(self):
-        # 2026-10-03: OneDrive was off after a restart and YouTube stopped on the phone at "No Results".
         message = refusal(running=False)
         self.assertIn("OneDrive isn't running", message)
         self.assertIn("clip.mp4", message)

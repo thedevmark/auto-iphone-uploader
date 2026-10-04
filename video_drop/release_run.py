@@ -60,8 +60,8 @@ def mode_refusal(release: dict, mode: str) -> str | None:
     return None
 
 
-# Schedule happens only on the platforms' own schedulers (owner, 2026-10-04). TikTok's phone
-# app cannot schedule, so this app never posts it at the slot either.
+# Schedule happens only on the platforms' own schedulers. TikTok's phone app cannot schedule,
+# and this app does not post it at the slot either.
 TIKTOK_SCHEDULE_NOTE = ("TikTok can't schedule from its phone app, so Schedule leaves it out. Post it yourself, "
                         "or press Post now on TikTok when you want it out.")
 
