@@ -157,7 +157,7 @@ class RunRouteTests(unittest.TestCase):
             action = self.finished()
         self.assertEqual(phone.order(), ["youtube_schedule", "instagram"])
         self.assertEqual(action["status"], "done")
-        self.assertIn("TikTok posts from this app at the slot", action["message"])
+        self.assertIn("TikTok can't schedule from its phone app: post it yourself, or press Post now", action["message"])
         self.assertIn("native Threads scheduling isn't built yet", action["message"])
         self.assertEqual(statuses(self.state, release_id),
                          {"youtube": "unconfirmed", "instagram": "unconfirmed", "facebook": "unconfirmed",
@@ -166,10 +166,11 @@ class RunRouteTests(unittest.TestCase):
         self.assertEqual(list(rows), ["youtube", "instagram", "facebook", "tiktok", "threads"])
         self.assertEqual({p: r["state"] for p, r in rows.items()},
                          {"youtube": "unconfirmed", "instagram": "unconfirmed", "facebook": "unconfirmed",
-                          "tiktok": "at_slot", "threads": "needs_you"})
+                          "tiktok": "needs_you", "threads": "needs_you"})
         self.assertIn("not built yet", rows["threads"]["note"])
         self.assertIn("stays pending", rows["threads"]["note"])
 
+    @patch("video_drop.core.APP_POSTED_DESTINATIONS", frozenset({"tiktok"}))  # the dormant slot engine
     def test_tiktok_is_posted_by_the_app_at_the_slot_not_by_schedule(self):
         release_id = make_release(self.state)
         slot_utc = SLOT.astimezone(ZoneInfo("UTC"))
@@ -267,14 +268,25 @@ class RunRouteTests(unittest.TestCase):
             self.assertEqual(phone_now.calls, [])
         self.assertEqual(phone.calls, [])
 
-    def test_schedule_with_only_tiktok_leaves_it_to_the_slot(self):
+    def test_schedule_with_only_tiktok_leaves_it_to_the_owner(self):
         release_id = make_release(self.state, approved=("tiktok",))
         with FakePhone() as phone:
             code, started = self.start(release_id, "schedule")
         self.assertEqual(code, 202)
         self.assertEqual(started["run"]["status"], "done")
-        self.assertIn("TikTok posts from this app at the slot", started["run"]["message"])
+        self.assertIn("TikTok can't schedule from its phone app", started["run"]["message"])
         self.assertEqual(phone.calls, [])
+
+    def test_the_app_never_posts_tiktok_at_the_slot(self):
+        release_id = make_release(self.state)
+        slot_utc = SLOT.astimezone(ZoneInfo("UTC"))
+        with FakePhone() as phone:
+            self.assertEqual(server.slot_post_tick(slot_utc - timedelta(hours=1)), [])
+            self.start(release_id, "schedule")
+            self.finished()
+            self.assertEqual(server.slot_post_tick(slot_utc + timedelta(minutes=1)), [])
+        self.assertNotIn("tiktok", phone.order())
+        self.assertEqual(statuses(self.state, release_id)["tiktok"], "pending")
 
     # ---- Post now -----------------------------------------------------------------
 
@@ -401,6 +413,7 @@ class RunRouteTests(unittest.TestCase):
         self.assertIn("The phone link is not ready (Unplug and replug the phone)", action["message"])
         self.assertEqual(set(statuses(self.state, release_id).values()), {"pending"})
 
+    @patch("video_drop.core.APP_POSTED_DESTINATIONS", frozenset({"tiktok"}))  # the dormant slot engine
     def test_a_slot_post_also_waits_for_the_link(self):
         release_id = make_release(self.state)
         slot_utc = SLOT.astimezone(ZoneInfo("UTC"))

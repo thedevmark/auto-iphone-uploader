@@ -95,7 +95,7 @@ Select the Schedule-mode release. In a terminal run
 scheduler and reads the day and time back from the picker. This version stops
 here, before the final tap, because a committed schedule and its receipt are
 still being verified. Instagram has the same runner. TikTok has no scheduler
-on this account, so the app posts it at the slot itself. Threads scheduling in
+on this account, so Schedule leaves it for me: I post it myself or press Post now on TikTok. Threads scheduling in
 the Threads app is not built yet, so a scheduled video leaves Threads for me."
 
 Stop the script when it reports the slot read back.

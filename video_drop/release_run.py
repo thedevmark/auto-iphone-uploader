@@ -17,6 +17,7 @@ This module only decides. The server runs the steps on its single phone worker.
 
 from __future__ import annotations
 
+from . import core
 from .core import threads_post_refusal
 
 MODES = ("post_now", "schedule")
@@ -59,12 +60,18 @@ def mode_refusal(release: dict, mode: str) -> str | None:
     return None
 
 
+# Schedule happens only on the platforms' own schedulers (owner, 2026-10-04). TikTok's phone
+# app cannot schedule, so this app never posts it at the slot either.
+TIKTOK_SCHEDULE_NOTE = ("TikTok can't schedule from its phone app, so Schedule leaves it out. Post it yourself, "
+                        "or press Post now on TikTok when you want it out.")
+
+
 def plan(release: dict, mode: str) -> list[dict]:
     """One row per approved (or already attempted) destination, in the owner's display order.
 
     Each row: platform, state, note, run (the phone worker runs its flow now) and, for a
-    crosspost, via="instagram". States: queued, unconfirmed, posted, scheduled, needs_you,
-    at_slot (TikTok in Schedule) and with_instagram.
+    crosspost, via="instagram". States: queued, unconfirmed, posted, scheduled, needs_you
+    and with_instagram (at_slot only for an app-posted destination, of which there are none).
     """
     by_platform = {d["platform"]: d for d in release["destinations"]}
     carried = list(release.get("instagramCrossposts", []))
@@ -100,9 +107,11 @@ def plan(release: dict, mode: str) -> list[dict]:
             else:
                 refusal = threads_post_refusal({**release, "delivery_mode": mode, "threadsSeparatePost": False})
                 row(platform, "needs_you", refusal.replace(" Nothing was posted.", " Threads stays pending."))
+        elif platform in core.APP_POSTED_DESTINATIONS and mode == "schedule":
+            row(platform, "at_slot", f"{name(platform)} has no scheduler on this account, so this app posts it at "
+                                     "the slot. Keep this PC and the phone link on then.")
         elif platform == "tiktok" and mode == "schedule":
-            row(platform, "at_slot", "TikTok has no scheduler on this account, so this app posts it at the "
-                                     "slot. Keep this PC and the phone link on then.")
+            row(platform, "needs_you", TIKTOK_SCHEDULE_NOTE)
         elif platform in RUN_ORDER[mode]:
             row(platform, "queued", "Scheduled in its own app when you press Schedule." if mode == "schedule" else "",
                 run=True)
@@ -129,12 +138,16 @@ def summary(mode: str, steps: list[dict]) -> str:
     if sent:
         parts.append(f"{'Schedule' if mode == 'schedule' else 'Final tap'} sent for {_join(sent)}; check "
                      f"{'them' if len(sent) > 1 else 'it'} in the app before any retry.")
-    if any(s["platform"] == "tiktok" and s["state"] == "at_slot" for s in steps):
-        parts.append("TikTok posts from this app at the slot; keep this PC and the phone link on then.")
+    if any(s["state"] == "at_slot" for s in steps):
+        parts.append(f"{_join([name(s['platform']) for s in steps if s['state'] == 'at_slot'])} posts from this app "
+                     "at the slot; keep this PC and the phone link on then.")
+    if mode == "schedule" and any(s["platform"] == "tiktok" and s["state"] == "needs_you" for s in steps):
+        parts.append("TikTok can't schedule from its phone app: post it yourself, or press Post now on TikTok "
+                     "when you want it out.")
     if mode == "schedule" and any(s["platform"] == "threads" and s["state"] == "needs_you" for s in steps):
         parts.append("Threads needs you: native Threads scheduling isn't built yet, so it stays pending.")
     others = [name(s["platform"]) for s in steps
-              if s["state"] == "needs_you" and not (mode == "schedule" and s["platform"] == "threads")]
+              if s["state"] == "needs_you" and not (mode == "schedule" and s["platform"] in {"threads", "tiktok"})]
     if others:
         parts.append(f"{_join(others)} {'need' if len(others) > 1 else 'needs'} you; see the list.")
     return " ".join(parts) or "Nothing was sent."

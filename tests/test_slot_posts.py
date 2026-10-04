@@ -41,6 +41,7 @@ def states(store, now):
     return [(plan.release_id, plan.platform, plan.state) for plan in plan_slot_posts(store, now)]
 
 
+@patch("video_drop.core.APP_POSTED_DESTINATIONS", frozenset({"tiktok"}))  # the dormant slot engine
 class SlotDecisionTests(unittest.TestCase):
     def test_future_slot_is_armed_once_then_posted_inside_the_window(self):
         store = FakeStore([release()])
@@ -119,6 +120,7 @@ def wait_for_phone(testcase):
     testcase.fail("phone action did not finish")
 
 
+@patch("video_drop.core.APP_POSTED_DESTINATIONS", frozenset({"tiktok"}))  # the dormant slot engine
 class SlotSchedulerTests(unittest.TestCase):
     def run_tick(self, state, now, **patches):
         with patch.object(server, "STATE", state), patch.object(server, "TEST_MODE", False), \
@@ -230,6 +232,38 @@ class SlotSchedulerTests(unittest.TestCase):
                 [annotated] = server.with_slot_posts(store, [store.release(release_id)])
             self.assertEqual(annotated["slotPosts"]["tiktok"]["state"], "missed")
             self.assertEqual(annotated["slotPosts"]["tiktok"]["slot"], SLOT)
+
+
+class OwnerPostsTikTokTests(unittest.TestCase):
+    """Owner decision 2026-10-04: Schedule happens only on the platforms' own schedulers.
+
+    TikTok's phone app cannot schedule, so this app never posts it at the slot; the owner
+    posts it themselves or presses Post now, whenever they choose."""
+
+    def test_no_slot_is_ever_armed_or_posted(self):
+        with tempfile.TemporaryDirectory() as folder:
+            state = Path(folder)
+            release_id = schedule_release(state)
+            with Store(state / "video-drop.sqlite") as store:
+                for moment in (AT_SLOT - timedelta(hours=1), AT_SLOT + timedelta(minutes=1)):
+                    self.assertEqual([p for p in plan_slot_posts(store, moment) if p.release_id == release_id], [])
+
+    def test_post_now_on_tiktok_works_before_the_slot_and_is_recorded(self):
+        with tempfile.TemporaryDirectory() as folder:
+            state = Path(folder)
+            release_id = schedule_release(state)
+            with patch.object(server, "STATE", state), patch.object(server, "TEST_MODE", False), \
+                    patch.object(server, "utc_now", return_value=AT_SLOT - timedelta(hours=1)), \
+                    patch.object(server, "phone_free_bytes", return_value=10 ** 12), \
+                    patch("scripts.phone_tiktok.run", return_value={"message": "sent"}) as run:
+                server.queue_phone_post(release_id, "tiktok")
+                wait_for_phone(self)
+            run.assert_called_once()
+            self.assertIsNone(run.call_args.kwargs["not_after"])
+            with Store(state / "video-drop.sqlite") as store:
+                payloads = [json.loads(row[0]) for row in store.db.execute(
+                    "SELECT payload FROM event WHERE kind='manual_intervention' AND release_id=?", (release_id,))]
+            self.assertEqual(payloads, [{"action": "post_now_in_schedule_mode"}])
 
 
 if __name__ == "__main__":

@@ -42,9 +42,12 @@ PHONE_CHECK_DEFAULTS = {
 }
 DELIVERY_MODES = ("schedule", "post_now")
 PLATFORM_HASHTAGS = {"youtube": "#shorts", "instagram": "#reels", "facebook": "#reels", "threads": "", "tiktok": "#fyp"}
-# Apps with no native scheduler on the operator's account: in Schedule mode this app posts
-# them itself at the slot, and only inside SLOT_GRACE after it. A later start is a missed slot.
-APP_POSTED_DESTINATIONS = frozenset({"tiktok"})
+# Apps this app posts itself at a Schedule slot (only inside SLOT_GRACE after it; a later
+# start is a missed slot). Empty by the owner's decision of 2026-10-04: Schedule happens only
+# on the platforms' own schedulers, so nothing depends on this PC being on at the slot.
+# TikTok's phone app has no scheduler, so in Schedule mode it waits for the owner (post it
+# yourself or press Post now). The slot machinery in slot_posts.py stays for any future app.
+APP_POSTED_DESTINATIONS: frozenset[str] = frozenset()
 SLOT_GRACE = timedelta(minutes=15)
 POST_ORDER = ("youtube", "instagram", "tiktok", "facebook", "threads")
 # Destinations Instagram's one upload can carry through its "Also share on…" switches, per

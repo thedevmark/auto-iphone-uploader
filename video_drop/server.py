@@ -16,6 +16,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 from urllib.request import urlopen
 
+from . import core
 from .core import Store, digest, next_slot, threads_post_refusal, utc_now
 from .slot_posts import SlotPost, plan_slot_posts, receipts_due
 from .analyze import OLLAMA, TEXT_MODEL, VISION_MODEL, analyze
@@ -23,7 +24,7 @@ from .accounts import load_targets
 from .watch import WatchFolder, complete_video, eligible
 from .runtime_identity import source_fingerprint
 from .phone_space import ensure_room, free_bytes
-from . import edits_cleanup, link_supervisor, phone_link, phone_lock, receipt_sweep, release_run, setup_check, timezones
+from . import cloud_sync, edits_cleanup, link_supervisor, phone_link, phone_lock, receipt_sweep, release_run, setup_check, timezones
 
 ROOT = Path(__file__).resolve().parent.parent
 phone_free_bytes = free_bytes
@@ -378,23 +379,33 @@ def queue_phone_post(release_id: int, platform: str, *, slot: SlotPost | None = 
             if slot is not None and (release["delivery_mode"] != "schedule" or release["scheduled_at"] != slot.slot):
                 raise ValueError("The posting time changed; nothing was posted")
             missed = False
-            if platform == "tiktok" and release["delivery_mode"] == "schedule" and slot is None:
+            tiktok_now = False
+            if platform in core.APP_POSTED_DESTINATIONS and release["delivery_mode"] == "schedule" and slot is None:
                 state = slot_post_state(store, release_id, platform)
                 if state is None or state.state != "missed":
-                    raise ValueError("This app posts TikTok itself at the slot; Post now opens only after a missed slot")
+                    raise ValueError(f"This app posts {platform_name(platform)} itself at the slot; "
+                                     "Post now opens only after a missed slot")
                 missed = True
+            elif platform == "tiktok" and release["delivery_mode"] == "schedule" and slot is None:
+                # TikTok can't schedule from its phone app, so Schedule leaves it to the owner:
+                # Post now is how this app sends it, whenever they choose.
+                tiktok_now = True
             elif release["delivery_mode"] != "post_now" and slot is None:
                 raise ValueError("This video is set to schedule; choose Post now to post it immediately")
             if (release["delivery_mode"] == "post_now" and store.phone_checks()["postNowInOrder"]
                     and (earlier := post_now_blockers(release, platform))):
                 raise ValueError(f"Post now goes YouTube, then Instagram, then TikTok; post "
                                  f"{' and '.join(map(platform_name, earlier))} first. Nothing was posted.")
+            if sync_refusal := cloud_sync.refusal(Path(release["source_path"])):
+                raise ValueError(sync_refusal)
             ensure_room(release["file_size"], measured_phone_space())
             check_inputs(store, release_id, platform, "post_now")
             if slot is not None and not store.mark_slot_post(release_id, platform, slot.slot, "slot_post_queued"):
                 raise ValueError("This slot was already attempted; check the account before any retry")
             if missed:
                 store.record_manual_intervention(release_id, platform, "post_now_after_missed_slot")
+            elif tiktok_now:
+                store.record_manual_intervention(release_id, platform, "post_now_in_schedule_mode")
         result = {"status": "running", "platform": platform, "releaseId": release_id,
                   "message": (f"Posting {platform_name(platform)} at its slot" if slot else
                               f"Preparing the confirmed video in {platform_name(platform)}")}
@@ -478,6 +489,9 @@ def queue_release_run(release_id: int, mode: str) -> dict:
             rows = release_run.plan(release, mode)
             platforms = release_run.runnable(rows)
             if platforms:
+                # The phone picks the video from OneDrive: refuse on the PC, not on the phone.
+                if sync_refusal := cloud_sync.refusal(Path(release["source_path"])):
+                    raise ValueError(sync_refusal)
                 ensure_room(release["file_size"], measured_phone_space())
                 for platform in platforms:
                     check_inputs(store, release_id, platform, mode)

@@ -61,6 +61,7 @@ class ReceiptButtonTests(unittest.TestCase):
         self.assertEqual(self.due(item, AT_SLOT + timedelta(hours=1)), {"tiktok"})
         self.assertEqual(self.due(release(status="discarded", youtube="unconfirmed"), AT_SLOT), set())
 
+    @patch("video_drop.core.APP_POSTED_DESTINATIONS", frozenset({"tiktok"}))  # the dormant slot engine
     def test_app_posted_tiktok_waits_for_its_own_window(self):
         item = release(tiktok="pending")
         for state in ("waiting", "arm", "armed", "post", "queued", "blocked"):
@@ -150,6 +151,7 @@ class PlanRouteTests(unittest.TestCase):
         with urlopen(request, timeout=5) as response:
             return json.load(response)
 
+    @patch("video_drop.core.APP_POSTED_DESTINATIONS", frozenset({"tiktok"}))  # the dormant slot engine
     def test_editor_schedules_tiktok_at_the_chosen_slot_and_the_app_takes_it(self):
         with Store(self.state / "video-drop.sqlite") as store:
             release_id = reviewed(store, self.state, "a.mp4")

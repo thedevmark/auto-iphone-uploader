@@ -1,6 +1,7 @@
 """release_run's decisions on synthetic releases: which apps run now, in which order, and what the page shows."""
 
 import unittest
+from unittest.mock import patch
 
 from video_drop import release_run
 
@@ -24,7 +25,9 @@ class PlanTests(unittest.TestCase):
         rows = release_run.plan(release(), "schedule")
         self.assertEqual(release_run.runnable(rows), ["youtube", "instagram"])
         self.assertEqual(self.states(release()), {"youtube": "queued", "instagram": "queued", "facebook": "with_instagram",
-                                                  "tiktok": "at_slot", "threads": "needs_you"})
+                                                  "tiktok": "needs_you", "threads": "needs_you"})
+        tiktok = next(r for r in rows if r["platform"] == "tiktok")
+        self.assertIn("Post it yourself, or press Post now on TikTok", tiktok["note"])
 
     def test_post_now_order_puts_a_separate_threads_post_last(self):
         item = release("post_now", crossposts=["facebook"], separate=True)
@@ -64,6 +67,7 @@ class ProgressTests(unittest.TestCase):
         action = {"releaseId": 7, "steps": [{"platform": "youtube", "state": "running", "message": ""}]}
         self.assertEqual(release_run.progress(item, action)[0]["state"], "unconfirmed")
 
+    @patch("video_drop.core.APP_POSTED_DESTINATIONS", frozenset({"tiktok"}))  # the dormant slot engine
     def test_tiktok_slot_states(self):
         for slot_state, shown in (("waiting", "at_slot"), ("due", "running"), ("blocked", "at_slot"), ("missed", "needs_you")):
             with self.subTest(slot_state):

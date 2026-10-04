@@ -42,8 +42,9 @@ USB cable and posts through the real apps:
 Each video is either **Post now** (everything immediately, in order: YouTube,
 then Instagram with its crossposts, then TikTok) or **Schedule** (the next
 free posting time): the app enters the slot in YouTube's and Instagram's own
-schedulers and reads the date and time back, and posts TikTok itself at the
-slot. Posting times are set in **Settings → Posting times**: one to five a
+schedulers and reads the date and time back. TikTok's phone app can't
+schedule, so Schedule leaves it to you: post it yourself or press Post now on
+TikTok. Posting times are set in **Settings → Posting times**: one to five a
 day (10 AM and 7 PM by default), in your PC's time zone or one you choose.
 
 Around every run:
@@ -95,9 +96,9 @@ to create, no cloud service of ours, and no tracking.
   down and `scripts\phone_resign.py` renews it.
 - Threads is not scheduled natively: a scheduled video leaves Threads for you
   and says so. Post now covers Threads through Instagram's crosspost.
-- TikTok has no native scheduler on the tested account, so your PC, the app
-  and the phone link must be on at the slot. A post not finished 15 minutes
-  after it is marked missed and never posted late.
+- TikTok has no native scheduler on the tested account, so Schedule leaves it
+  to you: post it yourself or press Post now on TikTok. The app never posts it
+  at the slot, so your PC doesn't need to be on then.
 - Schedule mode has been run on the reference phone up to the date and time
   read-back; a committed scheduled post has not been verified there yet
   ([docs/native-scheduling.md](docs/native-scheduling.md)).

@@ -1,7 +1,7 @@
 """Decide when the app itself must post a Schedule-mode destination at its slot.
 
-Most apps schedule natively. Those in APP_POSTED_DESTINATIONS (TikTok on this
-account) have no scheduler, so the running app posts them at the slot. This
+Most apps schedule natively. Those in core.APP_POSTED_DESTINATIONS (none since the
+owner's 2026-10-04 decision) would be posted by the running app at the slot. This
 module only decides; the server does the phone work. Every rule fails toward
 "missed", which the UI surfaces with a Post now button, never toward a late or
 repeated post:
@@ -21,7 +21,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
-from .core import APP_POSTED_DESTINATIONS, POST_ORDER, SLOT_GRACE
+from . import core
+from .core import POST_ORDER, SLOT_GRACE
 
 
 @dataclass(frozen=True)
@@ -55,7 +56,7 @@ def plan_slot_posts(store, now: datetime) -> list[SlotPost]:
         if slot.tzinfo is None:
             continue
         by_platform = {d["platform"]: d for d in release["destinations"]}
-        for platform in sorted(APP_POSTED_DESTINATIONS, key=POST_ORDER.index):
+        for platform in sorted(core.APP_POSTED_DESTINATIONS, key=POST_ORDER.index):
             destination = by_platform.get(platform)
             if not destination or destination["status"] != "pending" or not destination["revision_hash"]:
                 continue
@@ -118,7 +119,7 @@ def receipts_due(release: dict, plans: list[SlotPost], now: datetime) -> dict[st
             # The app still owns this slot until it reports it missed.
             due[platform] = states[platform] == "missed"
         elif slot is not None:
-            wait = SLOT_GRACE if platform in APP_POSTED_DESTINATIONS else timedelta(0)
+            wait = SLOT_GRACE if platform in core.APP_POSTED_DESTINATIONS else timedelta(0)
             due[platform] = now >= slot + wait
         else:
             due[platform] = started or release["status"] not in {"draft", "reserved"}
