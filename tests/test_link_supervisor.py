@@ -564,3 +564,67 @@ class ExternalTunnelRunnerTests(unittest.TestCase):
             self.assertIn("no MJPEG forward", text)
             self.assertEqual([c[1:] for c in spawned], [["forward", "8100", "8100"]])
             self.assertEqual(runner.forward_names, ("forward8100",))
+
+
+class OneSupervisorTests(unittest.TestCase):
+    """Only one supervisor may own the link; on 2026-10-03 two ran twice and fought over the phone."""
+
+    def setUp(self):
+        self.folder = TemporaryDirectory()
+        self.addCleanup(self.folder.cleanup)
+        self.state = Path(self.folder.name)
+
+    def test_the_lock_is_exclusive_and_released(self):
+        from video_drop.link_supervisor import release_supervisor_lock, supervisor_alive, try_supervisor_lock
+        self.assertFalse(supervisor_alive(self.state))
+        held = try_supervisor_lock(self.state)
+        self.assertIsNotNone(held)
+        try:
+            self.assertIsNone(try_supervisor_lock(self.state))
+            self.assertTrue(supervisor_alive(self.state))
+        finally:
+            release_supervisor_lock(held)
+        self.assertFalse(supervisor_alive(self.state))
+
+    def test_a_stale_pid_record_is_not_a_running_supervisor(self):
+        from video_drop.link_supervisor import PID_FILE, supervisor_alive
+        import os
+        # The record names a live python process (this one) that holds no lock.
+        (self.state / PID_FILE).write_text(str(os.getpid()), encoding="utf-8")
+        self.assertFalse(supervisor_alive(self.state))
+
+    def test_a_second_supervisor_exits_without_running(self):
+        from unittest import mock
+        from video_drop import link_supervisor
+        held = link_supervisor.try_supervisor_lock(self.state)
+        self.addCleanup(link_supervisor.release_supervisor_lock, held)
+        with mock.patch.dict("os.environ", {"VIDEO_DROP_STATE": str(self.state)}), \
+                mock.patch.object(link_supervisor, "Runner") as runner:
+            self.assertEqual(link_supervisor.main([]), 0)
+        runner.assert_not_called()
+
+    def test_the_os_drops_the_lock_when_the_holder_dies(self):
+        import subprocess
+        import sys
+        import time
+        from video_drop.link_supervisor import supervisor_alive
+        root = Path(__file__).resolve().parents[1]
+        holder = subprocess.Popen(
+            [sys.executable, "-c",
+             "import sys, time; from pathlib import Path; "
+             "from video_drop.link_supervisor import try_supervisor_lock; "
+             "h = try_supervisor_lock(Path(sys.argv[1])); print('held' if h else 'busy', flush=True); time.sleep(60)",
+             str(self.state)],
+            cwd=root, stdout=subprocess.PIPE, text=True)
+        try:
+            self.assertEqual(holder.stdout.readline().strip(), "held")
+            self.assertTrue(supervisor_alive(self.state))
+        finally:
+            holder.kill()
+            holder.wait(timeout=10)
+            holder.stdout.close()
+        for _ in range(20):
+            if not supervisor_alive(self.state):
+                break
+            time.sleep(0.1)
+        self.assertFalse(supervisor_alive(self.state))

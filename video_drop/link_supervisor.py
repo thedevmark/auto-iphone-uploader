@@ -70,6 +70,8 @@ EVENTS_FILE = "link-events.jsonl"
 BUSY_FILE = "phone-busy.json"
 REQUEST_FILE = "link-request"
 PID_FILE = "link-supervisor.pid"
+# Held (OS file lock) by the one running supervisor for its whole life.
+LOCK_FILE = "link-supervisor.lock"
 LOG_DIR = "link-logs"
 
 
@@ -707,13 +709,51 @@ def _pid_alive(pid: int, image_prefix: str = "") -> bool:
         return False
 
 
-def supervisor_alive(state: Path | None = None) -> bool:
-    path = (state or state_dir()) / PID_FILE
+def try_supervisor_lock(state: Path):
+    """Take the one-supervisor lock without waiting.
+
+    Returns the open lock file (keep it open for as long as this process is the
+    supervisor) or None when another process holds it. The OS drops the lock
+    when the holder exits, crashes included, so a stale pid file can never
+    block a start or hide a running supervisor. On 2026-10-03 two supervisors
+    started twice from a stale pid record and fought over the phone."""
+    state.mkdir(parents=True, exist_ok=True)
+    handle = open(state / LOCK_FILE, "a+b")
     try:
-        pid = int(path.read_text(encoding="utf-8").strip())
-    except (OSError, ValueError):
-        return False
-    return _pid_alive(pid, "python")
+        if sys.platform == "win32":
+            import msvcrt
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        handle.close()
+        return None
+    return handle
+
+
+def release_supervisor_lock(handle) -> None:
+    if handle is None:
+        return
+    try:
+        if sys.platform == "win32":
+            import msvcrt
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+    except OSError:
+        pass
+    handle.close()
+
+
+def supervisor_alive(state: Path | None = None) -> bool:
+    """True while some process holds the supervisor lock (the pid file is only a pointer)."""
+    state = state or state_dir()
+    handle = try_supervisor_lock(state)
+    if handle is None:
+        return True
+    release_supervisor_lock(handle)
+    return False
 
 
 def detached_flags() -> int:
@@ -1317,11 +1357,18 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     state = state_dir()
     state.mkdir(parents=True, exist_ok=True)
-    if not args.observe and supervisor_alive(state) and int((state / PID_FILE).read_text().strip()) != os.getpid():
-        print("link supervisor already running", flush=True)
-        return 0
-    Runner(state, observe_only=args.observe, tunnel_mode=args.tunnel_mode,
-           mjpeg_forward=False if args.no_mjpeg_forward else None).run()
+    lock = None
+    if not args.observe:
+        # Atomic: of two supervisors started at once, exactly one gets the lock.
+        lock = try_supervisor_lock(state)
+        if lock is None:
+            print("link supervisor already running; this one exits", flush=True)
+            return 0
+    try:
+        Runner(state, observe_only=args.observe, tunnel_mode=args.tunnel_mode,
+               mjpeg_forward=False if args.no_mjpeg_forward else None).run()
+    finally:
+        release_supervisor_lock(lock)
     return 0
 
 
