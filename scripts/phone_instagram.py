@@ -1,13 +1,13 @@
 """Post or schedule one approved release on Instagram through Edits' 4K export.
 
-The only Instagram route (owner's rule, 2026-09-30): OneDrive -> Edits -> new project from the
+The only Instagram route: OneDrive -> Edits -> new project from the
 exact clip -> 4K export at the source frame rate and the preflight's SDR/HDR -> share to
 Instagram from Edits -> verify account, caption, first-frame cover and the Facebook + Threads
 crossposts -> one Share tap. Post now always crossposts to Facebook and Threads from this one
 upload; Threads is never posted separately for a Post now release.
 
-Recorded on the reference iPhone 16 Pro Max, iOS 26.7 (fixtures edits/*, instagram/*
-2026-09-30). Every step runs in ONE WebDriverAgent session: a new session re-activates
+Recorded on the reference iPhone 16 Pro Max, iOS 26.7 (fixtures edits/*, instagram/*).
+Every step runs in ONE WebDriverAgent session: a new session re-activates
 Instagram and pops its "Also share on" page. Nothing is read while a video plays: after Share,
 Instagram opens its autoplaying feed, so the run leaves for the Home Screen over USB.
 Without --commit, stop at the fully verified composer.
@@ -67,7 +67,7 @@ CROSSPOSTS = {"threads": "Threads", "facebook": "Facebook"}
 SCHEDULE_CROSSPOSTS = {"facebook": "Facebook"}
 SHEET_TIMEOUT = 10.0
 TIME_WHEELS_TIMEOUT = 6.0
-COVER_LIMIT = 10.0  # true first frame 7.1, nearest wrong frame 13.7 (device, 2026-09-30)
+COVER_LIMIT = 10.0  # true first frame 7.1, nearest wrong frame 13.7 (measured on device)
 EXPORT_TIMEOUT = 900.0
 
 
@@ -232,8 +232,8 @@ def edits_export(data: dict) -> None:
         try:
             items = elements()
         except VideoSurfaceError:
-            # The finished export's share sheet plays the clip (captured 2026-10-02 12:28), so its
-            # tree is refused: read it by OCR and tap the one "Instagram" share target instead.
+            # The finished export's share sheet plays the clip, so its tree is refused: read it
+            # by OCR and tap the one "Instagram" share target instead.
             target = ocr_share_target()
             if target is not None:
                 share.stage("edits_exported")
@@ -260,7 +260,7 @@ def ocr_share_target(rows: list[dict] | None = None) -> dict | None:
     texts = [" ".join(str(row.get("text", "")).split()).casefold() for row in rows]
     # The export's progress screen says "...You can / choose where to share your video next."
     # beside its percentage; OCR wraps that second line so it also starts with the heading
-    # (real Post now 2026-10-03 23:05, at 27.6%). A percentage or that line means: exporting.
+    # (real Post now, at 27.6%). A percentage or that line means: exporting.
     if any(re.fullmatch(r"\d{1,3}(\.\d)?%", text) or text.startswith("please don't close the app")
            or text.startswith(SHARE_SHEET + " your video next") for text in texts):
         return None
@@ -657,7 +657,7 @@ def run(release_id: int, db: Path, *, commit: bool = False, now=None) -> dict:
             count = len(data["crossposts"])
             post = composer_ready(data["caption"], profiles=f"{count} profile{'s' if count != 1 else ''}" if count else "")
             if not commit:
-                # A dry run leaves no composer behind: a later run would reopen on it (2026-10-02).
+                # A dry run leaves no composer behind: a later run would reopen on it.
                 preflight.discard_composer(elements())
                 return {"kind": "ready", "platform": "instagram", "releaseId": release_id, "cover": cover,
                         "crossposts": crossposts}

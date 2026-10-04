@@ -231,10 +231,10 @@ def recover(admin=None, *, status=wda_ready, release=None, sleep=time.sleep, clo
 
     First the frozen app is released and WDA given ``wait`` to answer. Then the
     supervisor is asked to look now (started first if nothing supervises the
-    link) and given three times that. ``admin`` is accepted and ignored: the
-    scripts used to pass SideTap's admin module for a final ``up()`` here, and
-    a second process restarting a tunnel the supervisor may be mid-way through
-    recovering is exactly the two-healers fight this avoids.
+    link) and given three times that. ``admin`` is accepted and ignored: a final
+    ``up()`` from SideTap's admin module would be a second process restarting a tunnel
+    the supervisor may be mid-way through recovering, which is exactly the two-healers
+    fight this avoids.
     """
     if status():
         return True

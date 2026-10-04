@@ -500,7 +500,7 @@ class OpenProfileTests(unittest.TestCase):
 
 
 class ThreadsAccountSwitch(unittest.TestCase):
-    """Recorded 2026-10-02: fixtures threads/profile-*, threads/account-switcher-*."""
+    """Recorded fixtures: threads/profile-*, threads/account-switcher-*."""
 
     PROFILE = [element("Button", "Display Name", (15, 133, 159, 29)),
                element("Image", "", (179, 141, 13, 13), name="ig_icon_chevron_down_filled_12"),

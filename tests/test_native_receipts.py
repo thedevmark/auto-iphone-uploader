@@ -155,7 +155,7 @@ class NativeReceiptTests(unittest.TestCase):
         self.assertEqual(self.status(release_id)["threads"], "posted")
 
     def test_a_failed_read_captures_the_screen_before_leaving_the_app(self):
-        # 2026-10-02: a sweep read failed with no trace of what the phone showed.
+        # A failed sweep read leaves a trace of what the phone showed.
         from unittest import mock
         from video_drop import failure_capture
         order = []

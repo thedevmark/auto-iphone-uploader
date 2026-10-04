@@ -199,7 +199,7 @@ VARIANTS = {
              "left", "bottom", value="0%"),
         Item("Button", "Create post", (177, 877, 86, 54), "center", "bottom"),
     ]),
-    # Edits (recorded 2026-09-30): header controls, the quality popover, export progress, share targets.
+    # Edits: header controls, the quality popover, export progress, share targets.
     "edits/project": (EDITS, ("edits", "project"), [
         Item("Button", "Close project", (8, 59, 44, 44), name="project_navigation_close_button"),
         Item("Button", "New project", (52, 72, 102, 18), name="project_navigation_project_name_button"),
@@ -485,7 +485,7 @@ class RunnerFlowTests(unittest.TestCase):
 # Local recordings (ignored by git) keyed by folder and timestamp only: screen, and the
 # controls the recording legitimately does not show (scrolled away, or not in that state).
 RECORDED = {
-    # 2026-09-30: the Edits 4K route (OneDrive -> Edits -> export -> Instagram) and the TikTok
+    # The Edits 4K route (OneDrive -> Edits -> export -> Instagram) and the TikTok
     # post screen with the keyboard up (Post is then a red pill outside the tree).
     "edits/20260930-111429": ("edits", "project", ()),
     "edits/20260930-111442": ("edits", "quality", ()),

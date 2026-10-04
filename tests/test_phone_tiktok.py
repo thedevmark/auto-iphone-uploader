@@ -105,7 +105,7 @@ class TikTokScreenTests(unittest.TestCase):
             post_button(post_screen(top_post))
 
     def test_keyboard_post_pill_is_placed_from_back_and_proven_by_its_red_fill(self):
-        # Recorded 2026-09-30: with the keyboard up, Post is a red pill outside the tree.
+        # With the keyboard up, Post is a red pill outside the tree.
         keyboard = element("Keyboard", "", 0, 713, 440, 243)
         back = element("Button", "Back", 6, 62, 44, 44)
         screen = Image.new("RGB", (1320, 2868), (255, 255, 255))

@@ -1,7 +1,7 @@
 """Keep the phone awake for a run: Low Power Mode off and Auto-Lock at Never, both restored after.
 
-Soak 2026-10-02 17:00: the phone auto-locked during Edits' 4K export, the export paused
-("Export paused"), and Instagram and TikTok both stopped. Low Power Mode holds Auto-Lock at
+If the phone auto-locks during Edits' 4K export, the export pauses
+("Export paused") and Instagram and TikTok both stop. Low Power Mode holds Auto-Lock at
 30 seconds and greys out its row, so Low Power Mode goes off first.
 
 Recorded on iOS 26 (fixtures settings/battery-switches-*, power-mode-*, display-brightness-*,
@@ -68,7 +68,7 @@ def settings_root(phone) -> None:
 
 def find_row(phone, name: str, types: tuple[str, ...]) -> Element:
     """The one on-screen row named `name`: scroll down (pages open at the top), and back up once
-    the page stops moving. Scrolling up first cost 25 s on Battery (measured 2026-10-02)."""
+    the page stops moving. Scrolling up first costs 25 s on Battery (measured)."""
     layout = _layout(phone)
     x = layout.width / 2
     down, last, turns = True, None, 0

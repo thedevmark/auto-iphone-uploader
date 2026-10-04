@@ -1,8 +1,8 @@
 """Every flow gets through a playing screen from pixels and OCR, never an accessibility request.
 
-The 2026-10-01 17:22 soak lost the phone off USB inside the YouTube flow: the guard covered
-TikTok only, and YouTube's trim and editor screens play the clip. These tests drive the flows
-with a phone whose accessibility reads raise VideoSurfaceError (what the driver now does on
+YouTube's trim and editor screens play the clip, so a guard covering TikTok only lets the
+phone fall off USB inside the YouTube flow. These tests drive the flows
+with a phone whose accessibility reads raise VideoSurfaceError (what the driver does on
 any playing video app) and check what they read and tap instead.
 """
 
@@ -115,8 +115,8 @@ class YouTubePlayingScreens(unittest.TestCase):
         self.assertEqual(self.phone.events, [("note", "com.google.ios.youtube"), ("tap", (100, 392))])
 
     def test_an_app_scrolled_past_the_rail_start_is_found_by_reversing(self):
-        # Soak 2026-10-02 16:43: the rail sat at its end with TikTok clipped off the left edge,
-        # unlisted, and scrolling only toward the end never found it.
+        # The rail can sit at its end with TikTok clipped off the left edge,
+        # unlisted, and scrolling only toward the end never finds it.
         apps = ["TikTok", "Instagram", "X", "YouTube", "Snapchat", "More"]
         rail = {"offset": 200}
 
@@ -189,7 +189,7 @@ class YouTubeHomeFeed(unittest.TestCase):
 
 
     def test_a_scrolled_feed_is_scrolled_back_until_the_tab_bar_shows(self):
-        # Soak 2026-10-02 16:56: Home scrolled down, mini-player up, tab bar hidden.
+        # Home scrolled down, mini-player up, tab bar hidden.
         phone = MagicMock()
         phone.screen_info.return_value = {"width": 440, "height": 956}
         feed = [{"text": "Your custom feed", "x": 210, "y": 131}, {"text": "All", "x": 260, "y": 131},
@@ -251,7 +251,7 @@ if __name__ == "__main__":
 
 
 def test_a_playing_trim_screen_read_by_ocr_exits_by_its_measured_x():
-    # Soak 2026-10-02: YouTube reopened on an unfinished upload's trim screen; OCR cannot read the X icon.
+    # YouTube can reopen on an unfinished upload's trim screen; OCR cannot read the X icon.
     from video_drop import youtube_nav
     labels = ["1:08", "Chat can pay to", "30.2s", "Choose a part of the video", "Next"]
     assert youtube_nav.exit_target(labels) == youtube_nav.TRIM_X
@@ -259,14 +259,14 @@ def test_a_playing_trim_screen_read_by_ocr_exits_by_its_measured_x():
 
 
 def test_a_restored_description_editor_is_left_by_back():
-    # Recorded 2026-10-02: YouTube reopened on an unfinished upload's description editor.
+    # YouTube can reopen on an unfinished upload's description editor.
     from video_drop import youtube_nav
     labels = ["id.creation.modes.view", "Back", "Add description", "Hashtags", "Q", "W"]
     assert youtube_nav.exit_target(labels) == "Back"
 
 
 def test_youtube_waits_in_front_until_the_upload_is_shown_finished():
-    # Real Post now 2026-10-02: leaving YouTube right after the tap left the Short as a draft.
+    # Leaving YouTube right after the tap leaves the Short as a draft.
     from scripts import phone_youtube as yt
     reads = iter([["Uploading 34%"], ["Uploading 80%"], ["Uploaded to Your Channel"]])
     now = [0.0]
@@ -283,7 +283,7 @@ def test_youtube_upload_wait_is_bounded_and_says_so():
 
 
 class DescriptionReadBack(unittest.TestCase):
-    """Dry run 2026-10-02 19:34: the typed text was on screen but the first read listed no field."""
+    """The typed text is on screen but the first read can list no field."""
 
     def tree(self, *values):
         return {"type": "XCUIElementTypeApplication", "children": [
@@ -307,13 +307,13 @@ class DescriptionReadBack(unittest.TestCase):
 
 class DescriptionEditorByOcr(unittest.TestCase):
     def test_the_ocr_read_editor_is_left_by_its_measured_back_chevron(self):
-        # Dry run 2026-10-02 19:42: OCR read "< Add description" and no "Back".
+        # OCR reads "< Add description" and no "Back".
         labels = ["7:42", "< Add description", "#a #b", "Hashtags", "space", "return"]
         self.assertEqual(youtube_nav.exit_target(labels), youtube_nav.DESCRIPTION_BACK)
         self.assertEqual(youtube_nav.exit_target(["Add description", "Back"]), "Back")
 
     def test_a_tree_holding_only_the_keyboard_is_read_by_ocr(self):
-        # Dry run 2026-10-02 19:46: the tree showed only the keyboard on the description editor.
+        # The tree shows only the keyboard on the description editor.
         phone = MagicMock()
         phone.screen_info.return_value = {"width": 440, "height": 956}
         keyboard = [{"text": "space", "x": 221, "y": 858}, {"text": "return", "x": 385, "y": 858}]
@@ -327,7 +327,7 @@ class DescriptionEditorByOcr(unittest.TestCase):
         phone.tap.assert_called_once_with(20.0, 86.0)
 
     def test_the_ocr_read_shorts_editor_is_left_by_its_measured_back_arrow(self):
-        # Dry run 2026-10-02 19:51: Discard led to the playing editor; OCR has no "Exit editor".
+        # Discard leads to the playing editor; OCR has no "Exit editor".
         labels = ["7:51", "Add sound", "Swipe up to edit", "Edit", "Next"]
         self.assertEqual(youtube_nav.exit_target(labels), youtube_nav.EDITOR_BACK)
         self.assertEqual(youtube_nav.exit_target(labels + ["Exit editor"]), "Exit editor")

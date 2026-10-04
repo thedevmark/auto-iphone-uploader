@@ -136,14 +136,13 @@ MJPEG_SETTINGS = (get("MJPEG_SETTINGS", "1") or "1").lower() not in ("0", "false
 
 # Apps whose screens may be playing video when a tree read is asked for. Before a /source
 # in one of these, helpers.ui_tree() compares two go-ios frames and REFUSES the accessibility
-# snapshot while the picture is moving. Measured 2026-09-30 (docs/link-root-cause.md 0.6): on
+# snapshot while the picture is moving. Measured (docs/link-root-cause.md 0.6): on
 # the chipset USB port, video alone was clean for 9.4 min and one /source of TikTok's feed
 # killed the whole USB data pipe in 37 s; on any port that /source hangs WDA >=30 s, TikTok
 # serves it on its main thread until FrontBoard's watchdog kills the app. Empty = guard off.
 # An EMPTY process-env value switches the guard off (get() would fall through to the default).
-# Every app a flow drives that has a playing surface is listed, not just TikTok: the
-# 2026-10-01 17:22 soak lost the phone off USB inside the YouTube flow, whose trim and
-# editor screens play the clip (TikTok, YouTube, Instagram, Edits, Threads, Facebook).
+# Every app a flow drives that has a playing surface is listed, not just TikTok: YouTube's
+# trim and editor screens play the clip too (TikTok, YouTube, Instagram, Edits, Threads, Facebook).
 VIDEO_APP_BUNDLES = ("com.zhiliaoapp.musically", "com.google.ios.youtube", "com.burbn.instagram",
                      "com.burbn.basel", "com.burbn.barcelona", "com.facebook.Facebook")
 _ax_video_apps = os.environ["AX_VIDEO_APPS"] if "AX_VIDEO_APPS" in os.environ \

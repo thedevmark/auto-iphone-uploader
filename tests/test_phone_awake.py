@@ -1,4 +1,4 @@
-"""phone_awake against a simulated Settings app built from the iOS 26 recordings of 2026-10-02."""
+"""phone_awake against a simulated Settings app built from iOS 26 recordings."""
 
 import unittest
 from unittest import mock

@@ -268,7 +268,7 @@ USB_SUSPEND_STEPS = ("Open Device Manager and expand Universal Serial Bus contro
 
 
 def usb_power_item(power: dict | None) -> dict:
-    """Windows USB power saving drops a busy iPhone off the bus (Kernel-PnP 1010, 2026-09-30)."""
+    """Windows USB power saving drops a busy iPhone off the bus (Kernel-PnP 1010)."""
     title = "USB power saving off"
     if not isinstance(power, dict):
         return item("usbPower", "blocked", title, "Could not read Windows power settings.", USB_SUSPEND_FIX,
@@ -644,8 +644,8 @@ CHARGING_GIVES = "The iPhone stays charged through long uploads."
 
 
 def charging_item(battery: dict | None, phone_ok: bool) -> dict:
-    """Is the port actually charging the phone? On 2026-09-30 the chipset port read IsCharging while the
-    phone drained at 2.4 A under video load at 1-2% capacity; every link stall that day happened with the
+    """Is the port actually charging the phone? The chipset port was measured reading IsCharging while the
+    phone drained at 2.4 A under video load at 1-2% capacity; every link stall seen happened with the
     battery low. One sample here: a negative current while 'charging' or a low capacity is the warning."""
     title = "iPhone charging"
     if not phone_ok:

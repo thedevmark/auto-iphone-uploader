@@ -77,8 +77,8 @@ def _go_ios_screenshot() -> bytes:
 
 
 # go-ios's screenshot service can wedge on the phone while every other service answers
-# (measured 2026-10-01 03:25: DTX "Timed out waiting for response" on every call, a tunnel
-# refresh did not clear it, WDA's /screenshot answered). After a failure, skip go-ios for
+# (measured: DTX "Timed out waiting for response" on every call, a tunnel
+# refresh does not clear it, WDA's /screenshot answers). After a failure, skip go-ios for
 # a while instead of paying its timeout on every frame.
 _go_ios_dead_until: float = 0.0
 _GO_IOS_RETRY_SECONDS = 60.0
@@ -88,7 +88,7 @@ def pixels_png(*, clock=time.time) -> bytes:
     """A screenshot that never asks for an accessibility snapshot: go-ios first, then WDA.
 
     Both routes are AX-free. WDA's GET /screenshot kept answering on TikTok's playing feed
-    (140/140, 2026-10-01 run 2), so it is the fallback whenever go-ios fails.
+    (140/140 measured), so it is the fallback whenever go-ios fails.
     """
     global _go_ios_dead_until
     if clock() >= _go_ios_dead_until:

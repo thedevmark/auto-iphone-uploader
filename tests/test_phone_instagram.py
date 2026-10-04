@@ -75,7 +75,7 @@ class ExportSettingsTests(unittest.TestCase):
                          ["60", "60", "60", "30", "30", "24", "24"])
 
     def test_selected_segment_is_the_white_pill(self):
-        # Recorded 2026-09-30: the chosen Edits segment is a white pill on a dark popover.
+        # The chosen Edits segment is a white pill on a dark popover.
         layout = PhoneLayout(440, 956)
         image = Image.new("RGB", (1320, 2868), (40, 40, 44))
         ImageDraw.Draw(image).rectangle((340 * 3, 144 * 3, 408 * 3, 176 * 3), fill=(250, 250, 250))
@@ -121,7 +121,7 @@ if __name__ == "__main__":
 
 
 def test_the_edits_share_sheet_read_by_ocr_taps_the_one_instagram_target():
-    # Captured 2026-10-02 12:28: the share sheet plays the clip, so its tree is refused.
+    # The share sheet plays the clip, so its tree is refused.
     from unittest.mock import patch
     from scripts import phone_instagram as ig
     from video_drop.phone_ui import PhoneLayout
@@ -133,7 +133,7 @@ def test_the_edits_share_sheet_read_by_ocr_taps_the_one_instagram_target():
     with patch.object(ig.share, "layout", lambda **k: PhoneLayout(440, 956)):
         assert ig.ocr_share_target(rows) == {"text": "Instagram", "x": 60, "y": 820}
         assert ig.ocr_share_target([{"text": "Exporting", "x": 1, "y": 1}]) is None
-        # Real Post now 2026-10-03 23:05: the export's progress screen, 27.6% done.
+        # Real Post now: the export's progress screen, 27.6% done.
         progress = [{"text": "27.6%", "x": 185, "y": 146},
                     {"text": "Please don't close the app or lock your screen. You can", "x": 42, "y": 180},
                     {"text": "choose where to share your video next.", "x": 94, "y": 199}]

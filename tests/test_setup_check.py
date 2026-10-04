@@ -463,7 +463,7 @@ if __name__ == "__main__":
 
 
 class UsbPowerTests(unittest.TestCase):
-    # 2026-09-30: Windows surprise-removed the iPhone mid-upload with selective suspend on.
+    # Windows can surprise-remove the iPhone mid-upload with selective suspend on.
     def test_power_saving_needs_action_with_the_exact_fix(self):
         from video_drop.setup_check import usb_power_item
         entry = usb_power_item({"selectiveSuspend": True, "hubsAllowedOff": 2})
@@ -725,7 +725,7 @@ class UsbPathRowTests(unittest.TestCase):
 
 
 class ChargingRowTests(unittest.TestCase):
-    """The port must actually charge the phone: the 2026-09-30 stalls all happened at 1-2% while 'charging'."""
+    """The port must actually charge the phone: stalls happen at 1-2% while 'charging'."""
 
     def test_charging_phone_is_ok_and_never_required(self):
         entry = row(checklist(probes()), "charging")

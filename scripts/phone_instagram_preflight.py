@@ -31,7 +31,7 @@ INSTAGRAM = "com.burbn.instagram"
 PROFILE_TAB = (370.5, 904.0)
 # A story's reply bar ("Send message", "Reply to <name>..."): no tab bar under it.
 STORY_REPLY = ("send message", "reply to")
-# A single Reel opened from the owner's profile (recorded 2026-10-02 00:29): no tab bar, its own
+# A single Reel opened from the owner's profile: no tab bar, its own
 # footer ("Insights on Edits", "Boost") and a back-button at the top left.
 REEL_FOOTER = ("insights on edits", "boost")
 REEL_BACK = (40.0, 87.0)
@@ -46,8 +46,8 @@ def connect_sidetap() -> None:
 def profile_handle(elements) -> str:
     """The active account from the profile header's account-switcher button.
 
-    Instagram 2026-09 names it user-switch-title-button and labels it with the
-    handle; its position moved between releases, so position is not trusted.
+    Instagram names it user-switch-title-button and labels it with the
+    handle; its position changes between releases, so position is not trusted.
     """
     found = {e.label for e in elements if e.type == "Button" and e.name == "user-switch-title-button"}
     if len(found) != 1 or not re.fullmatch(r"[A-Za-z0-9._]+", next(iter(found))):
@@ -117,7 +117,7 @@ def open_instagram():
 def discard_composer(elements) -> bool:
     """Close a restored reel composer without saving: Cancel, then "Continue without saving".
 
-    Recorded 2026-10-02 12:50: Instagram reopened on an earlier run's "New reel" composer
+    Instagram can reopen on an earlier run's "New reel" composer
     (Buttons Cancel, save-draft-button, share-sheet-share-button); Cancel asks "Changes won't be
     saved" with "Save draft" and "Continue without saving"; discarding lands on the feed.
     Returns True when a composer was discarded. Never taps Share."""
@@ -139,9 +139,9 @@ def discard_composer(elements) -> bool:
 
 def selected_instagram_account() -> str:
     elements = open_instagram()
-    # Instagram can reopen inside a story viewer (seen 2026-10-01 02:40), which has no tab bar.
-    # It can also reopen inside a single Reel opened from the profile (seen 2026-10-02 00:29:
-    # "Insights on Edits", "Boost", a back-button and no tab bar): go Back to the grid.
+    # Instagram can reopen inside a story viewer, which has no tab bar.
+    # It can also reopen inside a single Reel opened from the profile
+    # ("Insights on Edits", "Boost", a back-button and no tab bar): go Back to the grid.
     for _ in range(3):
         if discard_composer(elements):
             elements = elements_from_tree(phone.ui_tree())
@@ -167,7 +167,7 @@ def selected_instagram_account() -> str:
 
 
 def switcher_row(elements, handle: str):
-    """The account switcher's row for ``handle``. Recorded 2026-10-01: each signed-in account is
+    """The account switcher's row for ``handle``. Each signed-in account is
     a Button labelled "INSTAGRAM profile, <handle>[, <activity>]"; the active one has value 1."""
     pattern = re.compile(r"instagram profile, " + re.escape(handle.lstrip("@").casefold()) + r"(,|$)")
     rows = {(e.x, e.y): e for e in elements if e.type == "Button" and pattern.match(e.label.casefold())}

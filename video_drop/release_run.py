@@ -1,6 +1,6 @@
 """The two posting modes as one ordered phone run per release, and its per-app progress.
 
-Owner's rules (2026-09-30):
+Owner's rules:
 
 - Exactly two modes. Post now posts everything immediately; Schedule is the default.
 - Order: YouTube, then Instagram (Facebook and Threads ride its upload as "Also share on…"

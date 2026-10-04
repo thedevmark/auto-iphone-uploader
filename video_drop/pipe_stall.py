@@ -3,7 +3,7 @@
 The stall (docs/link-root-cause.md, signature S1): lockdown, WebDriverAgent and
 the go-ios tunnel all stop moving bytes at once while Apple Mobile Device
 Service still lists the phone. From WDA's side it looks exactly like a video
-wedge (the forward accepts, nothing answers), and the supervisor used to press
+wedge (the forward accepts, nothing answers), so without these probes the supervisor would press
 Home into it, wait five minutes, restart a daemon that could not negotiate
 either, and then ask for a replug. Three raw probes from ``link_probe`` settle
 it in a few seconds, every one bounded and read-only on the phone:

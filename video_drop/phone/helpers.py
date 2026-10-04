@@ -65,15 +65,15 @@ def screen_info() -> dict:
 #
 # The guard is session id AND orientation, and the orientation half is not
 # optional. It is NOT a screen constant: width and height swap when the device
-# rotates, and before this memo existed every call site handled that correctly
-# and for free by always asking. Session id alone cannot see a rotation, and
+# rotates, which an uncached call handles correctly and for free. Session id
+# alone cannot see a rotation, and
 # the memo lives as long as the process — which for the MCP server is the whole
 # session. A stale value here is not a slow tap, it is a tap at coordinates off
 # the side of the screen: unlock() swipes from x=w/2, so a cached landscape
 # 844x390 makes it swipe at x=422 on a 390-point-wide portrait lock screen, the
 # bottom-edge swipe never lands, the pad never appears and unlock() raises.
-# "The Unlock button did nothing" is a symptom this project has already
-# debugged three times (docs/ERRORS.md 2026-08-12, 2026-08-13 x2), and
+# "The Unlock button did nothing" is a recurring symptom of this
+# (docs/ERRORS.md 2026-08-12, 2026-08-13 x2), and
 # find_on_home_screen's page swipe and the screen_info() MCP tool read the same
 # value. orientation() costs 7.7ms against 201ms, so the guard keeps ~193ms of
 # the saving and gives correctness back.
@@ -145,7 +145,7 @@ def _foreign_activity() -> float:
     """mtime of the shared action log, which EVERY process appends to.
 
     _invalidate_tree() only fires inside the process that acted, but the viewer
-    and the MCP server are separate processes. A human tap in the viewer used to
+    and the MCP server are separate processes. Without this, a human tap in the viewer would
     leave the agent serving a cached tree for up to the TTL, then tapping the
     coordinates of a screen that had already changed. Every action POST already
     records itself here (wda_client._request), so the mtime is a cross-process
@@ -217,8 +217,8 @@ def note_front_app(bundle: str | None) -> None:
 def _refuse_if_playing(request: str) -> None:
     """Raise VideoSurfaceError before an accessibility request while a video app is visibly playing.
 
-    Covers every AX route this module has, not only /source: /wda/activeAppInfo stalled the
-    USB pipe the same way (Run 3b, 2026-10-01)."""
+    Covers every AX route this module has, not only /source: /wda/activeAppInfo stalls the
+    USB pipe the same way."""
     if _front_bundle in config.AX_VIDEO_APPS and _video_surface_playing():
         raise VideoSurfaceError(
             f"{_front_bundle} is playing video: refusing {request}. "
@@ -472,12 +472,12 @@ def press_home() -> None:
     4). Use goto_home_page() to reach a specific page.
 
     Waits for the springboard to actually come forward, because /wda/homescreen
-    is NOT reliably synchronous: measured 2026-08-12, it returned in ~50ms with
+    is NOT reliably synchronous: measured, it returned in ~50ms with
     the app still frontmost on two tries out of three and the springboard
     arrived at ~830ms, while the third call took 1.4s and was done on return.
     Returning early is not a cosmetic problem — the viewer's second Home press
-    then read a stale active app and pressed home again instead of walking to
-    page 1, and goto_home_page() read no PageIndicator and raised. Bounded and
+    then reads a stale active app and presses home again instead of walking to
+    page 1, and goto_home_page() reads no PageIndicator and raises. Bounded and
     silent on timeout: the physical gesture cannot fail, so neither may this;
     callers that need to know check the screen.
     """
@@ -487,8 +487,8 @@ def press_home() -> None:
     _front_bundle = None
     if leaving_video and device.foreground_springboard():
         # Leaving a playing feed: the springboard wait below asks WDA for the active app,
-        # an accessibility route that hung 30 s on TikTok's feed three times on 2026-10-01
-        # 01:49-01:57 (one of them a WDA-only wedge the supervisor cleared by restarting the
+        # an accessibility route that can hang 30 s on TikTok's feed (observed three times,
+        # one of them a WDA-only wedge the supervisor cleared by restarting the
         # runner). `ios launch com.apple.springboard` puts the Home Screen in front with no
         # WDA request at all and is synchronous; nothing is left to poll.
         return
@@ -715,11 +715,11 @@ def wait_stable(timeout: float = 10.0, interval: float = _STABLE_INTERVAL) -> bo
     The first comparison happens IMMEDIATELY. Callers reach here straight after
     a gesture that WDA already settled server-side (~0.7s per swipe, measured —
     see config.WDA_ANIM_COOLOFF), so the screen is usually still by the time we
-    are asked. Sleeping before the first compare made that common case cost a
+    are asked. Sleeping before the first compare would make that common case cost a
     guaranteed extra `interval`, up to 9 times per scroll_until_found and 17
     times per find_on_home_screen. Two screenshots are a WDA round trip apart
     (~50-100ms), which is far enough to differ mid-animation — and that same
-    number is why `interval` defaults to 0.15 and not the 0.5s it used to: the
+    number is why `interval` defaults to 0.15 and not 0.5s: the
     interval is only paid while the screen is genuinely still moving, so
     anything longer than one round trip is overshoot on the tail.
     """
@@ -743,7 +743,7 @@ def _passcode_pad_visible(tree: dict) -> bool:
     happens to be focused (a search box, a message...).
     """
     texts = collect_texts(tree)
-    # The real pad's digits are Key elements (device dump 2026-08-13); Button
+    # The real pad's digits are Key elements (device dump); Button
     # stays accepted for older tree shapes. Counting digits matters beyond
     # belt-and-braces: a localized pad has no "passcode" text to match.
     digits = {
@@ -764,11 +764,11 @@ def _on_lock_screen(tree: dict) -> bool:
     breaks that: it keeps the lock screen LIT while the phone stays locked,
     so when the wake swipe fails to raise the pad (the ~16s wake-transition
     hang, then the notification-lit screen never darkens to trigger the retry)
-    the shortcut returned {ok: true} over a phone still on its lock screen
-    ("runs ~20s then nothing happens"; Wes 2026-08-20). The lock screen's own
+    the shortcut would return {ok: true} over a phone still on its lock screen
+    ("runs ~20s then nothing happens"). The lock screen's own
     markers — SBCoverSheetWindow, "Swipe up to unlock", "Locked" — say which
-    lit screen this is (device dump 2026-08-20). Same lying-success class as
-    the dark-screen silent return fixed 2026-08-13, pointed at the lit case.
+    lit screen this is (device dump). Same lying-success class as
+    the dark-screen silent return, here for the lit case.
     """
     for e in collect_texts(tree):
         t = e["text"]
@@ -786,7 +786,7 @@ def _pad_digit_probe(pad_tree: dict) -> str:
     The post-type "is the pad still on screen" question does not need a tree:
     a bounded find_first answers it in 0.11s where the full /source of the
     freshly unlocked Home Screen — /source's worst case — costs 3.0-5.7s
-    (both measured on device 2026-08-14). Probing a digit the pad actually
+    (both measured on device). Probing a digit the pad actually
     showed, by its own element type, keeps the check honest for a
     Button-shaped pad too.
     """
@@ -810,7 +810,7 @@ def _scrub_secret(message: str, secret: str | None) -> str:
 _UNLOCK_TIMEOUT = 45.0  # first gesture after a deep sleep: 20.5s measured live
 
 # Is the display on? PNG size is the cheap probe, and these are the real
-# numbers off the device (2026-08-12): display OFF 50 KB, Calculator 245 KB
+# numbers off the device: display OFF 50 KB, Calculator 245 KB
 # (a mostly-black UI, so close to the worst case for a lit app), Home Screen
 # 888 KB. 120 KB sits ~2.4x above the dark frame and ~2x below the darkest lit
 # screen measured. It is a heuristic, not a lock-state oracle: an app painting
@@ -839,16 +839,16 @@ def _enter_passcode(c, passcode: str, pad_tree: dict) -> None:
     """Put the passcode in: TYPE it in one request, fall back to pad taps.
 
     One /wda/keys request enters every digit at once — the near-instant
-    entry unlock had before 2026-08-13 — against ~2.8s of visible
+    entry — against ~2.8s of visible
     one-finger taps. But /wda/keys goes to the FOCUSED element, and the pad
     being on screen does not mean the pad holds focus: a lock-screen
-    priority notification held focus while the pad sat behind it and ate
-    all six typed digits (live 2026-08-13). So the typed attempt is never
+    priority notification can hold focus while the pad sits behind it and eat
+    all six typed digits. So the typed attempt is never
     trusted: the pad must LEAVE the screen (bounded digit probe, 0.11s —
     never a /source), and a pad still up falls back to TAPPING the digit
     buttons, which need no focus. Eaten digits consume no iOS lockout
     attempt, so the fallback is free in the exact case it exists for; a
-    wrong PHONE_PASSCODE now burns two attempts (one typed, one tapped)
+    wrong PHONE_PASSCODE burns two attempts (one typed, one tapped)
     before unlock()'s exit check raises — accepted: that is a persistent
     .env misconfiguration the error names out loud, not a live race.
 
@@ -872,13 +872,13 @@ def _enter_passcode(c, passcode: str, pad_tree: dict) -> None:
     # The tap coordinates ARE the digits — keep them out of the live feed.
     with redact_actions("passcode entry"):
         # The pad is static, so idle settling buys nothing: the whole entry
-        # runs at waitForIdleTimeout 0 (six taps went 4.94s -> 2.8s measured
-        # live 2026-08-14; the typed request rides the same setting). Restore
+        # runs at waitForIdleTimeout 0 (six taps went 4.94s -> 2.8s, measured;
+        # the typed request rides the same setting). Restore
         # is a finally: the setting rides the SHARED session. Do NOT batch
         # the fallback taps into one /actions request instead: six down/up
         # cycles in one pointer source enter deterministically WRONG digits,
-        # and six parallel pointer sources KILL WDA outright (both on device
-        # 2026-08-14; docs/ERRORS.md).
+        # and six parallel pointer sources KILL WDA outright (both observed on
+        # device; docs/ERRORS.md).
         c.set_wait_for_idle(0)
         try:
             try:
@@ -910,13 +910,13 @@ def unlock(c: WDAClient | None = None) -> None:
     PHONE_PASSCODE from .env (opt-in). Scrubs the passcode from any error.
 
     Decides from what is actually on screen — NEVER from /wda/locked, which
-    can report unlocked while the pad is on screen (seen live 2026-08-09).
+    can report unlocked while the pad is on screen (seen on device).
     Pass `c` to reuse an existing client; with the shared session model a
     patient clone adopts the same session instead of stealing it.
     """
     c = c or client()
     # The first gesture after the phone has slept a while can block WDA for
-    # 10-20s (measured 20.5s live 2026-08-09). A short-timeout client (the
+    # 10-20s (measured 20.5s on device). A short-timeout client (the
     # viewer's is 10s) aborts a swipe that is still going to land, so the
     # sequence runs on a patient clone sharing the same session.
     if isinstance(c, WDAClient) and c.timeout < _UNLOCK_TIMEOUT:
@@ -925,9 +925,9 @@ def unlock(c: WDAClient | None = None) -> None:
         c = patient
     # /wda/activeAppInfo is an accessibility request: on a playing feed it hangs and, on a weak
     # USB path, the phone's USB controller starts aborting transfers until the link stalls
-    # (Run 3b, 2026-10-01: run 2 stalled inside unlock() with TikTok's feed in front). A lit,
+    # (a run stalled inside unlock() with TikTok's feed in front). A lit,
     # moving screen (or a video app this process put in front) is a phone in use: no request.
-    # WDA's /screenshot is accessibility-free (140/140 on a playing feed, run 2) and goes through
+    # WDA's /screenshot is accessibility-free (140/140 on a playing feed) and goes through
     # the client passed in, so tests stay off the real phone.
     first = c.screenshot()
     if len(first) >= _LIT_SCREEN_BYTES:
@@ -940,10 +940,10 @@ def unlock(c: WDAClient | None = None) -> None:
         frontmost = c.active_app().get("bundleId")
     except WDAError as exc:
         # /wda/activeAppInfo CRASHES while the lock screen is LIT — "attempt
-        # to insert nil object from objects[2]" (live 2026-08-13, reproduced:
+        # to insert nil object from objects[2]" (reproduced:
         # lit lock screen -> crash, dark -> answers springboard). A priority
         # notification keeps the lock screen lit for as long as it shows, so
-        # every unlock during one died right here, before the first gesture.
+        # every unlock during one dies right here, before the first gesture.
         # The crash only happens on the lock screen — a real frontmost app
         # answers fine — so it cannot mean "in use": carry on with the wake.
         # ONLY that crash, though: any other WDAError (timeout, dead session)
@@ -955,19 +955,19 @@ def unlock(c: WDAClient | None = None) -> None:
     if frontmost is not None and frontmost != "com.apple.springboard":
         # ...but only when the phone is genuinely in use. active_app() goes
         # STALE behind a lock: a phone that locked with an app frontmost keeps
-        # naming that app until the display wakes, so this return used to
+        # naming that app until the display wakes, so returning on the app alone would
         # refuse the exact state unlock() exists for, and every launch after it
-        # failed "device was not, or could not be, unlocked" (bit live
-        # 2026-08-12). A lit screen is what "in use" actually means.
+        # would fail "device was not, or could not be, unlocked".
+        # A lit screen is what "in use" actually means.
         if len(c.screenshot()) >= _LIT_SCREEN_BYTES:
             return  # frontmost app on a lit screen — touch nothing
     # A session that crossed a screen lock is POISONED: it keeps answering
     # GETs but its first /actions hangs ~16s inside XCTest's snapshot timeout
-    # before failing "point.x != INFINITY" (16.23s measured on device
-    # 2026-08-14 — long enough for the woken lock screen to re-sleep, so the
-    # wake swipe burned on a dark screen and unlock ran 30-50s; a priority
+    # before failing "point.x != INFINITY" (16.23s measured on device:
+    # long enough for the woken lock screen to re-sleep, so the
+    # wake swipe burns on a dark screen and unlock runs 30-50s; a priority
     # notification makes this the RELIABLE case by keeping the poisoned
-    # session alive). A fresh session is 0.02s (same run), is born after the
+    # session alive). A fresh session is 0.02s, is born after the
     # lock, and cannot be poisoned — mint one instead of discovering the
     # poison mid-wake. Past the in-use return above, so a phone someone is
     # using never gets its session churned; a merely-asleep phone loses a
@@ -1014,7 +1014,7 @@ def unlock(c: WDAClient | None = None) -> None:
             if i < attempts - 1:
                 # The attempt count assumes a 0.4s /source, but a lock-screen
                 # /source can run ~3s, and 7 polls of a screen a burned swipe
-                # never changed cost 21s (live 2026-08-14). Wall clock caps
+                # never changed cost 21s. Wall clock caps
                 # the spend; two reads minimum so a pad that animates in
                 # after a slow first read is still caught.
                 if i >= 1 and time.monotonic() - start > seconds:
@@ -1061,10 +1061,10 @@ def unlock(c: WDAClient | None = None) -> None:
         wake_and_swipe()
         pad_tree = c.source()  # the screen was redrawn: re-aim the digit taps
     _enter_passcode(c, config.PHONE_PASSCODE, pad_tree)
-    # Success = the pad leaves the screen. This used to be sleep(0.7) plus a
+    # Success = the pad leaves the screen. A sleep(0.7) plus a
     # full /source of the just-unlocked Home Screen — /source's worst case,
-    # 3.0-5.7s measured — so the viewer sat ~5s behind its busy label over a
-    # phone that was visibly unlocked (Wes, live 2026-08-14). A bounded probe
+    # 3.0-5.7s measured — would leave the viewer ~5s behind its busy label over a
+    # phone that is visibly unlocked. A bounded probe
     # for one of the pad's own digits answers in 0.11s. Attempt-counted with
     # a wall-clock cap, same shape as pad_appears: tests with a no-op sleep
     # stay instant, and a slow probe cannot stretch the check past ~3s.

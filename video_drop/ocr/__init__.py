@@ -1,7 +1,7 @@
 """Offline screen text for rows an app hides from accessibility.
 
 YouTube 21.38's "Add details" screen draws Description, Paid promotion and "AI use, Tags"
-but leaves them out of the accessibility tree (2026-09-30), so the flows read them from a
+but leaves them out of the accessibility tree, so the flows read them from a
 screenshot with Windows' built-in OCR engine (Windows.Media.Ocr): offline, free, no model.
 Matching never guesses: a label must appear exactly once, and every tap built on it is
 proven by the screen that opens next.

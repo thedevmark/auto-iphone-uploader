@@ -3,8 +3,7 @@
 `.state/phone.lock` names whoever is driving the phone: a posting flow run by hand or by
 the server, a receipt read, a link soak or experiment, an operator session. The server's
 own phone worker only serializes work inside the server; this file also covers a
-`scripts/phone_*.py` run from a terminal while a slot post comes due (audit C2,
-2026-10-01).
+`scripts/phone_*.py` run from a terminal while a slot post comes due (audit C2).
 
 A lock written by a flow carries its process id and is ignored once that process is gone,
 so a crash never blocks the phone for good. A lock without a process id (written by hand

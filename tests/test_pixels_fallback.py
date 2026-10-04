@@ -15,8 +15,8 @@ class PixelsFallbackTests(unittest.TestCase):
             self.assertEqual(capture.pixels_png(), b"go-ios")
 
     def test_a_wedged_go_ios_service_falls_back_to_wda_and_rests_for_a_minute(self):
-        # Measured 2026-10-01 03:25: go-ios's screenshot service timed out on every call while
-        # WDA's /screenshot answered.
+        # go-ios's screenshot service times out on every call while
+        # WDA's /screenshot answers.
         calls = []
 
         def wedged():

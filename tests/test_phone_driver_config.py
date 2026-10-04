@@ -113,7 +113,7 @@ def test_package_imports_spawn_nothing():
 
 def test_video_guard_app_list_and_its_empty_off_switch(reloaded, tmp_path):
     cfg = reloaded()
-    # Every app a flow drives that can play video, not just TikTok (2026-10-01 soak: YouTube).
+    # Every app a flow drives that can play video, not just TikTok.
     assert cfg.AX_VIDEO_APPS == frozenset({"com.zhiliaoapp.musically", "com.google.ios.youtube",
                                            "com.burbn.instagram", "com.burbn.basel", "com.burbn.barcelona",
                                            "com.facebook.Facebook"})

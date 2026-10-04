@@ -9,7 +9,7 @@ def button(label, name, x=220, y=87):
 
 
 class ProfileHandleTests(unittest.TestCase):
-    # Recorded 2026-09-30: the handle sits in the account-switcher button, next to icon buttons.
+    # The handle sits in the account-switcher button, next to icon buttons.
     def test_reads_the_account_switcher_button(self):
         header = (button("example.creator", "user-switch-title-button"),
                   Element("StaticText", "example.creator", "example.creator", "example.creator", 124, 76, 164, 22),

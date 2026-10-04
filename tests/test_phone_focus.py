@@ -56,7 +56,7 @@ class FakePhone:
             self.in_control = False
             return
         if getattr(self, "stuck_menu", False):
-            # Recorded 2026-10-01: Home leaves this menu up; only empty space closes it.
+            # Home leaves this menu up; only empty space closes it.
             self.stuck_menu = (x, y) != (220, 790)
             return
         if self.in_menu and (x, y) == (220, 263):
@@ -102,7 +102,7 @@ class PhoneFocusTests(unittest.TestCase):
         self.assertEqual(set(phone.taps) - {(220.0, 930.0)}, set())  # only closing Control Center
 
     def test_another_focus_is_kept_and_the_run_proceeds(self):
-        # 2026-09-30: the owner was live with the "Streaming" Focus on; it already silences the phone.
+        # The owner may be live with the "Streaming" Focus on; it already silences the phone.
         phone = FakePhone("Streaming")
         with upload_focus(phone):
             self.assertEqual(phone.focus, "Streaming")
@@ -132,8 +132,8 @@ class PhoneFocusTests(unittest.TestCase):
         self.assertFalse(phone.stuck_menu)
 
     def test_control_center_is_proven_by_one_tree_read_when_the_module_is_up(self):
-        # Every open used to read the tree twice (leftover-menu check, then the module wait);
-        # a Post now toggles DND on and off per platform, so each read is ~1 s of WDA time saved.
+        # An open reads the tree once, not twice (leftover-menu check, then the module wait);
+        # a Post now toggles DND on and off per platform, so each read is ~1 s of WDA time.
         from video_drop.phone_focus import open_control_center
         phone = FakePhone("Do Not Disturb")
         elements = open_control_center(phone)
@@ -204,7 +204,7 @@ class CloseControlCenterTests(unittest.TestCase):
         from video_drop.phone_focus import close_control_center
         phone = FakePhone()
         phone.in_control = True
-        phone.press_home = lambda: None  # measured 2026-10-02: Home leaves Control Center up
+        phone.press_home = lambda: None  # Home leaves Control Center up
         close_control_center(phone)
         self.assertFalse(phone.in_control)
         self.assertEqual(phone.taps, [(220.0, 930.0)])
@@ -225,7 +225,7 @@ class SwipeRetryTests(unittest.TestCase):
         missed = []
 
         def swipe(*args):
-            if not missed:  # captured 2026-10-02 12:15: the first swipe left the Home Screen up
+            if not missed:  # the first swipe can leave the Home Screen up
                 missed.append(1)
                 phone.swipes = getattr(phone, "swipes", 0) + 1
                 return
@@ -239,7 +239,7 @@ class SwipeRetryTests(unittest.TestCase):
 
 
 class Upright(unittest.TestCase):
-    """Soak 2026-10-02 16:38: a sideways phone stopped two flows before their first step."""
+    """A sideways phone can stop a flow before its first step."""
 
     def phone(self, sizes):
         sizes = iter(sizes)
@@ -263,7 +263,7 @@ class Upright(unittest.TestCase):
 
 
 class PreparedSession(unittest.TestCase):
-    """2026-10-02: preparing around each app cost ~80 s + ~50 s per app; a Post now prepares once."""
+    """Preparing around each app costs ~80 s + ~50 s per app; a Post now prepares once."""
 
     def test_the_phone_is_prepared_by_the_first_run_and_restored_once_at_the_end(self):
         from contextlib import contextmanager

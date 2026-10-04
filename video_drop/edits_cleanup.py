@@ -1,7 +1,7 @@
 """Which Edits project a release left behind, and when it may go to Edits' Trash.
 
 Every Instagram post goes through Edits for the 4K export, and each one leaves an
-"Untitled project" holding the clip (measured 2026-10-01: 167.9 MB to 1.03 GB each);
+"Untitled project" holding the clip (measured: 167.9 MB to 1.03 GB each);
 nothing is saved to Photos. With the removeAfterPost setting on, the Instagram flow notes
 the project tiles Edits shows before the upload. Once Instagram has its native receipt, the
 cleanup moves exactly the one new project to Edits' Trash (recoverable from Projects >

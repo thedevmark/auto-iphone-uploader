@@ -58,7 +58,7 @@ class MatchingTests(unittest.TestCase):
 
 
 class FakeEdits:
-    """Edits' Projects list, menu and confirm prompt as recorded 2026-10-01."""
+    """Edits' Projects list, menu and confirm prompt as recorded."""
 
     def __init__(self, projects):
         self.projects = dict(projects)

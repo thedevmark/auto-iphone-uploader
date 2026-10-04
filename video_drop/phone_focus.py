@@ -1,6 +1,6 @@
 """Do Not Disturb guard for native iPhone upload runs.
 
-Recorded on iOS 26.7 (2026-09-30): Control Center's Focus module is one Button
+Recorded on iOS 26.7: Control Center's Focus module is one Button
 named "focus-module". Its value is empty while no Focus is on and reads
 "Do Not Disturb" while DND is on. Tapping it opens the Focus menu, whose modes
 are Buttons named "mode-<Focus>". Only those names authorize a tap; an unknown
@@ -29,7 +29,7 @@ class FocusError(RuntimeError):
 
 
 # Every name this module reads. Looked up by accessibility id where the driver can (0.87 s),
-# not by reading the whole of Control Center (16-25 s each, measured 2026-10-02).
+# not by reading the whole of Control Center (16-25 s each, measured).
 NAMES = ("focus-module", "orientation-lock", "focus-modes-ui", "mode-Do Not Disturb")
 
 
@@ -59,7 +59,7 @@ def focus_state(elements: tuple[Element, ...]) -> str:
         return "off"
     if value == DND_VALUE:
         return "dnd"
-    # Another Focus (e.g. "Streaming", seen 2026-09-30) already silences the phone: the run
+    # Another Focus (e.g. "Streaming") already silences the phone: the run
     # proceeds under it and never switches or restores the owner's own Focus.
     return "other"
 
@@ -81,13 +81,13 @@ def open_control_center(phone, *, retry: bool = True) -> tuple[Element, ...]:
     time.sleep(0.8)
     phone.swipe(layout.width * .92, 1, layout.width * .92, layout.height * .30, .3)
     time.sleep(1.0)
-    # Not under the shallow media profile: depth 15 hid the Focus module (2026-09-30 23:44).
+    # Not under the shallow media profile: depth 15 hides the Focus module.
     elements = _elements(phone, (MODULE, ROTATION_LOCK, "focus-modes-ui"))
     if any(e.type == "Button" and e.name == MODULE for e in elements):
         return elements  # the usual case: one read proves Control Center, no second read
     if retry and any(e.name == "focus-modes-ui" for e in elements):
-        # A run that stopped mid-check left the Focus menu up (2026-10-01 00:33); the swipe then
-        # shows the menu, not Control Center. Home does not close it (measured 2026-10-01);
+        # A run that stopped mid-check can leave the Focus menu up; the swipe then
+        # shows the menu, not Control Center. Home does not close it;
         # a tap on the empty area below the modes does. Then open Control Center once more.
         phone.tap(*layout.reference_point(220, 790))
         time.sleep(1.0)
@@ -97,8 +97,8 @@ def open_control_center(phone, *, retry: bool = True) -> tuple[Element, ...]:
     except FocusError:
         if not retry or _cc_open(elements):
             raise
-        # The edge swipe sometimes lands on the Home Screen without opening Control Center
-        # (2026-10-02 12:15, captured). One more swipe, proven by the same read.
+        # The edge swipe sometimes lands on the Home Screen without opening Control Center.
+        # One more swipe, proven by the same read.
         phone.swipe(layout.width * .92, 1, layout.width * .92, layout.height * .30, .3)
         time.sleep(1.0)
         return _settle(phone, MODULE)
@@ -107,7 +107,7 @@ def open_control_center(phone, *, retry: bool = True) -> tuple[Element, ...]:
 def _real_home(phone) -> None:
     """Press Home through WDA. A noted video app makes press_home() take the go-ios springboard
     launch instead, which brings up the Home Screen beneath an open Control Center and leaves
-    Control Center up (soak 2026-10-02: YouTube and Instagram then read Control Center)."""
+    Control Center up (YouTube and Instagram then read Control Center)."""
     forget = getattr(phone, "note_front_app", None)
     if forget is not None:
         forget(None)
@@ -115,8 +115,8 @@ def _real_home(phone) -> None:
 
 
 # Empty space below Control Center's modules, above the home indicator, on the 440 x 956
-# reference phone. Measured 2026-10-02 11:34: a WDA Home press left Control Center open (both
-# soak flows then read it), a tap here closed it.
+# reference phone. Measured: a WDA Home press leaves Control Center open (flows
+# then read it), a tap here closes it.
 CC_EMPTY = (220.0, 930.0)
 
 
@@ -209,9 +209,9 @@ def optional_focus(phone, enabled: bool):
 
 
 # ---- rotation lock ---------------------------------------------------------------
-# Recorded on iOS 26.7 (2026-10-02): Control Center's rotation lock is a Switch named
+# Recorded on iOS 26.7: Control Center's rotation lock is a Switch named
 # "orientation-lock" (label "Lock Rotation"), value "1" when locked. A phone left unlocked
-# turned sideways mid-soak and every later flow failed on a 956 x 440 screen.
+# can turn sideways, and every later flow then fails on a 956 x 440 screen.
 ROTATION_LOCK = "orientation-lock"
 
 
@@ -270,8 +270,8 @@ def rotation_lock(phone):
 def upright(phone, *, settle: float = 1.5) -> None:
     """Turn a sideways screen back to portrait before anything reads its layout.
 
-    Soak 2026-10-02 16:38: the phone was left sideways with rotation unlocked; WDA read
-    956 x 440 and YouTube and Instagram stopped before their first step. WDA can set the
+    A phone left sideways with rotation unlocked reads 956 x 440, and YouTube and Instagram
+    stop before their first step. WDA can set the
     orientation (measured in Photos); rotation lock then holds it for the run.
     """
     info = phone.screen_info()
@@ -285,7 +285,7 @@ def upright(phone, *, settle: float = 1.5) -> None:
 
 
 def prepare_phone(phone, enabled: bool):
-    """One Setting (owner, 2026-10-02: "bundle it all as one thing"): Low Power Mode off and
+    """One Setting for all of it: Low Power Mode off and
     Auto-Lock at Never, Do Not Disturb on, rotation locked. Each is restored afterwards only
     if this run changed it, in reverse order."""
     if not enabled:
@@ -303,7 +303,7 @@ def prepare_phone(phone, enabled: bool):
 
 
 # A Post now runs YouTube, Instagram and TikTok in one process. Preparing and restoring the
-# phone around each app cost ~80 s + ~50 s per app (measured 2026-10-02), so a release run holds
+# phone around each app costs ~80 s + ~50 s per app (measured), so a release run holds
 # one prepared session: the first app's guards prepare the phone, the rest find it ready, and
 # everything is restored once when the run ends.
 _session: ExitStack | None = None

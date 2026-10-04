@@ -1,17 +1,17 @@
 """Layered probes of the phone link, one per transport hop, plus a 1 Hz recorder.
 
-Why per layer: on 2026-09-30 every "link failure" looked the same from WDA's
-side (silence), but the logs showed at least two different things underneath:
+Why per layer: every "link failure" looks the same from WDA's
+side (silence), but at least two different things can sit underneath:
 
 * a *pipe stall*: WDA over the usbmux forward, lockdown (`ios image list`) and
-  the go-ios tunnel (a CoreDeviceProxy stream over the same usbmux) all stopped
+  the go-ios tunnel (a CoreDeviceProxy stream over the same usbmux) all stop
   answering within one keepalive window while `ios list` (usbmuxd's own device
-  table, no device I/O) kept working; only a physical replug recovered;
-* a *tunnel-only close*: the CoreDeviceProxy stream got EOF while WDA kept
-  answering over usbmux, and a fresh tunnel negotiated seconds later.
+  table, no device I/O) keeps working; only a physical replug recovers;
+* a *tunnel-only close*: the CoreDeviceProxy stream gets EOF while WDA keeps
+  answering over usbmux, and a fresh tunnel negotiates seconds later.
 
-Nothing in the old recorder could tell those apart, because `/status` through
-the forward and `tunnel ls` were its only probes. These talk to each hop
+`/status` through the forward and `tunnel ls` alone cannot tell those apart.
+These probes talk to each hop
 directly, in-process, with millisecond timing, and never spawn go-ios:
 
   usbmux  ListDevices          -> Apple Mobile Device Service's device table
@@ -22,8 +22,8 @@ directly, in-process, with millisecond timing, and never spawn go-ios:
                                   a kernel/pymobiledevice3 tunnel)
 
 All of it is read-only on the phone. A tunnel probe is one short-lived TCP
-connection through the tunnel; it is rate-limited (``tunnel_every``) because a
-connect per tick was blamed, without evidence, for churn on 2026-09-30.
+connection through the tunnel; it is rate-limited (``tunnel_every``) to keep connects
+off every tick.
 """
 
 from __future__ import annotations
@@ -274,7 +274,7 @@ def parse_battery(text: str) -> dict:
 def power_warning(reads: list[dict], min_reads: int = 2) -> str | None:
     """One sentence when the port cannot power the phone under load, else None.
 
-    Measured 2026-09-30 19:38 on the chipset port: IsCharging true, capacity 1-2%, and
+    Measured on the chipset port: IsCharging true, capacity 1-2%, and
     InstantAmperage -2340..-2463 mA while TikTok/YouTube played (pack voltage 3.33 V).
     A phone that drains while plugged in is one heavy screen away from a brownout, so this
     fires on the SECOND negative sample (one can be a stale registry read)."""
@@ -381,9 +381,9 @@ class LinkRecorder:
         for name, tail in self.tails.items():
             lines = tail.new_lines()
             if lines:
-                # "log:" prefix: a tail named "tunnel" used to overwrite the tunnel PROBE result
-                # (every RSD round trip makes go-ios log a proxyConns error, so the tunnel column
-                # of the 2026-09-30 17:28 and 17:57 recordings is mostly log lines, not probes).
+                # "log:" prefix: a tail named "tunnel" would overwrite the tunnel PROBE result
+                # (every RSD round trip makes go-ios log a proxyConns error, so without the prefix
+                # the tunnel column is mostly log lines, not probes).
                 row[f"log:{name}"] = lines[:6]
         return row
 

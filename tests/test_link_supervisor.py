@@ -136,8 +136,8 @@ class DeciderTests(unittest.TestCase):
         self.assertEqual(self.actions(decisions), ["start_forwards", "restart_runwda"])
 
     def test_stale_tunnel_record_is_refreshed_in_place_before_any_restart(self):
-        # 2026-09-30 12:37: after a replug the daemon still listed port 60107 with nothing listening.
-        # go-ios's per-device refresh rebuilt it in under 5s; the daemon is never killed first.
+        # After a replug the daemon can still list port 60107 with nothing listening.
+        # go-ios's per-device refresh rebuilds it in under 5s; the daemon is never killed first.
         stale = Observation(**{**HEALTHY.__dict__, "wda": "down", "tunnel_listening": False})
         decisions = run(self.decider, self.clock, stale, ticks(self.decider.policy, 60), apply=self.apply)
         actions = self.actions(decisions)
@@ -172,7 +172,7 @@ class DeciderTests(unittest.TestCase):
         decisions = run(self.decider, self.clock, negotiating, ticks(self.decider.policy, 30), apply=self.apply)
         self.assertEqual({d.state for d in decisions}, {WAITING_TUNNEL})
         # Forwards are bound to the dropped USB connection, so they are refreshed once on return
-        # (2026-09-30: stale forwards kept WDA silent for 15 minutes); the daemon is left alone.
+        # (stale forwards leave WDA silent for 15 minutes); the daemon is left alone.
         self.assertEqual(self.actions(decisions), ["start_forwards"])
         # Tunnel listed again, runner orphaned: only runner + forwards come back.
         orphaned = Observation(device_present=True, tunnel_alive=True, tunnel_entry=True, route_ok=True,
@@ -381,7 +381,7 @@ if __name__ == "__main__":
 
 class RunnerStartGuardTests(unittest.TestCase):
     def test_dead_route_starts_nothing_and_never_mounts(self):
-        # 2026-09-30 12:20-12:24: `ios image auto` on a dead route blocked the loop for 180s.
+        # `ios image auto` on a dead route blocks the loop for 180s.
         import tempfile
         from video_drop import link_supervisor as sup
         runner = sup.Runner(Path(tempfile.mkdtemp()))

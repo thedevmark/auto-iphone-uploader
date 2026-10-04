@@ -117,8 +117,8 @@ def open_profile(bundle: str, tab: tuple[float, float]) -> None:
     point = share.layout().bottom_sheet_point(*tab)
     phone.tap(*point)
     time.sleep(TAB_SETTLE)
-    # Instagram reopens the profile where it was last scrolled, hiding the header's post count
-    # (measured 2026-10-01: 0 counts found). A second tap on the active tab scrolls to the top;
+    # Instagram reopens the profile where it was last scrolled, hiding the header's post count.
+    # A second tap on the active tab scrolls to the top;
     # TAB_SETTLE apart, so Instagram never reads it as the double tap that switches accounts.
     phone.tap(*point)
     time.sleep(TAB_SETTLE)
@@ -246,8 +246,8 @@ def threads_use_account(account: str) -> str | None:
     """Make `account` the active Threads account. Returns the handle that was active before
     when this switched it (to be switched back), None when it already was.
 
-    2026-10-02: the receipt read failed ("the newest post is by" another handle) because the Threads
-    app was on another of the owner's accounts; the crosspost itself was fine.
+    Without this, the receipt read fails ("the newest post is by" another handle) when the Threads
+    app is on another of the owner's accounts.
     """
     want = rc.handle(account)
     sheet = _threads_switcher()
@@ -309,8 +309,7 @@ def check(store: Store, release: dict, platform: str, state: Path, *, posts_befo
             return instagram_post(store, release, state, posts_before=posts_before, record=record)
         return threads_post(store, release, state, record=record)
     except (rc.ReceiptError, Stop, ValueError, share.PhoneUploadError, share.WDAError) as exc:
-        # Before leave(): the sweep's 13:05 Instagram read failed on 2026-10-02 and left no
-        # trace of what the phone showed; the 13:09 read of the same post then verified it.
+        # Capture before leave(), so a failed read leaves a trace of what the phone showed.
         from video_drop import failure_capture
         failure_capture.capture(state, f"receipt {platform}", exc)
         return {"kind": "unverified", "platform": platform, "releaseId": release["id"], "message": str(exc)}

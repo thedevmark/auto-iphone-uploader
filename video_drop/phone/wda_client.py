@@ -53,7 +53,7 @@ def activity_file():
 
 
 # Settle after the pasteboard hand-back so the previous app is frontmost again
-# when the caller's next read lands (~1s measured on device, 2026-09-03).
+# when the caller's next read lands (~1s measured on device).
 _HANDBACK_WAIT = 1.0
 
 
@@ -85,7 +85,7 @@ def session_file():
 # A session that has been through a display SLEEP is poisoned: its first
 # /actions hangs ~16.2s inside XCTest's snapshot timeout before failing
 # "point.x != INFINITY" (16.25s measured on device after 16 minutes asleep and
-# again after 5, 2026-08-14). The trigger is the display WAKING, not the lock:
+# again after 5). The trigger is the display WAKING, not the lock:
 # in the same run a real tap on the still-dark screen answered in 0.59s, and
 # the gesture right after the wake was the one that hung. Nothing cheap tells a
 # poisoned session from a healthy one — /status, /wda/locked and orientation
@@ -95,8 +95,8 @@ def session_file():
 # else may refresh it: a `press_button("home")` — the call that wakes the
 # display in the first place — answered in 0.47s on the very session that hung
 # 16.25s a moment later, so a wake proves nothing about whether the session can
-# still act. Keying this on "any action" instead let the wake reset the clock
-# and the rule never fired (measured live before this line was written).
+# still act. Keying this on "any action" instead lets the wake reset the clock
+# and the rule never fires.
 # Kept below every plausible iOS auto-lock: minting when it was not needed
 # costs one 0.01s call.
 _SLEEP_SUSPECT_SECONDS = 30.0
@@ -319,10 +319,10 @@ class WDAClient:
         """Errors a fresh session fixes. "invalid session" is the dead one;
         "point.x != INFINITY" is a session that crossed a screen lock — it
         still answers perception GETs but every /actions fails forever
-        (seen live 2026-08-09; the unlock button only woke the phone).
+        (the unlock button only wakes the phone).
         "stale element reference ... Application '<bundle>' is not present" is a
-        session still bound to an app that was closed (every request failed,
-        soak 2026-10-01 23:57 after YouTube was killed between flows)."""
+        session still bound to an app that was closed (every request fails,
+        e.g. after YouTube is killed between flows)."""
         msg = str(exc).lower()
         return ("invalid session" in msg or "point.x != infinity" in msg
                 or ("stale element reference" in msg and "application" in msg and "is not present" in msg))
@@ -380,8 +380,8 @@ class WDAClient:
                     self._create_session()
                     return self._request(method, f"/session/{self.session_id}{path}", payload)
                 raise
-        # A fresh session can still name an app go-ios killed between flows (soak 2026-10-02
-        # 00:03: every new session failed "Application 'com.google.ios.youtube' is not
+        # A fresh session can still name an app go-ios killed between flows (every new
+        # session fails "Application 'com.google.ios.youtube' is not
         # present"). Put the Home Screen in front over go-ios (no WDA request), then retry.
         from . import device
         device.foreground_springboard()
@@ -399,10 +399,10 @@ class WDAClient:
     def _quit_frozen_app(self, exc: WDAError) -> bool:
         """Force-quit the app WDA names as unresponsive, unless its upload may still be running.
 
-        Measured 2026-10-02: a backgrounded YouTube (owning the lock screen's Now Playing) stopped
-        answering; every gesture then failed "point.x != INFINITY" and every read named YouTube's
+        Measured: a backgrounded YouTube (owning the lock screen's Now Playing) stops
+        answering; every gesture then fails "point.x != INFINITY" and every read names YouTube's
         run loop, through fresh sessions and a Home Screen launch. Quitting YouTube over go-ios
-        fixed it at once. An INFINITY error names no app, so one read asks WDA which app it is.
+        fixes it at once. An INFINITY error names no app, so one read asks WDA which app it is.
         """
         found = self._FROZEN.search(str(exc))
         if not found and "point.x != infinity" in str(exc).lower():
@@ -466,8 +466,8 @@ class WDAClient:
         .state/wda_session, so every client adopts it). The cure for a
         session that crossed a screen lock: it keeps answering GETs but its
         first /actions HANGS ~16s inside XCTest's snapshot timeout before
-        failing "point.x != INFINITY" (16.23s measured on device
-        2026-08-14; a fresh create in the same run was 0.02s). Callers that
+        failing "point.x != INFINITY" (16.23s measured on device; a fresh
+        create was 0.02s). Callers that
         know they are past a lock (unlock()) mint up front instead of
         paying that hang to find out."""
         self.session_id = None
@@ -539,7 +539,7 @@ class WDAClient:
         """Screen orientation (PORTRAIT/LANDSCAPE) — the cheap guard for a
         cached window_size().
 
-        Measured on device 2026-08-14: 7.7ms against 201ms for /window/size.
+        Measured on device: 7.7ms against 201ms for /window/size.
         The gap is not session overhead — session routing is free (GET
         /session/{id} is 4.2ms) — it is that /window/size resolves the ACTIVE
         APPLICATION's frame and this does not. Being a _session_request is
@@ -550,7 +550,7 @@ class WDAClient:
         return str(self._session_request("GET", "/orientation"))
 
     def set_orientation(self, orientation: str) -> None:
-        """Turn the screen (XCUIDevice orientation). Measured 2026-10-02 in Photos: LANDSCAPE
+        """Turn the screen (XCUIDevice orientation). Measured in Photos: LANDSCAPE
         then PORTRAIT took 956 x 440 back to 440 x 956; the Home Screen refuses LANDSCAPE."""
         self._session_request("POST", "/orientation", {"orientation": orientation})
 
@@ -577,7 +577,7 @@ class WDAClient:
     # CKBalloonTextView) while the caret is blinking in the compose bar, so
     # "the focused field" is a lie exactly where this product needs it most.
     # Resolve the field you mean with find_first + a class chain instead
-    # (helpers._field_element). Measured on device 2026-08-12; docs/ERRORS.md.
+    # (helpers._field_element). Measured on device; docs/ERRORS.md.
 
     def find_first(self, class_chain: str) -> str | None:  # noqa: vulture  (called by helpers.py)
         """Element id of the first match for an iOS class chain, or None.
@@ -601,7 +601,7 @@ class WDAClient:
 
     def elements_by_id(self, identifier: str) -> list[dict]:
         """Every element whose accessibility id is `identifier`, with its type, label, value and
-        frame. Measured 2026-10-02 in Control Center: 0.87 s against 20.6 s for the full tree."""
+        frame. Measured in Control Center: 0.87 s against 20.6 s for the full tree."""
         found = self._session_request("POST", "/elements", {"using": "accessibility id", "value": identifier}) or []
         out = []
         for item in found:
@@ -742,14 +742,14 @@ class WDAClient:
 
     # ---- pasteboard ----------------------------------------------------------
     # iOS 16+ only lets the FRONTMOST app touch UIPasteboard, and the WDA runner
-    # is a background XCTest host, so a bare setPasteboard answered 200 and set
-    # nothing, and getPasteboard answered "" (measured 2026-09-03 with Messages
-    # frontmost; both worked the moment the runner was activated first). So the
+    # is a background XCTest host, so a bare setPasteboard answers 200 and sets
+    # nothing, and getPasteboard answers "" (measured with Messages
+    # frontmost; both work the moment the runner is activated first). So the
     # two calls below foreground the runner for the duration and hand the
     # screen back to whatever was up — the runner's blank screen flashes for
     # about a second. The bundle id comes from .state/wda_bundle (device.py's
     # cache) or .env WDA_BUNDLE_ID, never from go-ios here; without either the
-    # call runs bare and is as good as it was.
+    # call runs bare.
 
     @contextmanager
     def _runner_foreground(self):
@@ -766,8 +766,8 @@ class WDAClient:
             return
         # waitForIdleTimeout must be 0 for the activation: the runner's own
         # "Automation Running" screen never goes idle, so with the shared
-        # session's WDA_IDLE_WAIT the activate call ran 17-18s every time and
-        # the hand-back did not land (measured 2026-09-03; 0.09s at 0). Same
+        # session's WDA_IDLE_WAIT the activate call runs 17-18s every time and
+        # the hand-back does not land (measured; 0.09s at 0). Same
         # shape as helpers._enter_passcode: the setting rides the SHARED
         # session, so it is restored in the finally.
         self.set_wait_for_idle(0)
@@ -787,9 +787,9 @@ class WDAClient:
                 # would still see the runner. A FIXED settle, deliberately not
                 # a poll: activeAppInfo RESOLVES THE ACTIVE APPLICATION, the
                 # call class that can block WDA with no upper bound during an
-                # app transition, and a poll here fired it up to 20 times per
+                # app transition, and a poll here would fire it up to 20 times per
                 # clipboard call — 8 of the 10 wedge recoveries the watchdog
-                # ever logged landed on 2026-09-03 while that poll was live.
+                # ever logged landed while such a poll was live.
                 time.sleep(_HANDBACK_WAIT)
             finally:
                 self.set_wait_for_idle(config.WDA_IDLE_WAIT)

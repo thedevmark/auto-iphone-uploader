@@ -191,7 +191,7 @@ def detect_wda_bundle() -> str | None:
     """Find the installed WebDriverAgent runner. .env WDA_BUNDLE_ID wins.
 
     Deep sleep gates the app list (`ios apps --list` comes back EMPTY while
-    the app is still installed — seen live 2026-08-10), so a successful live
+    the app is still installed), so a successful live
     detection is cached in .state/wda_bundle and an empty list falls back to
     that cache. A NON-empty list without WDA means genuinely uninstalled and
     ignores the cache.
@@ -224,7 +224,7 @@ def tunnel_running(timeout: float = 10.0) -> bool:
 
     `timeout` bounds the whole probe (upstream: so start_tunnel()'s readiness
     poll could hand each probe only the budget it had left). Carries SideTap's
-    uncommitted 2026-09-29 patch: a `tunnel ls` entry alone is not enough —
+    uncommitted patch: a `tunnel ls` entry alone is not enough —
     the listener is dialled and `image list` exercises the RSD route."""
     started = time.monotonic()
     try:
@@ -268,8 +268,8 @@ def tunnel_running(timeout: float = 10.0) -> bool:
 def ddi_mounted() -> bool:
     """Is the personalized Developer Disk Image mounted? An iOS UPDATE silently
     unmounts it, and without it testmanagerd refuses every test session — runwda
-    dies in dtx channel timeouts that look like a broken tunnel (bit live
-    2026-08-10, the 26.5→26.6 update). Mounted: `image list` prints a line with
+    dies in dtx channel timeouts that look like a broken tunnel (seen with
+    the 26.5→26.6 update). Mounted: `image list` prints a line with
     a "signature" key; unmounted: msg "none"."""
     try:
         proc = _run(["image", "list"], timeout=15)
@@ -423,7 +423,7 @@ def stop_all(names: tuple[str, ...] = PROCS) -> list[str]:
 # Bring-up (start_tunnel with its 12s readiness cap, start_wda, start_forwards)
 # is not vendored: the supervisor's Decider owns those waits (Policy.entry_grace
 # and the tunnel backoff), and a second starter beside it is the two-healers
-# fight that took a healthy tunnel down on 2026-09-30.
+# fight that takes a healthy tunnel down.
 
 
 def foreground_springboard() -> bool:
@@ -435,7 +435,7 @@ def foreground_springboard() -> bool:
     the whole agent stops: /status, /screenshot and the viewer all queue behind
     the blocked call. WDA's own /wda/homescreen queues there too, and restarting
     the runner on top of the stuck one fails with XCTest error 103.
-    Foregrounding another app releases the AX wait: measured 2026-08-17 against
+    Foregrounding another app releases the AX wait: measured against
     TikTok's For You feed, WDA answered again ~20s later, no restart needed.
     """
     ios = ios_path()

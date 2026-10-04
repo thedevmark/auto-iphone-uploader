@@ -466,5 +466,5 @@ if (-not $CheckOnly -and -not $NoLaunch) {
 }
 # A report with steps still to do is not a failure: real errors throw above. Without this the
 # script would return the exit code of its last probe (e.g. the re-sign tool check), which
-# failed the release build on a clean CI machine (2026-10-01).
+# fails the release build on a clean CI machine.
 exit 0

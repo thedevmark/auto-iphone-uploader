@@ -10,7 +10,7 @@ def node(kind, name, x, y, label=None, value=""):
 
 
 class FakeInstagram:
-    """Profile and account switcher as recorded 2026-10-01."""
+    """Profile and account switcher as recorded."""
 
     def __init__(self, active, signed_in=("secondchannel", "examplechannel", "example.creator")):
         self.active = active
@@ -30,11 +30,11 @@ class FakeInstagram:
         return {handle: (220, 541 + 64 * i) for i, handle in enumerate(self.signed_in)}
 
     def ui_tree(self):
-        if self.reel:  # recorded 2026-10-02: one of the owner's Reels, no tab bar
+        if self.reel:  # one of the owner's Reels, no tab bar
             return {"type": "XCUIElementTypeApplication", "children": [
                 node("Button", "back-button", 40, 87, "Back"),
                 node("Button", "Insights on Edits", 98, 909)]}
-        if self.story:  # recorded 2026-10-01: the story viewer has no tab bar
+        if self.story:  # the story viewer has no tab bar
             return {"type": "XCUIElementTypeApplication", "children": [
                 node("Button", "story-header", 120, 88, "creator's story."),
                 node("Button", "story-dismiss-button", 420, 96, "Close stories to return to feed")]}
@@ -127,7 +127,7 @@ class PlayingScreenTests(unittest.TestCase):
         return taps, swipes
 
     def test_a_single_reel_taps_back_not_the_missing_tab_bar(self):
-        # Recorded 2026-10-02 00:29: "Insights on Edits", "245K views", "Boost", no tab bar.
+        # "Insights on Edits", "245K views", "Boost", no tab bar.
         taps, swipes = self.leave(["examplechannel", "Insights on Edits", "245K views", "Boost"])
         self.assertEqual((taps, swipes), ([(40.0, 87.0)], []))
 
@@ -139,7 +139,7 @@ class PlayingScreenTests(unittest.TestCase):
 
 class ComposerDiscardTests(unittest.TestCase):
     def test_a_restored_composer_is_discarded_never_shared(self):
-        # Recorded 2026-10-02 12:50: Cancel -> "Changes won't be saved" -> Continue without saving.
+        # Cancel -> "Changes won't be saved" -> Continue without saving.
         taps = []
         state = {"screen": "composer"}
 

@@ -18,13 +18,13 @@ DEFAULT_SLOTS = ("10:00", "19:00")
 # safety gates, not preferences, so they are deliberately absent here.
 PHONE_CHECK_DEFAULTS = {
     # One Setting for the phone's state during a run: Low Power Mode off and Auto-Lock at Never
-    # (the phone locked mid-export, 2026-10-02), Do Not Disturb on, rotation locked. Each is put
+    # (so the phone does not lock mid-export), Do Not Disturb on, rotation locked. Each is put
     # back afterwards only if the run changed it. video_drop/phone_focus.prepare_phone.
     "preparePhone": True,
     "youtubeQualityEveryUpload": False,
     "inspectPhoneOnOpen": True,
     # Once Instagram has its native receipt, move the Edits project its 4K export left behind
-    # to Edits' Trash (recoverable there). Posts save nothing to Photos (measured 2026-10-01).
+    # to Edits' Trash (recoverable there). Posts save nothing to Photos.
     # video_drop/edits_cleanup.py + scripts/phone_cleanup.py.
     "removeAfterPost": True,
     # Post now: Instagram's one upload turns on these "Also share on…" switches.

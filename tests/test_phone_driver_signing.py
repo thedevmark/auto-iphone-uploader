@@ -131,9 +131,9 @@ def _wire_fix_input(monkeypatch, tmp_path, sign=None, up=lambda: 0):
 
 def test_fix_input_keeps_old_profile_when_signing_fails(monkeypatch, tmp_path):
     """The countdown must describe what is ON THE PHONE. Writing the new
-    profile to PROFILE_PATH before `ios sign app` succeeds made a failed
-    re-sign flip the doctor to a fresh 7-day PASS while the phone kept the
-    old, dying signature (adversarial review 2026-08-13)."""
+    profile to PROFILE_PATH before `ios sign app` succeeds would let a failed
+    re-sign flip the doctor to a fresh 7-day PASS while the phone keeps the
+    old, dying signature."""
     def explode(*_a, **_k):
         raise device.DeviceError("phone locked mid-install")
 
@@ -171,10 +171,10 @@ def test_fix_input_commits_profile_only_after_signing(monkeypatch, tmp_path):
 
 
 def test_fix_input_reports_a_hung_sign_instead_of_raising(monkeypatch, tmp_path):
-    """`ios sign app` hanging past its subprocess timeout raised TimeoutExpired
-    straight through fix_input, which killed the viewer's worker thread and
-    left the Fix input wizard at 'running' forever (adversarial review
-    2026-08-13). It must come back as a normal ok:False result."""
+    """`ios sign app` hanging past its subprocess timeout must not raise TimeoutExpired
+    straight through fix_input: that would kill the viewer's worker thread and
+    leave the Fix input wizard at 'running' forever.
+    It must come back as a normal ok:False result."""
     import subprocess
 
     def hang(*_a, **_k):
@@ -256,8 +256,8 @@ def test_device_capture_waits_for_sideloadly_then_reads(monkeypatch, tmp_path):
 
 
 def test_device_capture_times_out_naming_the_next_move(monkeypatch, tmp_path):
-    """The 2026-08-16 failure: no profile ever arrives. That must name what to
-    do, not sit silent - and the old watcher wording is gone with the watcher."""
+    """No profile ever arrives. That must name what to
+    do, not sit silent."""
     _fake_device(monkeypatch)  # every read comes back empty
     monkeypatch.setattr(signing.time, "sleep", _no_sleep)
     with pytest.raises(signing.SigningError, match="Click Start in Sideloadly"):

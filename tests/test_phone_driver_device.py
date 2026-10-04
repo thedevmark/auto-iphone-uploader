@@ -67,7 +67,7 @@ def test_ios_path_prefers_path_lookup(monkeypatch):
 def test_ios_path_falls_back_to_npm_global_dir(monkeypatch, tmp_path):
     # Windows truncates a registry PATH past ~4095 chars when it builds the
     # logon environment, so shortcut/Startup launches can miss the npm dir
-    # even though terminals see it (bit the Startup shortcut live 2026-08-10).
+    # even though terminals see it.
     monkeypatch.setattr(device.shutil, "which", lambda _: None)
     exe = tmp_path / "npm" / "ios.exe"
     exe.parent.mkdir()
@@ -85,8 +85,8 @@ def test_ios_path_none_when_missing_everywhere(monkeypatch, tmp_path):
     assert device.ios_path() is None
 
 
-# ---- WDA bundle cache: deep sleep empties `ios apps --list` (seen live
-# 2026-08-10) while the app is still installed. The cache keeps up() working
+# ---- WDA bundle cache: deep sleep empties `ios apps --list`
+# while the app is still installed. The cache keeps up() working
 # so the link can heal the moment the phone wakes.
 
 
@@ -118,8 +118,8 @@ def test_wda_bundle_none_when_empty_list_and_no_cache(monkeypatch, tmp_path):
     assert device.detect_wda_bundle() is None
 
 
-# ---- Developer Disk Image: an iOS update silently unmounts it (bit live
-# 2026-08-10, the 26.6 update) — runwda then dies in dtx channel timeouts.
+# ---- Developer Disk Image: an iOS update silently unmounts it,
+# and runwda then dies in dtx channel timeouts.
 # `image list` prints a "signature" line when mounted, msg "none" when not.
 
 
@@ -239,8 +239,6 @@ def test_list_apps_fresh_nonempty_overwrites_stale_cache(monkeypatch, tmp_path):
 def test_safe_kill_can_spare_the_process_tree(monkeypatch):
     # The tunnel and the forwards are CHILDREN of whatever launched them, so a
     # tree kill aimed at a stale viewer takes the phone link down with it.
-    # Measured 2026-08-12: 11 green checks, then a second SideTap launch left
-    # the tunnel and WDA dead.
     cmds = []
     monkeypatch.setattr(device.sys, "platform", "win32")
     monkeypatch.setattr(device, "_pid_image", lambda pid: "python.exe")

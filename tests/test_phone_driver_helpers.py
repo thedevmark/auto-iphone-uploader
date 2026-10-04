@@ -1,5 +1,5 @@
 """Vendored from SideTap's tests/test_helpers.py (upstream 0c75c53): the subset
-that covers video_drop.phone.helpers. Pins unlock()'s incident fixes, the tree
+that covers video_drop.phone.helpers. Pins unlock()'s behavior, the tree
 and window-size memos, press_home, open_app, the wait_* duty cycles and
 compact(). No phone needed. See video_drop/phone/VENDORED.md."""
 
@@ -95,8 +95,8 @@ def test_passcode_pad_visible_with_digit_buttons():
 
 
 def test_passcode_pad_visible_with_key_digits():
-    """The real pad's digits are Key elements, not Buttons (device dump
-    2026-08-13). Detection must count them: on a localized pad there is no
+    """The real pad's digits are Key elements, not Buttons (device dump).
+    Detection must count them: on a localized pad there is no
     'passcode' text to fall back on, so the digit count is the only signal."""
     assert _passcode_pad_visible(_buttons_tree(list("1234567890"), kind="Key"))
 
@@ -146,7 +146,7 @@ class StubPhone:
         self.app = app
         self.wrong_pin = wrong_pin
         # A lock-screen priority notification holds focus and swallows every
-        # typed digit while the pad sits behind it (live 2026-08-13).
+        # typed digit while the pad sits behind it.
         self.eats_typing = eats_typing
         # A lit screen compresses to a big PNG; a dark one to almost nothing.
         self.frame = frame if frame is not None else b"\0" * 200_000
@@ -252,9 +252,9 @@ def test_unlock_types_nothing_when_no_pad_appears(fast):
 
 def test_unlock_types_the_passcode_in_one_request(fast):
     """On a clean lock screen the pad holds focus and one /wda/keys request
-    puts every digit in at once — the near-instant entry unlock had before
-    2026-08-13. Verified, never trusted: the pad leaving the screen is what
-    lets the typed attempt stand, and no fallback taps fire."""
+    puts every digit in at once, the near-instant entry. Verified, never
+    trusted: the pad leaving the screen is what lets the typed attempt stand,
+    and no fallback taps fire."""
     stub = fast(StubPhone(_buttons_tree(list("1234567890"))))
     helpers.unlock()
     assert stub.typed == ["246810"]
@@ -264,9 +264,9 @@ def test_unlock_types_the_passcode_in_one_request(fast):
 def test_unlock_falls_back_to_taps_when_typed_digits_are_eaten(fast):
     """/wda/keys sends keystrokes to the FOCUSED element, and the pad being on
     screen does not mean the pad holds focus: a lock-screen priority
-    notification kept focus while the pad sat behind it, all six typed digits
-    went into the void, and the phone stayed locked (live 2026-08-13). The
-    pad still up after typing means exactly that — a tap on a digit button
+    notification can keep focus while the pad sits behind it, so all six typed
+    digits go into the void and the phone stays locked. The
+    pad still up after typing means exactly that: a tap on a digit button
     needs no focus, so the digits go in by taps and unlock still succeeds."""
     stub = fast(StubPhone(_buttons_tree(list("1234567890")), eats_typing=True))
     helpers.unlock()
@@ -275,9 +275,9 @@ def test_unlock_falls_back_to_taps_when_typed_digits_are_eaten(fast):
 
 
 def test_unlock_taps_key_digits_like_the_real_pad(fast):
-    """Pin the device's actual tree shape: the pad digits are Key '1'..'0'
-    (dump 2026-08-13). The first live run of the tap path silently fell back
-    to typing because only Button was accepted."""
+    """Pin the device's actual tree shape: the pad digits are Key '1'..'0'.
+    The tap path must accept Key, not only Button, or it silently falls back
+    to typing."""
     stub = fast(
         StubPhone(_buttons_tree(list("1234567890"), kind="Key"), eats_typing=True)
     )
@@ -286,15 +286,15 @@ def test_unlock_taps_key_digits_like_the_real_pad(fast):
 
 
 def test_unlock_digit_taps_drop_the_idle_wait_and_restore_it(fast):
-    """Each pad tap paid the session's waitForIdleTimeout (2s ceiling) plus a
-    0.15s sleep — six digits took 4.94s of visible one-finger typing (measured
-    live 2026-08-14). The pad is static, so idle settling buys nothing there:
+    """Each pad tap would otherwise pay the session's waitForIdleTimeout (2s ceiling) plus a
+    0.15s sleep: six digits took 4.94s of visible one-finger typing (measured
+    on device). The pad is static, so idle settling buys nothing there:
     the burst must run at waitForIdleTimeout 0 and put the configured value
     back afterwards, because the setting rides the shared session everyone
     else gestures on. (Do NOT batch the taps into one /actions request
     instead: six down/up cycles in one pointer source entered
     deterministically WRONG digits, and six parallel pointer sources KILLED
-    WDA outright — both on device 2026-08-14.)"""
+    WDA outright, both observed on device.)"""
     stub = fast(
         StubPhone(_buttons_tree(list("1234567890"), kind="Key"), eats_typing=True)
     )
@@ -330,11 +330,11 @@ def test_enter_passcode_restores_idle_wait_when_a_tap_raises(fast):
 
 
 def test_unlock_pad_gone_check_is_a_bounded_probe_not_a_source(fast):
-    """After the last digit tap the phone is visibly unlocked, but unlock()
-    still held the viewer busy ~5s: a fixed 0.7s sleep plus one full /source
-    of the freshly unlocked Home Screen — /source's worst case, 3.0-5.7s
-    measured — just to ask "is the pad gone?". A bounded find_first answers
-    the same question in 0.11s (no-match, measured on device 2026-08-14), so
+    """After the last digit tap the phone is visibly unlocked, so unlock() must not
+    hold the viewer busy ~5s with a fixed 0.7s sleep plus one full /source
+    of the freshly unlocked Home Screen (/source's worst case, 3.0-5.7s
+    measured) just to ask "is the pad gone?". A bounded find_first answers
+    the same question in 0.11s (no-match, measured on device), so
     the success path must pay exactly ONE full /source: the read that found
     the pad and aimed the digit taps. Holds through the tap fallback too."""
     stub = fast(
@@ -377,8 +377,8 @@ def test_unlock_digit_taps_are_redacted_in_the_activity_log(fast):
 
 
 def test_unlock_never_consults_wda_locked(fast):
-    """/wda/locked lies (returned False with the pad on screen, live
-    2026-08-09). unlock() must decide from the screen, never that endpoint."""
+    """/wda/locked lies (it returns False with the pad on screen).
+    unlock() must decide from the screen, never that endpoint."""
     stub = fast(StubPhone(_buttons_tree(list("1234567890"))))
     stub.is_locked = None  # noqa: vulture  (poison: any call raises TypeError)
     helpers.unlock()
@@ -408,10 +408,10 @@ def test_unlock_leaves_foreground_app_alone(fast):
 
 
 def test_unlock_wakes_a_phone_that_locked_with_an_app_open(fast):
-    """Bit live 2026-08-12: active_app() goes STALE behind a lock. A phone that
-    locked with Calculator frontmost kept answering "Calculator", so unlock()
-    took the "in use, touch nothing" exit and never woke it — and every launch
-    afterwards failed with "device was not, or could not be, unlocked". A dark
+    """active_app() goes STALE behind a lock. A phone that
+    locks with Calculator frontmost keeps answering "Calculator", so unlock()
+    would take the "in use, touch nothing" exit and never wake it, and every launch
+    afterwards fails with "device was not, or could not be, unlocked". A dark
     screen is the tell: a phone actually in use is a lit one."""
 
     class LockedBehindApp(StubPhone):
@@ -427,13 +427,13 @@ def test_unlock_wakes_a_phone_that_locked_with_an_app_open(fast):
 
 
 def test_unlock_survives_active_app_crash_on_lit_lock_screen(fast):
-    """/wda/activeAppInfo CRASHES while the lock screen is LIT — WDA answers
-    "attempt to insert nil object from objects[2]" (live 2026-08-13, reproduced
+    """/wda/activeAppInfo CRASHES while the lock screen is LIT: WDA answers
+    "attempt to insert nil object from objects[2]" (reproduced
     on device: lit frame -> crash, dark frame -> springboard). A priority
     notification keeps the lock screen lit for as long as it shows, so every
-    Unlock press during one died on unlock()'s FIRST call, before a single
-    gesture reached the phone. The crash only happens on the lock screen — a
-    real frontmost app answers fine — so it can never mean "in use": unlock()
+    Unlock press during one dies on unlock()'s FIRST call, before a single
+    gesture reaches the phone. The crash only happens on the lock screen (a
+    real frontmost app answers fine), so it can never mean "in use": unlock()
     must treat it as nothing-frontmost and carry on with the wake."""
 
     class CrashingActiveApp(StubPhone):
@@ -479,9 +479,9 @@ def test_unlock_resummons_pad_when_screen_slept(fast):
 
 
 def test_unlock_retries_swipe_when_it_burned_on_a_dark_screen(fast):
-    """Seen live 2026-08-09: the first gesture after a deep sleep blocked WDA
-    20.5s, so the swipe landed after the lock screen re-slept — dark screen,
-    no pad, unlock gave up ('the button only wakes my phone'). unlock() must
+    """The first gesture after a deep sleep can block WDA
+    20.5s, so the swipe lands after the lock screen re-sleeps: dark screen,
+    no pad, and unlock gives up ('the button only wakes my phone'). unlock() must
     spend one more wake+swipe when the screen is dark again after the first."""
 
     class SleepyPhone(StubPhone):
@@ -500,9 +500,9 @@ def test_unlock_retries_swipe_when_it_burned_on_a_dark_screen(fast):
 def test_unlock_mints_a_fresh_session_before_the_first_gesture(fast):
     """A session that crossed a screen lock keeps answering GETs but its
     first /actions hangs ~16s inside XCTest's snapshot timeout before
-    failing point.x != INFINITY (16.23s measured on device 2026-08-14) —
+    failing point.x != INFINITY (16.23s measured on device),
     long enough for the woken lock screen to re-sleep, so the wake swipe
-    burned and unlock ran 30-50s. A fresh session is 0.02s and cannot be
+    burns and unlock runs 30-50s. A fresh session is 0.02s and cannot be
     poisoned: unlock() must mint one BEFORE any gesture rides the old id."""
     stub = fast(StubPhone(_buttons_tree(list("1234567890"))))
     helpers.unlock()
@@ -520,10 +520,10 @@ def test_unlock_never_mints_when_phone_is_in_use(fast):
 
 
 def test_unlock_gives_up_after_two_dark_swipes(fast):
-    """Never loop gestures forever at a phone that will not show a pad — but
-    say so OUT LOUD. The old silent return made the viewer answer {"ok": true}
-    and the MCP tool say "unlocked" over a phone that was still dark: success
-    reported, state unknown (adversarial review 2026-08-13)."""
+    """Never loop gestures forever at a phone that will not show a pad, but
+    say so OUT LOUD. A silent return would make the viewer answer {"ok": true}
+    and the MCP tool say "unlocked" over a phone that is still dark: success
+    reported, state unknown."""
     stub = fast(StubPhone(SAMPLE_TREE, frame=b"tiny"))
     with pytest.raises(WDAError, match="stayed dark"):
         helpers.unlock()
@@ -533,7 +533,7 @@ def test_unlock_gives_up_after_two_dark_swipes(fast):
 
 def _lock_screen_tree():
     """The lit-but-locked lock screen a priority notification produces
-    (device dump 2026-08-20): a CoverSheet window, no passcode pad yet."""
+    (device dump): a CoverSheet window, no passcode pad yet."""
     return {
         "type": "Application",
         "rect": {"x": 0, "y": 0, "width": 390, "height": 844},
@@ -570,9 +570,8 @@ def test_on_lock_screen_detects_coversheet():
 
 def test_unlock_does_not_claim_success_on_a_lit_lock_screen(fast):
     """A priority notification keeps the lock screen LIT while still locked, so
-    the "lit and no pad, must be awake+usable" shortcut used to return
-    {ok: true} over a phone still on its lock screen — Wes's "runs ~20s then
-    nothing happens" (2026-08-20). A lit CoverSheet is not an unlocked phone:
+    the "lit and no pad, must be awake+usable" shortcut would return
+    {ok: true} over a phone still on its lock screen. A lit CoverSheet is not an unlocked phone:
     unlock() must NOT return success, and must raise if the pad never comes."""
     stub = fast(StubPhone(_lock_screen_tree()))  # lit (default 200 KB frame)
     with pytest.raises(WDAError, match="never appeared"):
@@ -603,9 +602,9 @@ def test_unlock_recovers_when_the_second_swipe_finally_raises_the_pad(fast):
 def test_unlock_reraises_unrelated_active_app_errors(fast):
     """Only the lit-lock-screen "insert nil object" crash means carry-on. Any
     OTHER WDAError from active_app() (timeout, dead session) leaves the
-    phone's state unknown — swallowing it would Home-press and edge-swipe a
-    phone that may be unlocked with an app open (adversarial review
-    2026-08-13). It must propagate, and no gesture may fire."""
+    phone's state unknown, and swallowing it would Home-press and edge-swipe a
+    phone that may be unlocked with an app open.
+    It must propagate, and no gesture may fire."""
 
     class FlakyActiveApp(StubPhone):
         def active_app(self):
@@ -1271,11 +1270,11 @@ class SlowSpringboard:
 
 
 def test_press_home_waits_for_the_springboard(monkeypatch):
-    """/wda/homescreen is not reliably synchronous: measured 2026-08-12 it
+    """/wda/homescreen is not reliably synchronous: measured, it
     returned in ~50ms with the app still frontmost on two tries of three, the
-    springboard arriving ~830ms later. Returning early made the viewer's second
+    springboard arriving ~830ms later. Returning early makes the viewer's second
     Home press read a stale active app and press home again instead of walking,
-    and left goto_home_page() raising "no PageIndicator"."""
+    and leaves goto_home_page() raising "no PageIndicator"."""
     stub = SlowSpringboard()
     monkeypatch.setattr(helpers, "_client", stub)
     monkeypatch.setattr(helpers.time, "sleep", lambda _s: None)
@@ -1565,7 +1564,7 @@ def test_press_home_leaves_a_video_app_over_usb_without_asking_wda(monkeypatch):
 
 
 def test_unlock_never_asks_activeappinfo_on_a_lit_playing_screen(monkeypatch):
-    # Run 3b (2026-10-01): unlock() -> /wda/activeAppInfo with TikTok's feed in front stalled the link.
+    # unlock() -> /wda/activeAppInfo with TikTok's feed in front stalls the link.
     import io
     import os as _os
     from PIL import Image
@@ -1592,8 +1591,8 @@ def test_unlock_never_asks_activeappinfo_on_a_lit_playing_screen(monkeypatch):
 
 
 def test_default_guard_covers_every_app_with_a_playing_surface():
-    # 2026-10-01 17:22 soak: the phone fell off USB inside the YouTube flow, which the
-    # TikTok-only guard never covered. Every video app a flow drives is guarded by default.
+    # A TikTok-only guard misses the YouTube flow, where the phone can fall off USB.
+    # Every video app a flow drives is guarded by default.
     for bundle in ("com.zhiliaoapp.musically", "com.google.ios.youtube", "com.burbn.instagram",
                    "com.burbn.basel", "com.burbn.barcelona", "com.facebook.Facebook"):
         assert bundle in config.VIDEO_APP_BUNDLES

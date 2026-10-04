@@ -223,7 +223,7 @@ def assert_share_sheet(data: dict, *, timeout: float = 180) -> None:
             if named and sized:
                 return
             # iOS draws the sheet before its header has the size ("Video" first, then
-            # "Video · 159.8 MB", 2026-09-30): give the header a moment before judging it.
+            # "Video · 159.8 MB"): give the header a moment before judging it.
             sheet_seen = sheet_seen or time.monotonic()
             if time.monotonic() - sheet_seen >= SHEET_HEADER_GRACE:
                 raise PhoneUploadError("iOS share sheet has the wrong filename" if not named
@@ -378,8 +378,8 @@ def _share_missing(rows: list[dict], name: str) -> bool:
 def choose_share_app(name: str, *, expected_bundle: str | None = None) -> None:
     bundle = expected_bundle or SHARE_BUNDLES.get(name)
     # An app iOS does not list is searched for in one direction until the rail stops moving,
-    # then the other. Soak 2026-10-02 16:43: the rail was already scrolled to its end with
-    # TikTok clipped off the left edge, and always scrolling toward the right end never found it.
+    # then the other: the rail can already be scrolled to its end with TikTok clipped off the
+    # left edge, and always scrolling toward the right end never finds it.
     sweep, last_rail = "left", None
     for _ in range(14):
         rows = screen()
@@ -445,7 +445,7 @@ def radio_selected(label: str, *, x: int = 35, exact: bool = True) -> bool:
 
 def confirm_visibility(choice: str) -> None:
     """YouTube 21.38 can leave the details row on the old value ("Visibility, Private") after a
-    change (seen 2026-09-30). The picker's radio is the truth: reopen it and read it."""
+    change. The picker's radio is the truth: reopen it and read it."""
     if matches(f"Visibility, {choice}"):
         return
     tap("Visibility", exact=False)
@@ -494,8 +494,8 @@ def type_description(description: str) -> None:
             time.sleep(0.6)
         phone.type_text(line)
         time.sleep(1.0)
-    # Dry run 2026-10-02 19:34 (captured): the field showed the exact approved text, but the
-    # read right after typing listed no text view at all. An empty read is read again; a field
+    # The read right after typing can list no text view at all while the field shows the exact
+    # approved text. An empty read is read again; a field
     # that shows other text still stops at once.
     for attempt in range(4):
         values = [e.value for e in elements_from_tree(phone.ui_tree()) if e.type == "TextView"]
@@ -547,8 +547,8 @@ def trim_state(rows: list[dict]) -> str | None:
         return "editor"
     if any(text.startswith("processing") for text in plain):
         return "processing"
-    # Measured by Windows OCR on iOS 26.7 / YouTube 21.38 (soak 2026-10-02): "Choose a part of the
-    # video"; "Crop your video" was the accessibility label the first OCR rewrite guessed.
+    # Measured by Windows OCR on iOS 26.7 / YouTube 21.38: "Choose a part of the
+    # video"; "Crop your video" is the accessibility label.
     if ("choose a part of the video" in plain or "crop your video" in plain) and "next" in plain:
         return "trim"
     return None
@@ -573,9 +573,9 @@ def upload_finished(lines: list[str]) -> bool:
 def wait_for_upload(size_bytes: int, *, clock=time.monotonic, sleep=time.sleep, read=None) -> bool:
     """Keep YouTube in front after the final tap until it shows the upload finished.
 
-    Real Post now 2026-10-02: the run moved on to Instagram right after the tap, iOS paused
-    the backgrounded YouTube and the Short sat as a draft until YouTube was reopened, when it
-    showed 'Uploaded to Your Channel'. Only the transfer needs YouTube in front; its processing
+    If the run moves on to Instagram right after the tap, iOS pauses
+    the backgrounded YouTube and the Short sits as a draft until YouTube is reopened, when it
+    shows 'Uploaded to Your Channel'. Only the transfer needs YouTube in front; its processing
     runs on YouTube's side. Nothing is tapped here. Returns False if the time runs out.
     """
     from video_drop import ocr as _ocr
@@ -659,7 +659,7 @@ def prepare_youtube(data: dict) -> None:
     tap("Back")
     confirm_visibility(data["visibility"].capitalize())
     # YouTube remembers the last audience: the row then reads "Audience, No, it's not made for
-    # kids" and there is no "Select audience" entry to open (2026-09-30).
+    # kids" and there is no "Select audience" entry to open.
     if not matches("Audience, No, it's not made for kids", exact=False):
         tap("Select audience" if matches("Select audience") else "Audience", exact=False)
         assert_visible("Select audience")
@@ -668,7 +668,7 @@ def prepare_youtube(data: dict) -> None:
     assert_visible("No, it's not made for kids", exact=False)
     if matches("Show more"):
         tap("Show more")
-    # YouTube 21.38 draws these rows but hides them from accessibility (2026-09-30):
+    # YouTube 21.38 draws these rows but hides them from accessibility:
     # open_row reads them with offline OCR and proves each tap by the screen it opens.
     open_row("Add description", opened=description_editor_open)
     type_description(data["description"])

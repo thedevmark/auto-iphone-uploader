@@ -67,7 +67,7 @@ EDITOR_SETTLE = 10.0
 PREPARE_ATTEMPTS = 3
 # Recorded post screen vs its source: first frame 2.7; frames 1-10 s into the same clip 10.5-13.8.
 COVER_LIMIT = 8.0
-# Keyboard-up Post pill: 56 pt wide, 16 pt from the trailing edge (recorded 2026-09-30).
+# Keyboard-up Post pill: 56 pt wide, 16 pt from the trailing edge.
 POST_PILL_WIDTH = 56.0
 POST_PILL_INSET = 16.0
 
@@ -280,8 +280,8 @@ def compose(data: dict, frame: Image.Image, evidence_dir: Path) -> dict:
     phone.note_front_app(TIKTOK_BUNDLE)
     time.sleep(SHEET_SETTLE)
     phone.tap(*layout.bottom_sheet_point(*VIDEO_POINT))
-    # TikTok's editor plays the clip, and asking WDA which app is in front there froze it
-    # until iOS killed the runner (2026-09-30 11:24). Wait blind; the post screen check proves it.
+    # TikTok's editor plays the clip, and asking WDA which app is in front there freezes it
+    # until iOS kills the runner. Wait blind; the post screen check proves it.
     share.stage("tiktok_editor")
     time.sleep(EDITOR_SETTLE)
     phone.tap(*layout.bottom_right_point(*NEXT_POINT))

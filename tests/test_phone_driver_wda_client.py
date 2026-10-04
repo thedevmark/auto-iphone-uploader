@@ -76,7 +76,7 @@ class FakeWDA(BaseHTTPRequestHandler):
             sid = self.path.split("/")[2]
             if sid in FakeWDA.hanging_sessions:
                 # XCTest's snapshot timeout: the real one blocks ~16s before
-                # it answers at all (measured on device 2026-08-14).
+                # it answers at all (measured on device).
                 time.sleep(FakeWDA.hang_seconds)
             if sid in FakeWDA.infinity_sessions:
                 self._reply(
@@ -207,9 +207,9 @@ def test_stale_shared_session_file_recovers(wda):
 
 
 def test_infinity_frame_error_heals_like_dead_session(wda):
-    # Seen live 2026-08-09: a session that crossed a screen lock keeps
+    # A session that crossed a screen lock keeps
     # answering perception GETs but fails every /actions with "point.x !=
-    # INFINITY" — alive but unusable, forever. The shared-session model
+    # INFINITY": alive but unusable, forever. The shared-session model
     # preserves such a session faithfully, so recovery must treat the
     # INFINITY error exactly like a dead session: recreate and retry once.
     wda.window_size()  # sess-1
@@ -225,8 +225,8 @@ def test_actions_timeout_replaces_the_session_but_never_replays(wda):
     # answers. Any client with a shorter timeout — the viewer's is 10s
     # (viewer.py Handler.client) — gives up first, so it never sees the error
     # that identifies the session and reuses the same dead id forever:
-    # reproduced against a hanging fake WDA, every later gesture timed out
-    # again at 10s (2026-08-14).
+    # against a hanging fake WDA, every later gesture times out
+    # again at 10s.
     #
     # The gesture itself is NEVER retried here. A timeout does not cancel it:
     # the swipe may still land on the phone, and replaying it double-taps.
@@ -280,14 +280,14 @@ def test_a_session_replaced_after_the_timeout_is_adopted_not_evicted(wda):
 
 
 def test_first_gesture_after_an_idle_gap_mints_before_acting(wda):
-    # Measured on device 2026-08-14: after 16 minutes asleep, the first
+    # Measured on device: after 16 minutes asleep, the first
     # /actions on the pre-sleep session hung 16.25s before failing point.x !=
     # INFINITY, while a fresh session took 0.01s and its swipe 1.18s. Nothing
     # cheap distinguishes the two, so a gesture that follows an idle gap long
     # enough for the display to have slept mints first instead of paying it.
     wda.tap(1, 1)  # sess-1, and stamps the gesture clock
-    # A REAL gap, not one derived from the threshold — 2 minutes is the gap in
-    # the live incident (11:01:59 lock, 11:02:20 the 17.58s swipe). Deriving it
+    # A REAL gap, not one derived from the threshold: 2 minutes is the gap
+    # measured on device (11:01:59 lock, 11:02:20 the 17.58s swipe). Deriving it
     # from _SLEEP_SUSPECT_SECONDS would make this test move with the constant
     # and pass at any value, including "never".
     wda._last_gesture_ok -= 120  # nothing has landed since
@@ -312,10 +312,9 @@ def test_a_gesture_while_the_phone_is_being_driven_does_not_mint(wda):
 
 def test_a_wake_press_does_not_count_as_a_landed_gesture(wda):
     # The call that WAKES the display is a POST too, and keying the clock on
-    # "any action" let that wake refresh it — so the rule never fired on the
-    # one sequence it exists for. Measured live 2026-08-14: press_button("home")
-    # answered in 0.47s on the very session whose next gesture then hung 16.25s,
-    # and the fix sat there doing nothing because the wake had reset the clock.
+    # "any action" would let that wake refresh it, so the rule would never fire on the
+    # one sequence it exists for. Measured: press_button("home")
+    # answers in 0.47s on the very session whose next gesture then hangs 16.25s.
     wda.tap(1, 1)  # sess-1
     wda._last_gesture_ok -= 120  # ...and then the phone slept
     wda.home()  # the wake: a POST, but not a gesture
@@ -391,7 +390,7 @@ def test_slow_server_raises_wda_error_not_timeout(monkeypatch):
         raise requests.exceptions.ReadTimeout("read timed out")
 
     # The client owns a persistent Session, so patch the method it actually
-    # calls; patching the module-level requests.request no longer intercepts it.
+    # calls; patching the module-level requests.request does not intercept it.
     monkeypatch.setattr(requests.Session, "request", slow)
     client = WDAClient(base_url="http://127.0.0.1:1", timeout=1)
     with pytest.raises(WDAError, match="did not answer"):
@@ -637,8 +636,8 @@ def test_redact_actions_hides_gesture_coordinates(wda, tmp_path, monkeypatch):
         wda.tap(123, 456)
     wda.tap(10, 20)
     # Scan every field EXCEPT "ts": the epoch is ~10 digits of clock, and it
-    # contains "123" or "456" often enough to fail this test at random (it did,
-    # 2026-08-14). Dropping only the timestamp keeps a future new field covered.
+    # contains "123" or "456" often enough to fail this test at random.
+    # Dropping only the timestamp keeps a future new field covered.
     records = _feed_lines(tmp_path)
     leaked = json.dumps([{k: v for k, v in r.items() if k != "ts"} for r in records])
     assert "123" not in leaked and "456" not in leaked
@@ -758,10 +757,10 @@ def test_activity_summary_key_press():
 
 
 def test_set_clipboard_foregrounds_the_runner_and_hands_the_app_back(wda, tmp_path):
-    # Measured 2026-09-03: with Messages frontmost, setPasteboard answered 200
-    # and set nothing and getPasteboard answered "". Both worked once the WDA
-    # runner was activated first. So the write flashes the runner and restores
-    # whatever was up — an app by re-activating it, the springboard by home.
+    # Measured: with Messages frontmost, setPasteboard answers 200
+    # and sets nothing and getPasteboard answers "". Both work once the WDA
+    # runner is activated first. So the write flashes the runner and restores
+    # whatever was up: an app by re-activating it, the springboard by home.
     (tmp_path / "wda_bundle").write_text("com.example.runner")
     FakeWDA.front = "com.apple.MobileSMS"
     wda.set_clipboard(b"\x89PNGdata", "image")
@@ -788,7 +787,7 @@ def test_set_clipboard_runs_bare_without_a_known_runner(wda):
 
 
 def test_a_session_bound_to_a_closed_app_is_replaced():
-    # Soak 2026-10-01 23:57: every request failed once YouTube had been killed between flows.
+    # Every request fails once YouTube has been killed between flows.
     from video_drop.phone.wda_client import WDAClient, WDAError
     err = WDAError("GET /session/X/window/size: stale element reference: The previously found element "
                    "\"Application 'com.google.ios.youtube'\" is not present in the current view anymore")
@@ -825,7 +824,7 @@ FROZEN = ("stale element reference: The previously found element \"Application '
 
 
 def _frozen_client(monkeypatch, tmp_path, fail_until):
-    # Measured 2026-10-02: a frozen background YouTube broke every request until it was quit.
+    # A frozen background YouTube breaks every request until it is quit.
     from video_drop.phone import device, wda_client
     monkeypatch.setenv("VIDEO_DROP_STATE", str(tmp_path))
     c = wda_client.WDAClient(base_url="http://127.0.0.1:1")

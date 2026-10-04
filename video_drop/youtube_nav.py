@@ -41,21 +41,21 @@ def pixel_rows(phone) -> list[dict]:
     return [row for row in rows if layout.contains(row)]
 
 
-# YouTube restores an unfinished upload's trim screen when it reopens (soak 2026-10-02); that screen
+# YouTube restores an unfinished upload's trim screen when it reopens; that screen
 # plays the clip, so it is read by OCR and its X (an icon) is tapped at its measured place:
-# (20, 86) points on the 440 x 956 reference phone, recorded 2026-10-02 01:08.
+# (20, 86) points on the 440 x 956 reference phone.
 TRIM_X = "trim X (measured)"
 TRIM_X_POINT = (20.0, 86.0)
 
 
-# The same editor read by OCR (dry run 2026-10-02 19:42, captured): the back chevron merges into
+# The same editor read by OCR: the back chevron merges into
 # the title ("< Add description") and there is no "Back" text; the chevron sits where the trim
 # screen's X does, so it is tapped at that measured place.
 DESCRIPTION_BACK = "description back (measured)"
 
 
-# The Shorts editor of a restored draft, read by OCR because it plays the clip (dry run
-# 2026-10-02 19:51, captured): "Add sound", "Swipe up to edit", "Edit", "Next" and no text for
+# The Shorts editor of a restored draft, read by OCR because it plays the clip:
+# "Add sound", "Swipe up to edit", "Edit", "Next" and no text for
 # its back arrow ("Exit editor" in the tree), measured at (31.5, 98) on the 440 x 956 phone.
 EDITOR_BACK = "editor back arrow (measured)"
 EDITOR_BACK_POINT = (31.5, 98.0)
@@ -78,7 +78,7 @@ def exit_target(labels: list[str]) -> str | None:
         return "Back"
     if "Add details" in labels and "Back" in labels:
         return "Back"
-    # The description editor of an unfinished upload YouTube restored (recorded 2026-10-02 11:47:
+    # The description editor of an unfinished upload YouTube restored (recorded:
     # title "Add description", "Back" at the top left, keyboard up). Back closes it.
     if "Add description" in labels and "Back" in labels:
         return "Back"
@@ -98,7 +98,7 @@ def exit_target(labels: list[str]) -> str | None:
 def feed_with_hidden_tabs(rows: list[dict], layout: PhoneLayout) -> bool:
     """A YouTube feed scrolled down hides the tab bar; its "All" chip stays at the top.
 
-    Soak 2026-10-02 16:56 (captured): Home feed scrolled, a mini-player in the corner, no tab
+    Seen with the Home feed scrolled, a mini-player in the corner and no tab
     bar, so no "You" to read. A short scroll back up brings the tab bar back.
     """
     return any(row.get("text") == "All" and row.get("y", layout.height) < 0.2 * layout.height for row in rows)
@@ -139,8 +139,8 @@ def open_tabs(phone) -> None:
                 if reveals < 2 and reveal_tab_bar(phone, rows):
                     reveals += 1
                     continue
-                # Dry run 2026-10-02 19:46: on the description editor the tree held only the
-                # keyboard; YouTube's own title and back chevron were visible only in pixels.
+                # On the description editor the tree can hold only the
+                # keyboard; YouTube's own title and back chevron are visible only in pixels.
                 try:
                     rows = pixel_rows(phone)
                     labels = [row["text"] for row in rows]

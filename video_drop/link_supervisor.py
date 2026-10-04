@@ -1,6 +1,6 @@
 """One long-lived process that owns the phone link: tunnel, WDA runner, port forwards.
 
-Why this exists (evidence gathered 2026-09-29/30 on the reference iPhone 16 Pro Max):
+Why this exists (evidence from the reference iPhone 16 Pro Max):
 
 * Windows logged the phone as "surprise removed" from the USB bus 35/137/84/11
   times a day over four days (Kernel-PnP event 1010), and every overnight
@@ -14,17 +14,16 @@ Why this exists (evidence gathered 2026-09-29/30 on the reference iPhone 16 Pro 
   SpringBoard in front releases it; restarting it on top of the stuck runner
   fails with XCTest error 103. So a wedge is never a restart.
 * A tunnel whose route to the phone dies while the phone is still on the bus
-  (seen 10:47 on 2026-09-30, no USB event) cannot be re-negotiated by a new
+  (seen with no USB event) cannot be re-negotiated by a new
   daemon either. Only a replug fixes it, so after one daemon restart the user
   is told to replug instead of the tunnel being killed in a loop.
-* SideTap's ``up()`` decided from one 5s probe; a slow answer under load killed
+* SideTap's ``up()`` decides from one 5s probe; a slow answer under load kills
   healthy tunnels. Here every restart needs consecutive failures across ticks,
   and a declared busy window (an upload or export in progress) stretches every
   threshold.
 * A *pipe stall* (docs/link-root-cause.md, S1: lockdown, WDA and the tunnel all
-  silent while usbmuxd still lists the phone) used to end in "replug the phone"
-  after five minutes. Now three raw probes (``pipe_stall``) name it within a few
-  ticks and a recovery ladder runs: wait a little, restart Apple Mobile Device
+  silent while usbmuxd still lists the phone) is named within a few
+  ticks by three raw probes (``pipe_stall``), and a recovery ladder runs: wait a little, restart Apple Mobile Device
   Service, restart the phone's USB device node, each step verified by lockdown
   answering again, and only then the replug message. The two privileged steps
   go through the USB recovery helper (``usb_helper``), an on-demand SYSTEM task
@@ -125,10 +124,10 @@ def runner_hint(error: str) -> str:
 @dataclass(frozen=True)
 class Policy:
     # iOS kills the WDA runner ~39s after a video surface wedges it (10:47:40 ->
-    # 10:48:18 and 11:24:32 -> 11:25:11 on 2026-09-30, tunnel healthy both times).
+    # 10:48:18 and 11:24:32 -> 11:25:11, tunnel healthy both times).
     # The Home press has to land well inside that, so the tick is short, WDA is
-    # probed first, and two silent probes (~10s) are enough. The old 45s gate
-    # (SideTap's viewer) was always too late.
+    # probed first, and two silent probes (~10s) are enough. SideTap's viewer
+    # gates at 45s, which is too late.
     tick: float = 5.0
     # False when somebody else owns the tunnel daemon (an admin-terminal kernel
     # `ios tunnel start`, or pymobiledevice3's tunneld): the supervisor then reads
@@ -138,9 +137,9 @@ class Policy:
     wda_timeout: float = 4.0
     route_failures: int = 3  # consecutive dead route probes before the route counts as dead
     # A dead route with the phone still on the bus has followed a heavy transcode
-    # (Edits 4K export 10:47, TikTok editor 11:25 on 2026-09-30) every time; the
-    # phone-side endpoint may be starved rather than gone, and nobody has yet let
-    # it recover on its own. Leave the daemon alone this long before the one restart.
+    # (Edits 4K export, TikTok editor) every time; the
+    # phone-side endpoint may be starved rather than gone, and whether it recovers
+    # on its own is untested. Leave the daemon alone this long before the one restart.
     route_dead_grace: float = 300.0
     wedged_ticks: int = 2  # consecutive silent probes before pressing Home (~10s)
     busy_multiplier: int = 3  # route/entry thresholds are this much longer while busy (never the wedge one)
@@ -157,7 +156,7 @@ class Policy:
     # consecutive "stalled" pipe probes (lockdown and WDA both timed out, phone still listed);
     # the WDA probe ahead of it is 4s and the two raw probes 2s each, so three ticks is ~30s
     # of a silent pipe. Then: wait `stall_wait` for it to clear on its own (none of the six
-    # stalls on 2026-09-30 did, so this is short), restart Apple Mobile Device Service and give
+    # observed stalls did, so this is short), restart Apple Mobile Device Service and give
     # lockdown `stall_verify` to answer, restart the phone's USB device node and give it
     # `stall_usb_verify` (Windows re-enumerates the port and usbmuxd re-attaches), then replug.
     stall_probes: int = 3
@@ -327,7 +326,7 @@ class Decider:
         if returned:
             self.state = WAITING_TUNNEL
             # `ios forward` is bound to the USB connection the phone just dropped; a forward from
-            # before the drop accepts locally and never reaches the phone (2026-09-30 11:50-12:05).
+            # before the drop accepts locally and never reaches the phone.
             return Decision(WAITING_TUNNEL, MESSAGES[WAITING_TUNNEL], ["start_forwards"],
                             detail="phone returned to USB")
 
@@ -357,13 +356,13 @@ class Decider:
         self.entry_misses = 0
 
         # A working WDA means the runner's testmanagerd link through this tunnel is alive: a refused
-        # probe then is noise, and refreshing killed a working runner (2026-09-30 12:46:10).
+        # probe then is noise, and refreshing kills a working runner.
         stale = obs.tunnel_listening is False and obs.wda != "up"
         self.stale_ticks = self.stale_ticks + 1 if stale else 0
         if stale and self.stale_ticks >= 2:
-            # go-ios keeps a tunnel record after its userspace listener dies (seen after the
-            # 12:37 replug on 2026-09-30: port 60107 listed, nothing listening). The daemon's own
-            # per-device refresh rebuilt it in under 5s; killing the daemon never helped.
+            # go-ios keeps a tunnel record after its userspace listener dies (seen after a
+            # replug: port 60107 listed, nothing listening). The daemon's own
+            # per-device refresh rebuilds it in under 5s; killing the daemon does not help.
             if not policy.manage_tunnel:
                 return self._tunnel_dead(now, "tunnel listed but its port refuses connections")
             if self.tunnel_refreshes >= policy.refreshes_before_restart:
@@ -640,7 +639,7 @@ def read_status(state: Path | None = None) -> dict:
 
 def replace_file(tmp: Path, target: Path, attempts: int = 5) -> None:
     """os.replace, retried: on Windows a reader holding the target open makes it fail with
-    PermissionError for a moment (seen as occasional "tick failed" events, 2026-09-30)."""
+    PermissionError for a moment (seen as occasional "tick failed" events)."""
     for attempt in range(attempts):
         try:
             os.replace(tmp, target)
@@ -984,8 +983,8 @@ class Runner:
 
     def viewer_running(self) -> bool:
         """SideTap's viewer runs its own healer (admin.up() after 45s of silence). Two
-        healers on one link replace healthy tunnels with dead ones (11:28:13 on
-        2026-09-30), so the supervisor stands by while the viewer is alive. Its pid
+        healers on one link replace healthy tunnels with dead ones, so the supervisor
+        stands by while the viewer is alive. Its pid
         file lives in SideTap's own state folder, so its listening port is the probe."""
         try:
             with socket.create_connection(("127.0.0.1", SIDETAP_VIEWER_PORT), timeout=0.3):
@@ -1084,8 +1083,8 @@ class Runner:
             pipe = self.pipe_state()
         entry = self.tunnel_entry() if (present is not False and tunnel_alive) else None
         # Every connect to the userspace port is a half-open tunnel client go-ios logs as a
-        # failed preamble; probing it every tick coincided with the link cycling every ~40s
-        # (2026-09-30 12:45-12:58). Only probe when WDA already says something is wrong.
+        # failed preamble; probing it every tick coincided with the link cycling every ~40s.
+        # Only probe when WDA already says something is wrong.
         listening = self.tunnel_listening(entry) if entry and wda != "up" else None
         self.last_entry = entry
         route: bool | None = None
@@ -1181,8 +1180,8 @@ class Runner:
             self.decider.runner_started()
             return f"adopted runner pid {others[0]}"
         # Everything below (bundle lookup, image mount, the runner itself) goes through the
-        # phone's route. On a dead route `ios image auto` blocked this loop 180s (2026-09-30
-        # 12:20-12:24), so a short probe decides first and a dead route starts nothing.
+        # phone's route. On a dead route `ios image auto` blocks this loop 180s,
+        # so a short probe decides first and a dead route starts nothing.
         if not self.route_ok(timeout=6):
             self.decider.route_failed()
             return "phone route not answering; runner not started"

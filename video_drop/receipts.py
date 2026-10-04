@@ -7,10 +7,10 @@ the database. A screen that is not exactly as recorded fails closed: the
 destination stays unconfirmed, which is honest, instead of posted, which might
 not be true.
 
-Recorded on the reference iPhone 16 Pro Max (440 x 956 pt, 3x), iOS 26.7,
-2026-09-30: the Instagram profile header (fixtures instagram/profile-header-*)
+Recorded on the reference iPhone 16 Pro Max (440 x 956 pt, 3x), iOS 26.7:
+the Instagram profile header (fixtures instagram/profile-header-*)
 and the profile grid after a Post now reel (evidence release5-instagram-receipt-grid).
-Threads' in-progress profile row is built from the operator's 2026-09-30 notes;
+Threads' in-progress profile row is built from the operator's notes;
 Facebook, TikTok and YouTube have no recordings yet, see ROUTES.
 """
 
@@ -33,7 +33,7 @@ class ReceiptError(ValueError):
     pass
 
 
-# Newest reel tile vs its source's first frame, 2026-09-30 grid: 2.5. The nearest other
+# Newest reel tile vs its source's first frame, on the recorded grid: 2.5. The nearest other
 # clip on that grid (same caption template, another day) scored 13.7.
 GRID_COVER_LIMIT = 8.0
 # Instagram lets a profile pin at most three posts, and pinned posts lead the grid.
@@ -349,7 +349,7 @@ def verified_instagram_post(header, grid, screenshot: Image.Image, layout: Phone
 # ---- Threads profile ----------------------------------------------------------------
 
 
-# Recorded 2026-10-02 (fixtures threads/profile-*, threads/account-switcher-*): the profile
+# Recorded (fixtures threads/profile-*, threads/account-switcher-*): the profile
 # header's display name is a Button with a chevron-down image beside it; tapping it opens a
 # sheet of "Log in as @<handle>" Buttons, the active one with a check image on its row.
 THREADS_SWITCH_CHEVRON = "ig_icon_chevron_down_filled_12"
@@ -390,7 +390,7 @@ def threads_active_switch_row(elements) -> str:
 
 def threads_login_prompt(elements) -> Element | None:
     """The Close button of the password sheet Threads sometimes shows instead of switching
-    (measured 2026-10-02: one of two taps on the same saved account). Closing it keeps the
+    (measured: one of two taps on the same saved account). Closing it keeps the
     account that was active."""
     if any(e.name == THREADS_SWITCH_CHEVRON for e in elements):
         return None
@@ -417,7 +417,7 @@ def threads_newest_post(elements, layout: PhoneLayout, *, account: str, caption:
     wanted = plain(caption)
     if not wanted:
         raise ReceiptError("Expected Threads caption is empty")
-    # Threads 2026-10 labels the tabs "Threads tab" / "Replies tab"; older builds drop the suffix.
+    # Threads labels the tabs "Threads tab" / "Replies tab"; older builds drop the suffix.
     accepted = {wanted}
     # Threads folds trailing hashtags (2026-10-01): "A guest of the show… show hashtags".
     # Only that exact fold of the approved caption counts; no other truncation is accepted.

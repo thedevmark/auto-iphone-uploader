@@ -8,7 +8,7 @@ project tiles before its upload (note_projects); this moves exactly the one new
 "Untitled project" to Trash (video_drop/edits_cleanup.py says how it is matched). Edits
 keeps trashed projects under Projects > Trash, so nothing is erased.
 
-Recorded on Edits 2026-10-01 (iOS 26.7): project tiles are Cells named
+Recorded on Edits (iOS 26.7): project tiles are Cells named
 "project-tile-<uuid>" labelled "<name>, <age> · <size>"; a long press opens a menu whose
 "Move to Trash" Button is named "menu-item-Move to Trash"; it asks "Move project to
 Trash?" with a "Move to Trash" Button and a "Cancel" Button. Edits reopens the list where

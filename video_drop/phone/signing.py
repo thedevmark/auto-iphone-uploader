@@ -14,8 +14,8 @@ Library Validation rejects it. The fix is:
   4. Re-sign the whole IPA with `ios sign app` - this signs the nested .xctest
      with the Team ID, which is what was missing.
 
-Step 3 used to watch %TEMP% for the `embedded.mobileprovision` Sideloadly was
-believed to stage there. It does not: an mtime scan of every temp root across a
+Step 3 does not watch %TEMP% for an `embedded.mobileprovision`: Sideloadly does
+not stage one there. An mtime scan of every temp root across a
 sign that SUCCEEDED found Sideloadly 0.60 wrote exactly three files
 (account-appids.json, sessions.json, installations.db) and no profile anywhere -
 it signs in memory and streams the IPA to the device (docs/ERRORS.md,

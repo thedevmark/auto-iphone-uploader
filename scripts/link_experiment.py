@@ -46,7 +46,7 @@ STATE = link_supervisor.state_dir()
 SIDETAP_STATE = (Path.home() / "AppData/Local/Packages/OpenAI.Codex_2p2nqsd0c76g0/LocalCache/Local/SideTap/.state")
 
 WORKLOADS = ("none", "safe", "tiktok", "control-center", "youtube-create",
-             # Trigger isolation (2026-09-30 evening): the same video surfaces with a different
+             # Trigger isolation: the same video surfaces with a different
              # host-side reader on each, so what the host does can be separated from what the
              # phone shows. See docs/link-root-cause.md section 6.
              "tiktok-pixels",        # go-ios only: `ios launch` + `ios screenshot` (tunnel); no WDA request at all
@@ -322,7 +322,7 @@ class Workload:
                     self._step("home", phone.press_home)
                     time.sleep(1.0)
             elif kind == "tiktok":
-                # The 12:20 and 17:30 reproductions on 2026-09-30: the For You feed plus tree reads.
+                # The For You feed plus tree reads.
                 self._video_arm("tiktok", "source")
             elif kind == "tiktok-pixels":
                 self._video_arm("tiktok", "pixels")
@@ -337,7 +337,6 @@ class Workload:
             elif kind == "photos":
                 self._video_arm("photos", "source", reads=2, every=5.0)
             elif kind == "control-center":
-                # Preceded three of the failures on 2026-09-30 (12:46, 12:47, 12:56).
                 self._step("home", phone.press_home)
                 time.sleep(1)
                 layout = self.share.layout(refresh=True)
