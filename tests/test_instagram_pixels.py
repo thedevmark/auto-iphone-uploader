@@ -73,7 +73,7 @@ class ScreenImageTests(unittest.TestCase):
             return ig.prove_cover({"releaseId": 7, "sourcePath": "clip.mp4"}, Path(folder))
 
     def test_a_true_first_frame_above_the_fixed_limit_passes_by_best_match(self):
-        # Real Post now 2026-10-04 22:57: the true first frame scored 15.5 (limit 10).
+        # A true first frame can score 15.5, above the fixed limit of 10.
         result = self.run_cover(15.5, {0.0: 15.9, 0.5: 15.6, 1.0: 29.7, 2.0: 57.6})
         self.assertEqual(result["check"], "best match at the start")
 

@@ -54,7 +54,7 @@ WORKLOADS = ("none", "safe", "tiktok", "control-center", "youtube-create",
              "tiktok-shot",          # WDA GET /screenshot (testmanagerd capture), no accessibility snapshot
              "youtube-feed",         # a second video app (YouTube's home feed autoplays previews) + /source
              "youtube-feed-pixels",  # same screen, go-ios only
-             "photos",               # Photos grid (GPU-heavy, no video) + /source: the 13:0x S1 shape
+             "photos",               # Photos grid (GPU-heavy, no video) + /source: the S1 pipe-stall shape
              )
 
 VIDEO_APPS = {"tiktok": "com.zhiliaoapp.musically", "youtube": "com.google.ios.youtube",

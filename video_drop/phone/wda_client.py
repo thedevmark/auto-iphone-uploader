@@ -97,9 +97,9 @@ def session_file():
 # 16.25s a moment later, so a wake proves nothing about whether the session can
 # still act. Keying this on "any action" instead lets the wake reset the clock
 # and the rule never fires.
-# Kept below every plausible iOS auto-lock: minting when it was not needed
-# costs one 0.01s call.
-_SLEEP_SUSPECT_SECONDS = 30.0
+# Kept below iOS's shortest Auto-Lock setting (30 s): minting when it was not
+# needed costs one 0.01s call.
+_SLEEP_SUSPECT_SECONDS = 25.0
 
 
 def _read_shared_session() -> str | None:
@@ -598,6 +598,11 @@ class WDAClient:
     def element_clear(self, element_id: str) -> None:  # noqa: vulture  (called by helpers.py)
         """Empty a text field outright, whatever length its contents."""
         self._session_request("POST", f"/element/{element_id}/clear", {})
+
+    def app_terminate(self, bundle_id: str) -> bool:
+        """Quit an app over the open WDA session: about 1.0 s, against about 1.3 s for a
+        go-ios kill, which opens a new instruments connection each time. True if it was running."""
+        return bool(self._session_request("POST", "/wda/apps/terminate", {"bundleId": bundle_id}))
 
     def elements_by_id(self, identifier: str) -> list[dict]:
         """Every element whose accessibility id is `identifier`, with its type, label, value and

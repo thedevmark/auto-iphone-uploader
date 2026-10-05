@@ -323,9 +323,9 @@ def prove_cover(data: dict, evidence_dir: Path) -> dict:
     score = cover_score(image, first_frame(Path(data["sourcePath"])), card, preview, edit)
     if score <= COVER_LIMIT:
         return {"difference": round(score, 1), "screenshot": shot.name}
-    # A fixed limit tuned on one clip does not carry to every clip (real Post now 2026-10-04:
-    # the true first frame scored 15.5). Ask instead which moment of the video the cover
-    # matches best: it must be the start, clearly better than anything a second or more in.
+    # A fixed limit tuned on one clip does not carry to every clip: a true first frame can
+    # score 15.5. Ask instead which moment of the video the cover matches best: it must be
+    # the start, clearly better than anything a second or more in.
     scores = [(at, cover_score(image, frame, card, preview, edit))
               for at, frame in sampled_frames(Path(data["sourcePath"]))]
     best_at, _ = min(scores, key=lambda pair: pair[1])

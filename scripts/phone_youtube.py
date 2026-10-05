@@ -594,9 +594,8 @@ def wait_for_upload(size_bytes: int, *, clock=time.monotonic, sleep=time.sleep, 
 def advance_trim_to_editor() -> None:
     """Wait through processing and retry only if the trim screen clearly remains."""
     for attempt in range(2):
-        # One OCR read of the playing trim screen can miss its "Next" (real Post now
-        # 2026-10-04 22:42, captured: the screen was the trim with Next); read again
-        # for a few seconds before calling the screen unknown. Nothing is tapped meanwhile.
+        # One OCR read of the playing trim screen can miss its "Next"; read again for a
+        # few seconds before calling the screen unknown. Nothing is tapped meanwhile.
         deadline = time.monotonic() + 6
         while True:
             rows = screen()

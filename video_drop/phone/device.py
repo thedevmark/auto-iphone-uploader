@@ -179,9 +179,9 @@ def list_apps() -> list[dict]:
 def kill_app(bundle_id: str) -> bool:
     """Force-quit an app by bundle id (`ios kill`): the switcher's swipe-up.
     False when go-ios reports nothing to kill (already gone)."""
-    # 7.1 s on an idle phone and over 15 s right after Instagram's final tap, while its upload
-    # kept the phone busy (real Post now 2026-10-04 23:11): allow well past both.
-    proc = _run(["kill", bundle_id], timeout=45)
+    # A kill takes about 1.3 s on a healthy link. Over 15 s means the phone is badly busy (an
+    # upload still running after a final tap): stop and say so rather than wait it out.
+    proc = _run(["kill", bundle_id], timeout=15)
     return proc.returncode == 0
 
 
@@ -225,8 +225,8 @@ def tunnel_running(timeout: float = 10.0) -> bool:
     """Is the userspace tunnel up AND is its route to the phone answering?
 
     `timeout` bounds the whole probe (upstream: so start_tunnel()'s readiness
-    poll could hand each probe only the budget it had left). Carries SideTap's
-    uncommitted patch: a `tunnel ls` entry alone is not enough —
+    poll could hand each probe only the budget it had left). This vendored copy
+    carries a local patch that is not in SideTap upstream: a `tunnel ls` entry alone is not enough —
     the listener is dialled and `image list` exercises the RSD route."""
     started = time.monotonic()
     try:

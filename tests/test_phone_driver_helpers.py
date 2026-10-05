@@ -1628,11 +1628,25 @@ def test_wait_for_app_on_a_playing_video_app_says_so_instead_of_absent(fake_cloc
     assert spy.app_reads == 1
 
 
-def test_kill_app_allows_a_busy_phone_well_past_fifteen_seconds(monkeypatch):
-    # Real Post now 2026-10-04 23:11: the kill took over 15 s right after Instagram's upload.
-    from video_drop.phone import device
-    seen = {}
-    monkeypatch.setattr(device, "_run", lambda args, timeout=30.0: seen.update(timeout=timeout) or
-                        type("P", (), {"returncode": 0})())
-    assert device.kill_app("com.zhiliaoapp.musically") is True
-    assert seen["timeout"] >= 45
+def test_close_app_quits_over_wda_and_falls_back_to_go_ios(monkeypatch):
+    # WDA terminate takes about 1.0 s over the open session; a go-ios kill about 1.3 s.
+    from video_drop.phone import device, helpers
+    from video_drop.phone.wda_client import WDAError
+    killed, terminated = [], []
+
+    class Client:
+        def __init__(self, fail):
+            self.fail = fail
+
+        def app_terminate(self, bundle):
+            if self.fail:
+                raise WDAError("Cannot reach WebDriverAgent")
+            terminated.append(bundle)
+            return True
+    monkeypatch.setattr(device, "kill_app", lambda bundle: killed.append(bundle) or True)
+    monkeypatch.setattr(helpers, "client", lambda: Client(False))
+    assert helpers.close_app("com.zhiliaoapp.musically") is True
+    assert (terminated, killed) == (["com.zhiliaoapp.musically"], [])
+    monkeypatch.setattr(helpers, "client", lambda: Client(True))
+    helpers.close_app("com.zhiliaoapp.musically")
+    assert killed == ["com.zhiliaoapp.musically"]

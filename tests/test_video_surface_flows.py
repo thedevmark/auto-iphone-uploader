@@ -91,7 +91,7 @@ class YouTubePlayingScreens(unittest.TestCase):
         self.assertIsNone(phone_youtube.trim_state(rows("Crop your video")))
 
     def test_a_trim_read_that_misses_next_is_read_again(self):
-        # Real Post now 2026-10-04 22:42: one OCR read had the trim title but not its Next.
+        # One OCR read can have the trim title but not its Next.
         screens = iter([
             ocr_lines(("Choose a part of the video", 220, 889), ("37.8s", 220, 830)),
             ocr_lines(("Choose a part of the video", 220, 889), ("Next", 385, 889)),

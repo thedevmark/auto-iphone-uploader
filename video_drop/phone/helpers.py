@@ -630,7 +630,11 @@ def close_app(name: str) -> bool:
     """Force-quit an app: the switcher's swipe-up. Takes the same names as
     open_app(). False when it was not running."""
     _invalidate_tree()
-    return device.kill_app(_resolve_bundle(name))
+    bundle = _resolve_bundle(name)
+    try:
+        return client().app_terminate(bundle)
+    except WDAError:
+        return device.kill_app(bundle)  # WDA not answering: quit it over go-ios instead
 
 
 def open_app(name: str, wait_seconds: float = 0.0) -> None:
