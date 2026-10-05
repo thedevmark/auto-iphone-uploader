@@ -92,8 +92,8 @@ to create, no cloud service of ours, and no tracking.
   updates can move buttons; a run then stops instead of guessing.
 - English app labels, and an English OCR language in Windows (installed with
   English Windows).
-- A free Apple ID signs the phone driver for 7 days; the checklist counts it
-  down and `scripts\phone_resign.py` renews it.
+- A free Apple ID signs the phone driver for 7 days; the header shows the days
+  left and the command that renews it.
 - Threads is not scheduled natively: a scheduled video leaves Threads for you
   and says so. Post now covers Threads through Instagram's crosspost.
 - TikTok has no native scheduler on the tested account, so Schedule leaves it
@@ -189,7 +189,7 @@ own Apple ID in [Sideloadly](https://sideloadly.io) (drag
 iPhone under Settings → General → VPN & Device Management), then run
 `python scripts\phone_resign.py`. Apple's password prompts appear in
 Sideloadly, never in this app. A free Apple ID's signing lasts seven days; the
-app counts down and the same command renews it.
+header counts the days down and the same command renews it.
 
 Tell the app which account each platform posts to in `.state\accounts.json`,
 for example `{"youtube": "@your-channel", "instagram": "@you", "threads": "@you",
@@ -218,9 +218,6 @@ every key).
    **Post now**, then start the run.
 5. Look at the post on your phone, then click **Posted** or **Scheduled** in the
    editor so the queue shows the truth.
-
-The header shows your **Unattended streak**: how many Schedule-mode videos in
-a row reached every app without a hand fix. The goal is 20.
 
 ## Where things are kept
 
