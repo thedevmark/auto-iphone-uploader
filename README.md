@@ -186,10 +186,12 @@ newer yourself):
 The one step Apple doesn't let a script do: sign the control app with your
 own Apple ID in [Sideloadly](https://sideloadly.io) (drag
 `wda\WebDriverAgent.ipa` onto it, click Start, then trust your Apple ID on the
-iPhone under Settings → General → VPN & Device Management), then run
-`python scripts\phone_resign.py`. Apple's password prompts appear in
-Sideloadly, never in this app. A free Apple ID's signing lasts seven days; the
-header counts the days down and the same command renews it.
+iPhone under Settings → General → VPN & Device Management), then run the
+re-sign command the setup checklist shows: `python scripts\phone_resign.py`,
+or `.\python\python.exe scripts\phone_resign.py` after the installer. Apple's
+password prompts appear in Sideloadly, never in this app. A free Apple ID's
+signing lasts seven days; the header counts the days down and shows the same
+command to renew it.
 
 Tell the app which account each platform posts to in `.state\accounts.json`,
 for example `{"youtube": "@your-channel", "instagram": "@you", "threads": "@you",
