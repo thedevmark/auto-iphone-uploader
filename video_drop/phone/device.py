@@ -179,7 +179,9 @@ def list_apps() -> list[dict]:
 def kill_app(bundle_id: str) -> bool:
     """Force-quit an app by bundle id (`ios kill`): the switcher's swipe-up.
     False when go-ios reports nothing to kill (already gone)."""
-    proc = _run(["kill", bundle_id], timeout=15)
+    # 7.1 s on an idle phone and over 15 s right after Instagram's final tap, while its upload
+    # kept the phone busy (real Post now 2026-10-04 23:11): allow well past both.
+    proc = _run(["kill", bundle_id], timeout=45)
     return proc.returncode == 0
 
 

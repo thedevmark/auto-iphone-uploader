@@ -104,11 +104,14 @@ class ManualReceiptTests(unittest.TestCase):
             self.assertEqual(next(d for d in release["destinations"] if d["platform"] == "threads")["status"], "posted")
             self.assertEqual(settings["unattendedStreak"], {"count": 0, "goal": 20})
 
-    def test_page_has_the_receipt_control_and_streak(self):
+    def test_page_has_the_receipt_control_and_no_streak(self):
+        # The streak stays in GET /api/settings (the release gate reads it there); the header does not show it.
         page = (server.ROOT / "web" / "index.html").read_text(encoding="utf-8")
-        for needle in ('id="receiptPosted"', 'id="receiptScheduled"', "/manual-receipt", 'id="streak"',
-                       "Unattended streak:", "unattendedStreak", "tiktokPostable", "TikTok missed"):
+        for needle in ('id="receiptPosted"', 'id="receiptScheduled"', "/manual-receipt", "tiktokPostable",
+                       "TikTok missed"):
             self.assertIn(needle, page)
+        for gone in ('id="streak"', "Unattended streak", "unattendedStreak"):
+            self.assertNotIn(gone, page)
 
 
 NOW = datetime(2026, 10, 20, 12, tzinfo=timezone.utc)

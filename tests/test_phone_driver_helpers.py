@@ -1626,3 +1626,13 @@ def test_wait_for_app_on_a_playing_video_app_says_so_instead_of_absent(fake_cloc
     monkeypatch.setattr(helpers, "_video_surface_playing", lambda: False)
     assert helpers.wait_for_app("com.google.ios.youtube", timeout=4) is True
     assert spy.app_reads == 1
+
+
+def test_kill_app_allows_a_busy_phone_well_past_fifteen_seconds(monkeypatch):
+    # Real Post now 2026-10-04 23:11: the kill took over 15 s right after Instagram's upload.
+    from video_drop.phone import device
+    seen = {}
+    monkeypatch.setattr(device, "_run", lambda args, timeout=30.0: seen.update(timeout=timeout) or
+                        type("P", (), {"returncode": 0})())
+    assert device.kill_app("com.zhiliaoapp.musically") is True
+    assert seen["timeout"] >= 45

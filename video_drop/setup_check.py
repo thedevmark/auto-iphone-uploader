@@ -301,9 +301,24 @@ SIDELOADLY_STEPS = (
 RESIGN_FIX = "Sign it again with your Apple ID."
 RESIGN_MORE = ("Run the command, and click Start in Sideloadly when it asks (wda\\WebDriverAgent.ipa, your iPhone, "
                "your Apple ID).")
-RESIGN_COMMAND = "python scripts\\phone_resign.py"
+APP_ROOT = Path(__file__).resolve().parent.parent
+
+
+def app_script_command(script: str, executable: str = sys.executable, root: Path = APP_ROOT) -> str:
+    """One of the app's scripts as typed in PowerShell in the app folder. The Setup .exe ships its own
+    Python in ``python\\`` and puts none on PATH, so an app running on that one names it."""
+    bundled = os.path.normcase(str((root / "python").resolve()))
+    if os.path.normcase(str(Path(executable).resolve().parent)) == bundled:
+        return f".\\python\\python.exe scripts\\{script}"
+    return f"python scripts\\{script}"
+
+
+RESIGN_COMMAND = app_script_command("phone_resign.py")
+PASSCODE_COMMAND = app_script_command("set_passcode.py")
 RESIGN_IN = "PowerShell, in the app folder, once Sideloadly has finished"
 RESIGN_SOON_DAYS = 2
+# A free Apple ID's signing lasts 7 days; anything longer is a paid ID's year, which the header leaves alone.
+FREE_ID_DAYS = 7
 
 
 def _parse_expiry(value: object) -> datetime | None:
@@ -319,6 +334,24 @@ def _parse_expiry(value: object) -> datetime | None:
     return stamp if stamp.tzinfo else stamp.replace(tzinfo=timezone.utc)
 
 
+def signing_status(signature: dict | None, now: datetime | None = None) -> dict | None:
+    """The countdown on a ``wda_signature()`` read, or None when its expiry is unknown.
+
+    ``state`` is ``expired``, ``today`` (under a day left), ``soon`` (RESIGN_SOON_DAYS or fewer whole days
+    left, so a row that reads "2 days left" always says so) or ``ok``.
+    ``longLived`` marks a signing longer than a free Apple ID's, which needs no countdown. The checklist row
+    and the header both read this, so the date math lives here only.
+    """
+    expires = _parse_expiry(signature.get("expires")) if isinstance(signature, dict) else None
+    if expires is None:
+        return None
+    now = now or datetime.now(timezone.utc)
+    left = (expires - now).total_seconds() / 86400
+    state = "expired" if left <= 0 else "today" if left < 1 else "soon" if int(left) <= RESIGN_SOON_DAYS else "ok"
+    return {"expires": expires.isoformat(), "daysLeft": max(int(left), 0), "state": state,
+            "longLived": left > FREE_ID_DAYS, "command": RESIGN_COMMAND, "runIn": RESIGN_IN, "more": RESIGN_MORE}
+
+
 def signature_item(signature: dict | None, phone_ok: bool, installed: bool, now: datetime | None = None) -> dict:
     """Days left on the WebDriverAgent signature, read off the phone; never a guess from a local file alone."""
     title = "Sign the control app"
@@ -330,25 +363,23 @@ def signature_item(signature: dict | None, phone_ok: bool, installed: bool, now:
                     step="control", steps=SIDELOADLY_STEPS, commands=[RESIGN_COMMAND], run_in=RESIGN_IN,
                     commands_first=False, more=SIGNING_MORE)
     signature = signature if isinstance(signature, dict) else {}
-    expires = _parse_expiry(signature.get("expires"))
-    if expires is None:
+    status = signing_status(signature, now)
+    if status is None:
         error = str(signature.get("error") or "").strip()
         why = ("install the re-sign tool with pip install -r requirements-resign.txt so the app can read the "
                "signing date off the phone" if "pymobiledevice3" in error else
                (error[:160] if error else "the phone did not hand over its signing profile"))
         return item("signature", "ok", title, f"Signed · days left unknown: {why}.", step="control")
-    now = now or datetime.now(timezone.utc)
-    left = (expires - now).total_seconds() / 86400
-    when = expires.astimezone().strftime("%Y-%m-%d %H:%M")
-    if left <= 0:
+    when = datetime.fromisoformat(status["expires"]).astimezone().strftime("%Y-%m-%d %H:%M")
+    if status["state"] == "expired":
         return item("signature", "action", title, f"The signing ran out on {when}.", RESIGN_FIX,
                     step="control", commands=[RESIGN_COMMAND], run_in=RESIGN_IN, more=RESIGN_MORE)
-    if left < 1:
+    if status["state"] == "today":
         return item("signature", "action", title, f"The signing runs out today ({when}).", RESIGN_FIX, step="control",
                     commands=[RESIGN_COMMAND], run_in=RESIGN_IN, more=RESIGN_MORE)
-    days = int(left)
+    days = status["daysLeft"]
     detail = f"Signed · {days} day{'s' if days != 1 else ''} left (until {when})"
-    if left <= RESIGN_SOON_DAYS:
+    if status["state"] == "soon":
         return item("signature", "ok", title, detail + " · re-sign soon", RESIGN_FIX, step="control",
                     commands=[RESIGN_COMMAND], run_in=RESIGN_IN, more=RESIGN_MORE)
     return item("signature", "ok", title, detail, step="control")
@@ -362,7 +393,7 @@ def passcode_item(passcode: dict | None) -> dict:
     if not passcode.get("set"):
         return item("passcode", "action", title, "No passcode is saved yet.",
                     "Save your iPhone passcode so posts can run while you're away.", step="control",
-                    commands=["python scripts\\set_passcode.py"],
+                    commands=[PASSCODE_COMMAND],
                     more=f"You type it at a hidden prompt; it is saved to {env_path}, typed only on the lock screen, "
                          "and never shown or logged.")
     if passcode.get("source") == "legacy":

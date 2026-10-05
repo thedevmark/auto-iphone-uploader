@@ -90,6 +90,17 @@ class YouTubePlayingScreens(unittest.TestCase):
         self.assertEqual(phone_youtube.trim_state(rows("Swipe  up to edit", "Edit", "Next")), "editor")
         self.assertIsNone(phone_youtube.trim_state(rows("Crop your video")))
 
+    def test_a_trim_read_that_misses_next_is_read_again(self):
+        # Real Post now 2026-10-04 22:42: one OCR read had the trim title but not its Next.
+        screens = iter([
+            ocr_lines(("Choose a part of the video", 220, 889), ("37.8s", 220, 830)),
+            ocr_lines(("Choose a part of the video", 220, 889), ("Next", 385, 889)),
+            ocr_lines(("Swipe up to edit", 220, 848), ("Edit", 114, 894), ("Next", 326, 894)),
+        ])
+        with patch.object(ocr, "read_png", lambda data: next(screens)):
+            phone_youtube.advance_trim_to_editor()
+        self.assertEqual(self.phone.taps, [(385.0, 889.0)])
+
     def test_trim_next_is_tapped_from_ocr_and_the_editor_is_proven_by_ocr(self):
         screens = iter([
             ocr_lines(("Crop your video", 220, 848), ("Next", 326, 894)),

@@ -554,12 +554,107 @@ class SignatureTests(unittest.TestCase):
         self.assertEqual(self.entry(wda_bundle=never)["status"], "ok")
 
 
+class SigningStatusTests(unittest.TestCase):
+    """The header's countdown and the checklist row share setup_check.signing_status."""
+
+    def status(self, delta: timedelta) -> dict:
+        return setup_check.signing_status({"expires": (NOW + delta).isoformat()}, NOW)
+
+    def test_states_follow_the_whole_days_left(self):
+        cases = {timedelta(days=6, hours=3): ("ok", 6), timedelta(days=2, hours=20): ("soon", 2),
+                 timedelta(days=1, hours=2): ("soon", 1), timedelta(hours=5): ("today", 0),
+                 timedelta(hours=-2): ("expired", 0)}
+        for delta, (state, days) in cases.items():
+            with self.subTest(delta=delta):
+                status = self.status(delta)
+                self.assertEqual((status["state"], status["daysLeft"], status["longLived"]), (state, days, False))
+                self.assertEqual(status["command"], "python scripts\\phone_resign.py")
+
+    def test_a_row_that_reads_two_days_left_says_re_sign_soon(self):
+        entry = setup_check.signature_item({"expires": (NOW + timedelta(days=2, hours=20)).isoformat()}, True, True,
+                                           now=NOW)
+        self.assertIn("2 days left", entry["detail"])
+        self.assertIn("re-sign soon", entry["detail"])
+
+    def test_installer_users_get_the_bundled_python_in_the_renew_command(self):
+        # The Setup .exe runs the app on {app}\python\pythonw.exe and puts no Python on PATH.
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "python").mkdir()
+            bundled = str(root / "python" / "pythonw.exe")
+            self.assertEqual(setup_check.app_script_command("phone_resign.py", bundled, root),
+                             ".\\python\\python.exe scripts\\phone_resign.py")
+            self.assertEqual(setup_check.app_script_command("phone_resign.py", "C:/Python312/python.exe", root),
+                             "python scripts\\phone_resign.py")
+            self.assertEqual(setup_check.app_script_command("set_passcode.py", bundled, root),
+                             ".\\python\\python.exe scripts\\set_passcode.py")
+
+    def test_unknown_expiry_is_none_and_a_paid_ids_year_is_long_lived(self):
+        self.assertIsNone(setup_check.signing_status(None, NOW))
+        self.assertIsNone(setup_check.signing_status({"expires": None, "error": "pymobiledevice3 is required"}, NOW))
+        self.assertTrue(self.status(timedelta(days=300))["longLived"])
+        self.assertFalse(self.status(timedelta(days=6, hours=23))["longLived"])
+
+
+class SigningRouteTests(unittest.TestCase):
+    """GET /api/signing reads the signature through the checklist's own probe, and seldom."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.state = Path(self.temp.name)
+        self.reads = 0
+        self.patches = [patch.object(server, "STATE", self.state), patch.object(server, "SIGNING_CACHE", None),
+                        patch.object(server, "WATCHER", server.WatchFolder(self.state, lambda release_id: None)),
+                        patch.object(server, "setup_probes", lambda state, watch, inspection: probes(
+                            wda_signature=self.read))]
+        for active in self.patches:
+            active.start()
+
+    def tearDown(self):
+        for active in reversed(self.patches):
+            active.stop()
+        self.temp.cleanup()
+
+    def read(self) -> dict:
+        self.reads += 1
+        return {"expires": SIGNED_UNTIL, "source": "phone", "error": ""}
+
+    def test_reads_once_then_reuses_the_reading(self):
+        first = server.signing_status(NOW)
+        self.assertEqual((first["state"], first["daysLeft"]), ("ok", 6))
+        self.assertEqual(server.signing_status(NOW), first)
+        self.assertEqual(self.reads, 1)
+
+    def test_never_reads_the_phone_while_something_holds_it(self):
+        (self.state / "phone.lock").write_text("operator session", encoding="utf-8")
+        self.assertIsNone(server.signing_status(NOW))
+        self.assertEqual(self.reads, 0)
+
+    def test_the_setup_checklist_refreshes_the_headers_reading(self):
+        server.setup_status()
+        self.assertEqual(self.reads, 1)
+        self.assertEqual(server.signing_status(NOW)["daysLeft"], 6)
+        self.assertEqual(self.reads, 1)
+
+    def test_page_shows_the_countdown_in_the_header(self):
+        page = (server.ROOT / "web" / "index.html").read_text(encoding="utf-8")
+        header = page[page.index('<header class="masthead">'):page.index("</header>")]
+        for needle in ('id="signing"', "Phone driver", 'id="signingSummary"', 'id="signingSetup"'):
+            self.assertIn(needle, header)
+        for needle in ("/api/signing", "s.longLived", "Taps will not work until it is renewed."):
+            self.assertIn(needle, page)
+
+
 class PasscodeTests(unittest.TestCase):
     def test_missing_passcode_tells_the_user_where_to_put_it_and_never_asks_for_it_here(self):
         entry = setup_check.passcode_item({"set": False, "source": "", "envPath": "C:/App/.env"})
         self.assertEqual(entry["status"], "action")
         self.assertIn("C:/App/.env", entry["more"])
         self.assertEqual(entry["commands"], ["python scripts\\set_passcode.py"])
+        # A Setup .exe install names its bundled Python (app_script_command).
+        with patch.object(setup_check, "PASSCODE_COMMAND", ".\\python\\python.exe scripts\\set_passcode.py"):
+            installed = setup_check.passcode_item({"set": False, "source": "", "envPath": "C:/App/.env"})
+        self.assertEqual(installed["commands"], [".\\python\\python.exe scripts\\set_passcode.py"])
         self.assertIn("hidden prompt", entry["more"])
         self.assertIn("never shown or logged", entry["more"])
         self.assertEqual(entry["fix"], "Save your iPhone passcode so posts can run while you're away.")

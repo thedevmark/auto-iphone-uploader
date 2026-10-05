@@ -10,6 +10,7 @@ import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -50,6 +51,10 @@ PHONE_ACTION_RUNNING = False
 PHONE_ACTION_FILE_LOCK = threading.Lock()
 SIDETAP_STATUS_LOCK = threading.Lock()
 SIDETAP_STATUS_CACHE: tuple[float, dict] | None = None
+# The last WebDriverAgent signature read (setup_check.wda_signature) and when it was taken.
+SIGNING_LOCK = threading.Lock()
+SIGNING_CACHE: tuple[float, dict | None] | None = None
+SIGNING_TTL = 30 * 60
 MODEL_RECOVERY_INTERVAL = 30
 MODEL_RETRY_DELAY_SECONDS = 120
 MODEL_RETRY_LIMIT = 3
@@ -136,9 +141,35 @@ def sidetap_status() -> dict:
         return result
 
 
+def remember_signature(signature: dict | None) -> dict | None:
+    global SIGNING_CACHE
+    with SIGNING_LOCK:
+        SIGNING_CACHE = (time.monotonic(), signature)
+    return signature
+
+
+def signing_status(now: datetime | None = None) -> dict | None:
+    """The header's phone-driver countdown: the checklist's own signature read, reused for SIGNING_TTL.
+
+    The read opens a session on the phone, so while anything holds the phone the last reading stands.
+    """
+    with SIGNING_LOCK:
+        cached = SIGNING_CACHE
+    stale = cached is None or time.monotonic() - cached[0] >= SIGNING_TTL
+    busy = (PHONE_RUNNING or PHONE_ACTION_RUNNING or phone_lock.holder(STATE) is not None
+            or link_supervisor.read_busy(STATE) is not None)
+    signature = cached[1] if cached else None
+    if stale and not busy:
+        signature = remember_signature(setup_probes(STATE, WATCHER.status, phone_inspection).wda_signature())
+    return setup_check.signing_status(signature, now)
+
+
 def setup_status(*, complete: bool = False) -> dict:
     """Run the read-only setup checklist; ``complete`` records a fully passing run."""
-    result = setup_check.checklist(setup_probes(STATE, WATCHER.status, phone_inspection))
+    probes = setup_probes(STATE, WATCHER.status, phone_inspection)
+    read_signature = probes.wda_signature
+    # The checklist's signature read also refreshes the header's countdown.
+    result = setup_check.checklist(replace(probes, wda_signature=lambda: remember_signature(read_signature())))
     if complete and not result["ready"]:
         raise ValueError("Finish the remaining setup steps first")
     with Store(STATE / "video-drop.sqlite") as store:
@@ -1098,6 +1129,8 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, link_supervisor.read_status(STATE))
         elif path == "/api/setup":
             self._json(200, setup_status())
+        elif path == "/api/signing":
+            self._json(200, {"signing": signing_status()})
         else:
             self.send_error(404)
 

@@ -49,7 +49,7 @@ from video_drop import native_schedule as ns  # noqa: E402
 from video_drop import receipts  # noqa: E402
 from video_drop.core import Store, digest  # noqa: E402
 from video_drop.accounts import load_targets, require_target  # noqa: E402
-from video_drop.instagram_schedule import first_frame  # noqa: E402
+from video_drop.instagram_schedule import first_frame, sampled_frames  # noqa: E402
 from video_drop.media_color import edits_color_mode  # noqa: E402
 from video_drop.phone_focus import optional_focus, run_guards  # noqa: E402
 from video_drop.phone_link import release_frozen_app  # noqa: E402
@@ -68,6 +68,8 @@ SCHEDULE_CROSSPOSTS = {"facebook": "Facebook"}
 SHEET_TIMEOUT = 10.0
 TIME_WHEELS_TIMEOUT = 6.0
 COVER_LIMIT = 10.0  # true first frame 7.1, nearest wrong frame 13.7 (measured on device)
+COVER_SANE = 25.0   # above this the card shows something else entirely, whatever matches best
+COVER_MARGIN = 3.0  # the start must beat every frame 1 s or more in by this much
 EXPORT_TIMEOUT = 900.0
 
 
@@ -317,11 +319,22 @@ def prove_cover(data: dict, evidence_dir: Path) -> dict:
     evidence_dir.mkdir(parents=True, exist_ok=True)
     shot = evidence_dir / f"release{data['releaseId']}-instagram-cover-{time.strftime('%Y%m%d-%H%M%S')}.png"
     image.save(shot)
-    score = cover_score(image, first_frame(Path(data["sourcePath"])), card,
-                        by_label(items, "Preview", "Button"), by_label(items, "Edit cover", "Button"))
-    if score > COVER_LIMIT:
-        raise Stop(f"Instagram's cover is not the first frame (difference {score:.1f}); nothing was posted")
-    return {"difference": round(score, 1), "screenshot": shot.name}
+    preview, edit = by_label(items, "Preview", "Button"), by_label(items, "Edit cover", "Button")
+    score = cover_score(image, first_frame(Path(data["sourcePath"])), card, preview, edit)
+    if score <= COVER_LIMIT:
+        return {"difference": round(score, 1), "screenshot": shot.name}
+    # A fixed limit tuned on one clip does not carry to every clip (real Post now 2026-10-04:
+    # the true first frame scored 15.5). Ask instead which moment of the video the cover
+    # matches best: it must be the start, clearly better than anything a second or more in.
+    scores = [(at, cover_score(image, frame, card, preview, edit))
+              for at, frame in sampled_frames(Path(data["sourcePath"]))]
+    best_at, _ = min(scores, key=lambda pair: pair[1])
+    later = min((value for at, value in scores if at >= 1.0), default=0.0)
+    if best_at <= 0.5 and score <= COVER_SANE and later - score >= COVER_MARGIN:
+        return {"difference": round(score, 1), "laterBest": round(later, 1), "screenshot": shot.name,
+                "check": "best match at the start"}
+    raise Stop(f"Instagram's cover is not the first frame (difference {score:.1f}, best match at "
+               f"{best_at:.1f} s); nothing was posted")
 
 
 def type_caption(caption: str) -> None:

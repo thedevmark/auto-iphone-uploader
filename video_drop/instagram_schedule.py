@@ -36,6 +36,31 @@ def first_frame(source: Path) -> Image.Image:
         raise ValueError("Could not decode the source video's first frame") from exc
 
 
+SOI, EOI = bytes((0xFF, 0xD8)), bytes((0xFF, 0xD9))  # JPEG start / end of image
+
+
+def sampled_frames(source: Path, every: float = 0.5, limit: int = 240, width: int = 480) -> list[tuple[float, Image.Image]]:
+    """Frames every `every` seconds from the start (at most `limit`), scaled down, in one ffmpeg pass."""
+    try:
+        result = subprocess.run(
+            ["ffmpeg", "-v", "error", "-nostdin", "-i", str(source), "-vf", f"fps={1 / every},scale={width}:-2",
+             "-frames:v", str(limit), "-f", "image2pipe", "-vcodec", "mjpeg", "-"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True, timeout=180,
+        )
+    except FileNotFoundError as exc:
+        raise ValueError("ffmpeg is required to verify the Instagram cover") from exc
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as exc:
+        raise ValueError("Could not sample the source video's frames") from exc
+    frames, data, start = [], result.stdout, 0
+    while (begin := data.find(SOI, start)) != -1:
+        end = data.find(EOI, begin)
+        if end == -1:
+            break
+        frames.append((len(frames) * every, Image.open(BytesIO(data[begin:end + 2])).convert("RGB")))
+        start = end + 2
+    return frames
+
+
 def scheduled_list_label(scheduled_at: str, device_time_zone: str) -> str:
     """Use the phone's verified time zone, since Instagram's picker uses it."""
     instant = datetime.fromisoformat(scheduled_at)
