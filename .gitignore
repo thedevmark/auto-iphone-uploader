@@ -31,3 +31,6 @@ devimages/
 # Installer build output (scripts/build_installer.ps1)
 build/
 dist/
+
+# Local-only notes, tools and history from the old private repo; never published
+.private/
