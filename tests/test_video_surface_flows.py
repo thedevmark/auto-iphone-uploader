@@ -342,3 +342,24 @@ class DescriptionEditorByOcr(unittest.TestCase):
         labels = ["7:51", "Add sound", "Swipe up to edit", "Edit", "Next"]
         self.assertEqual(youtube_nav.exit_target(labels), youtube_nav.EDITOR_BACK)
         self.assertEqual(youtube_nav.exit_target(labels + ["Exit editor"]), "Exit editor")
+
+
+class ExactNext(unittest.TestCase):
+    """Real Post now 2026-10-05 15:25: OCR missed the editor's Next; the id lookup found it 11/11."""
+
+    def test_next_comes_from_the_exact_lookup_even_when_ocr_missed_it(self):
+        phone = MagicMock()
+        phone.elements_by_ids.return_value = [{"type": "XCUIElementTypeStaticText", "label": "Next", "name": "Next",
+                                               "value": "", "rect": {"x": 290, "y": 875, "width": 40, "height": 20}}]
+        with patch.object(phone_youtube, "phone", phone), \
+                patch.object(phone_youtube, "layout", lambda **k: PhoneLayout(440, 956)):
+            row = phone_youtube.bottom_next([{"text": "Swipe up to edit", "x": 220, "y": 843}])
+        self.assertEqual((row["x"], row["y"]), (310, 885))
+
+    def test_ocr_is_the_fallback_when_the_lookup_finds_nothing(self):
+        phone = MagicMock()
+        phone.elements_by_ids.return_value = []
+        with patch.object(phone_youtube, "phone", phone), \
+                patch.object(phone_youtube, "layout", lambda **k: PhoneLayout(440, 956)):
+            row = phone_youtube.bottom_next([{"text": "Next", "x": 326, "y": 894}])
+        self.assertEqual(row["y"], 894)

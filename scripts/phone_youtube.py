@@ -129,8 +129,17 @@ def live_element(label: str, kind: str) -> Element:
     return found
 
 
+TIMINGS = Path(__file__).resolve().parent.parent / ".state" / "run-timings.jsonl"
+
+
 def stage(name: str) -> None:
+    """Report a step and keep its start time, so one run shows where every second goes."""
     print(json.dumps({"stage": name}), file=sys.stderr, flush=True)
+    try:
+        with TIMINGS.open("a", encoding="utf-8") as out:
+            out.write(json.dumps({"at": time.time(), "stage": name}) + "\n")
+    except OSError:
+        pass
 
 
 def matches(label: str, *, exact: bool = True) -> list[dict]:
@@ -554,10 +563,28 @@ def trim_state(rows: list[dict]) -> str | None:
     return None
 
 
+def exact_next() -> list[dict]:
+    """YouTube's "Next" by accessibility id: exact, about 0.55 s, and safe on the playing trim and
+    editor screens (measured 11 of 11 with the link steady). Empty when the driver cannot ask."""
+    lookup = getattr(phone, "elements_by_ids", None)
+    if lookup is None:
+        return []
+    try:
+        found = lookup(["Next"])
+    except Exception:
+        return []
+    rows = [{"text": "Next", "x": f["rect"]["x"] + f["rect"]["width"] / 2, "y": f["rect"]["y"] + f["rect"]["height"] / 2}
+            for f in found]
+    return [row for row in rows if layout().relative_band(row, top=0.75)]
+
+
 def bottom_next(rows: list[dict]) -> dict:
-    """The one "Next" on the bottom quarter: on a playing screen OCR also reads the clip's own words."""
-    found = [row for row in rows if " ".join(row["text"].split()).casefold() == "next"
-             and layout().relative_band(row, top=0.75)]
+    """The one "Next" on the bottom quarter: by exact lookup, else from the OCR rows (a playing
+    screen's OCR also reads the clip's own words, and one read can miss the button)."""
+    found = exact_next()
+    if len(found) != 1:
+        found = [row for row in rows if " ".join(row["text"].split()).casefold() == "next"
+                 and layout().relative_band(row, top=0.75)]
     if len(found) != 1:
         raise PhoneUploadError(f"Expected one YouTube Next button, found {len(found)}; nothing was uploaded")
     return found[0]

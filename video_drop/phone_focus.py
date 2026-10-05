@@ -284,6 +284,75 @@ def upright(phone, *, settle: float = 1.5) -> None:
         raise FocusError("The phone is sideways and could not be turned upright; stand it in portrait")
 
 
+MENU_EMPTY = (220.0, 790.0)  # below the Focus modes: leaves the menu (measured 2026-10-01)
+
+
+def _set_control_center(phone, *, dnd: bool | None, lock: bool | None) -> dict:
+    """Set Do Not Disturb and rotation lock in ONE Control Center visit, proven in place.
+
+    Before, each was its own visit and each was proven by closing and reopening Control
+    Center: about five visits to prepare and five to restore. Controls are read by id
+    (about 0.5 s), never by reading the whole screen. Returns what this changed.
+    """
+    elements = open_control_center(phone)
+    changed = {}
+    if lock is not None and _rotation_locked(elements) != lock:
+        switch = _rotation_switch(elements)
+        phone.tap(switch.x, switch.y)
+        changed["lock"] = True
+        time.sleep(0.5)
+    state = focus_state(elements)
+    # Another Focus the owner chose (e.g. "Streaming") already silences the phone: leave it.
+    if (dnd is True and state == "off") or (dnd is False and state == "dnd"):
+        module = _one(elements, MODULE)
+        phone.tap(module.x, module.y)
+        mode = _one(_settle(phone, DND_MODE), DND_MODE)
+        phone.tap(mode.x, mode.y)
+        time.sleep(1.0)
+        # Leave the menu before reading anything: a read right after choosing a mode once froze
+        # the driver (full-tree read, 2026-09-30).
+        phone.tap(*PhoneLayout.from_info(phone.screen_info()).reference_point(*MENU_EMPTY))
+        time.sleep(0.8)
+        changed["dnd"] = True
+    if changed:
+        elements = _elements(phone, (MODULE, ROTATION_LOCK))
+        if not _cc_open(elements):
+            elements = open_control_center(phone)
+        if lock is not None and _rotation_locked(elements) != lock:
+            close_control_center(phone)
+            raise FocusError("Rotation lock did not " + ("turn on" if lock else "turn off") + "; check the phone")
+        if "dnd" in changed and focus_state(elements) != ("dnd" if dnd else "off"):
+            close_control_center(phone)
+            raise FocusError("Do Not Disturb did not " + ("turn on" if dnd else "turn off") + "; check the phone")
+    close_control_center(phone)
+    return changed
+
+
+def mark(name: str) -> None:
+    """Add a step to the run timeline (.state/run-timings.jsonl) shared with the app steps."""
+    try:
+        from scripts.phone_youtube import stage
+        stage(name)
+    except Exception:
+        pass
+
+
+@contextmanager
+def control_center_guard(phone):
+    """Do Not Disturb on and rotation locked for the run; afterwards undo only what this changed."""
+    mark("prepare_control_center")
+    changed = _set_control_center(phone, dnd=True, lock=True)
+    mark("prepared")
+    try:
+        yield
+    finally:
+        mark("restore_control_center")
+        if changed:
+            _set_control_center(phone, dnd=False if changed.get("dnd") else None,
+                                lock=False if changed.get("lock") else None)
+        mark("restored_control_center")
+
+
 def prepare_phone(phone, enabled: bool):
     """One Setting for all of it: Low Power Mode off and
     Auto-Lock at Never, Do Not Disturb on, rotation locked. Each is restored afterwards only
@@ -294,8 +363,7 @@ def prepare_phone(phone, enabled: bool):
     stack = ExitStack()
     try:
         stack.enter_context(stay_awake(phone))
-        stack.enter_context(upload_focus(phone))
-        stack.enter_context(rotation_lock(phone))
+        stack.enter_context(control_center_guard(phone))
     except BaseException:
         stack.close()
         raise

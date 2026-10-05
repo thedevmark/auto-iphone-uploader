@@ -59,6 +59,10 @@ class FakePhone:
             # Home leaves this menu up; only empty space closes it.
             self.stuck_menu = (x, y) != (220, 790)
             return
+        if self.in_menu and (x, y) == (220, 790):
+            self.in_menu = False  # leaves the Focus menu, back on Control Center
+            self.in_control = not getattr(self, "menu_exit_closes_all", False)
+            return
         if self.in_menu and (x, y) == (220, 263):
             self.focus = "" if self.focus == "Do Not Disturb" else "Do Not Disturb"
         elif self.in_control and (x, y) == (84, 359):
@@ -189,10 +193,10 @@ class RotationLockTests(unittest.TestCase):
                 yield
                 order.append("undo " + name)
             return cm
-        with mock.patch("video_drop.phone_awake.stay_awake", guard("awake")),                 mock.patch.object(phone_focus, "upload_focus", guard("dnd")),                 mock.patch.object(phone_focus, "rotation_lock", guard("rotation")):
+        with mock.patch("video_drop.phone_awake.stay_awake", guard("awake")),                 mock.patch.object(phone_focus, "control_center_guard", guard("control center")):
             with phone_focus.prepare_phone(object(), True):
                 order.append("run")
-        self.assertEqual(order, ["awake", "dnd", "rotation", "run", "undo rotation", "undo dnd", "undo awake"])
+        self.assertEqual(order, ["awake", "control center", "run", "undo control center", "undo awake"])
 
 
 @mock.patch("video_drop.phone_focus.time.sleep", lambda seconds: None)
@@ -300,3 +304,31 @@ class PreparedSession(unittest.TestCase):
                 with phone_focus.run_guards(object(), {"preparePhone": True}):
                     pass
         self.assertIn("could not be put back", phone_focus.restore_problem)
+
+
+@mock.patch("video_drop.phone_focus.time.sleep", lambda seconds: None)
+class OneControlCenterVisit(unittest.TestCase):
+    """DND and rotation set in one visit and undone in one (Mark 2026-10-05: 'open and close cc like 10 times')."""
+
+    def test_one_visit_sets_both_and_one_visit_undoes_them(self):
+        phone = FakePhone()
+        with phone_focus.control_center_guard(phone):
+            self.assertEqual((phone.focus, phone.rotation), ("Do Not Disturb", "1"))
+            self.assertEqual(phone.swipes, 1)
+        self.assertEqual((phone.focus, phone.rotation), ("", "0"))
+        self.assertEqual(phone.swipes, 2)
+
+    def test_what_the_owner_already_had_is_left_alone(self):
+        phone = FakePhone(focus="Do Not Disturb", rotation="1")
+        with phone_focus.control_center_guard(phone):
+            pass
+        self.assertEqual((phone.focus, phone.rotation), ("Do Not Disturb", "1"))
+        self.assertEqual(phone.swipes, 1)  # read once, nothing to undo
+
+    def test_a_menu_exit_that_closes_control_center_costs_one_reopen(self):
+        phone = FakePhone()
+        phone.menu_exit_closes_all = True
+        with phone_focus.control_center_guard(phone):
+            self.assertEqual((phone.focus, phone.rotation), ("Do Not Disturb", "1"))
+        self.assertEqual((phone.focus, phone.rotation), ("", "0"))
+        self.assertEqual(phone.swipes, 4)

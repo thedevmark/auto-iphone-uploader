@@ -145,8 +145,17 @@ def _auto_lock_page(phone) -> None:
 
 
 def set_auto_lock(phone, choice: str) -> str | None:
-    """Choose an Auto-Lock time; returns the one it replaced, None if it already was `choice`."""
-    _auto_lock_page(phone)
+    """Choose an Auto-Lock time; returns the one it replaced, None if it already was `choice`.
+
+    The Display page's row already names the current time ("Auto-Lock, Never"), so a phone
+    already on `choice` is left after one read, without opening the list (~10 s saved)."""
+    settings_root(phone)
+    _open(phone, DISPLAY)
+    row = find_row(phone, AUTO_LOCK, ("Cell",))
+    if choice == NEVER and row.label.strip().endswith(", Never"):
+        return None
+    phone.tap(row.x, row.y)
+    time.sleep(2.0)
     before = checked_choice(_elements(phone))
     if before == choice:
         return None
@@ -163,12 +172,15 @@ def stay_awake(phone):
     """Low Power Mode off and Auto-Lock at Never for the run; each restored only if changed here."""
     low_power_was_on = False
     auto_lock_was = None
+    from .phone_focus import mark
     try:
+        mark("prepare_settings")
         low_power_was_on = set_low_power(phone, False)
         auto_lock_was = set_auto_lock(phone, NEVER)
         phone.press_home()
         yield
     finally:
+        mark("restore_settings")
         try:
             if auto_lock_was is not None:
                 set_auto_lock(phone, auto_lock_was)

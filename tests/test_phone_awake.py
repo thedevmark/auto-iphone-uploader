@@ -42,7 +42,8 @@ class FakeSettings:
             return back + [el("Switch", phone_awake.LOW_POWER_SWITCH, 375, "1" if self.low_power else "0")]
         if self.page == "display":
             # Low Power Mode greys the row out: tapping it does nothing (measured).
-            return back + [el("Cell", phone_awake.AUTO_LOCK, 543)]
+            shown = "Never" if self.auto_lock == "-1" else f"{self.auto_lock} seconds"
+            return back + [el("Cell", phone_awake.AUTO_LOCK, 543, label=f"Auto-Lock, {shown}")]
         rows = [el("Cell", name, 160 + 53 * i) for i, name in enumerate(CHOICES)]
         mark = next(r for r in rows if r.name == self.auto_lock)
         return back + rows + [Element("Button", "checkmark", "checkmark", "", 378, mark.y - 9, 20, 18)]
@@ -116,3 +117,12 @@ def phone_awake_choices():
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@mock.patch("video_drop.phone_awake.time.sleep", lambda s: None)
+class AutoLockShortcut(unittest.TestCase):
+    def test_a_phone_already_on_never_never_opens_the_list(self):
+        phone = FakeSettings(low_power=False, auto_lock="-1")
+        with mock.patch.object(phone_awake, "_elements", lambda p, names=None: tuple(e for e in p.elements() if names is None or e.name in names)):
+            self.assertIsNone(phone_awake.set_auto_lock(phone, phone_awake.NEVER))
+        self.assertNotIn(phone_awake.AUTO_LOCK, phone.taps)
