@@ -55,7 +55,7 @@ class VideoDropTests(unittest.TestCase):
                                                      "inspectPhoneOnOpen": True, "removeAfterPost": True,
                                                      "crosspostFacebook": True, "crosspostThreads": True,
                                                      "threadsSeparatePost": False, "postNowInOrder": True,
-                                                     "filesAppForOneDrive": False, "readReceipts": True})
+                                                     "readReceipts": True})
         self.store.set_phone_checks({"preparePhone": False})
         with Store(self.root / "state.sqlite") as reopened:
             self.assertFalse(reopened.phone_checks()["preparePhone"])

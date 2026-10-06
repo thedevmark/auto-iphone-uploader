@@ -34,8 +34,6 @@ PHONE_CHECK_DEFAULTS = {
     "threadsSeparatePost": False,
     # Post now starts YouTube, then Instagram, then TikTok, then a separate Threads post.
     "postNowInOrder": True,
-    # Open OneDrive videos through the Files app like every other provider, instead of the OneDrive app.
-    "filesAppForOneDrive": False,
     # After a final tap, look at the app's own profile a few times in the next hour (read-only)
     # and record the receipt the phone shows (video_drop/receipt_sweep.py).
     "readReceipts": True,

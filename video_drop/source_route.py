@@ -1,24 +1,17 @@
-"""Which iPhone app opens a release's video, and where that video sits in it.
+"""Where a release's video sits in Apple's Files app on the iPhone.
 
-OneDrive videos open in the OneDrive app (the proven route) unless the
-``filesAppForOneDrive`` setting sends them through Apple's Files app too. Every
-other provider opens through Files, where its app shows up as a location once
-it is installed and turned on. The location name and folder path are derived
-from the source path relative to the sync root this PC detected, never guessed.
+Every video opens through Files, whatever cloud holds it: the provider's app shows up as a
+location there once it is installed and turned on. The location name and folder path are
+derived from the source path relative to the sync root this PC detected, never guessed.
 """
 
 from __future__ import annotations
 
-import json
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path, PurePath
 
 from .setup_check import cloud_for
-
-ONEDRIVE_APP = "onedrive_app"
-FILES_APP = "files_app"
-FILES_SETTING = "filesAppForOneDrive"
 
 # provider -> (names its location may carry under Files > Browse > Locations,
 #              folders between that location and the PC's sync root).
@@ -50,9 +43,8 @@ class FilesPath:
 
 @dataclass(frozen=True)
 class Route:
-    kind: str
     provider: str
-    files: FilesPath | None = None
+    files: FilesPath
 
 
 def _relative_parts(root: PurePath, source: PurePath) -> tuple[str, ...]:
@@ -73,24 +65,19 @@ def files_path(provider: str, root: PurePath, source: PurePath) -> FilesPath:
     return FilesPath(provider, locations, (*prefix, *folders), filename)
 
 
-def route_kind(provider: str, *, force_files: bool) -> str:
-    return ONEDRIVE_APP if provider == "OneDrive" and not force_files else FILES_APP
-
-
-def choose_route(source: PurePath, clouds: list[tuple[str, PurePath]], *, force_files: bool) -> Route:
+def choose_route(source: PurePath, clouds: list[tuple[str, PurePath]]) -> Route:
     cloud = cloud_for(Path(source), [(provider, Path(root)) for provider, root in clouds])
     if cloud is None:
         raise SourceRouteError(f"{source.name} is not inside a OneDrive, Google Drive, Dropbox or iCloud Drive "
                                "folder on this PC, so the iPhone cannot open it. Nothing was opened")
     provider, root = cloud
-    kind = route_kind(provider, force_files=force_files)
     # Compare on-disk paths: a short (8.3) or junction spelling of either side must not break the route.
     real_root, real_source = Path(root).resolve(strict=False), Path(source).resolve(strict=False)
-    return Route(kind, provider, files_path(provider, real_root, real_source) if kind == FILES_APP else None)
+    return Route(provider, files_path(provider, real_root, real_source))
 
 
-def release_source(db: Path, release_id: int) -> tuple[Path, str, int, bool]:
-    """Read-only: the release's source path, name and size, and the Files-route setting."""
+def release_source(db: Path, release_id: int) -> tuple[Path, str, int]:
+    """Read-only: the release's source path, name and size."""
     try:
         connection = sqlite3.connect(f"file:{Path(db).as_posix()}?mode=ro", uri=True, timeout=15)
     except sqlite3.Error as exc:
@@ -98,24 +85,18 @@ def release_source(db: Path, release_id: int) -> tuple[Path, str, int, bool]:
     try:
         row = connection.execute("SELECT source_path, source_name, file_size FROM release WHERE id=?",
                                  (release_id,)).fetchone()
-        setting = connection.execute("SELECT value FROM setting WHERE key='phone_checks'").fetchone()
     except sqlite3.Error as exc:
         raise SourceRouteError(f"Could not read {db}: {exc}") from exc
     finally:
         connection.close()
     if row is None:
         raise SourceRouteError(f"Release {release_id} is not in {db}")
-    try:
-        checks = json.loads(setting[0]) if setting else {}
-    except ValueError:
-        checks = {}
-    force = checks.get(FILES_SETTING) is True if isinstance(checks, dict) else False
-    return Path(row[0]), str(row[1]), int(row[2]), force
+    return Path(row[0]), str(row[1]), int(row[2])
 
 
 def release_route(db: Path, data: dict, clouds: list[tuple[str, PurePath]]) -> Route:
     """The route for the exact file a flow already verified (``data`` carries its name and size)."""
-    source, name, size, force = release_source(db, int(data["releaseId"]))
+    source, name, size = release_source(db, int(data["releaseId"]))
     if source.name != data["filename"] or name != data["filename"] or size != data["sizeBytes"]:
         raise SourceRouteError("The release's source file does not match the file being posted. Nothing was opened")
-    return choose_route(source, clouds, force_files=force)
+    return choose_route(source, clouds)

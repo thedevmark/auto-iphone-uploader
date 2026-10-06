@@ -253,73 +253,6 @@ def scroll_to(label: str, *, exact: bool = True) -> None:
     assert_visible(label, exact=exact)
 
 
-def open_onedrive_file(data: dict) -> None:
-    stage("onedrive_search")
-    filename = data["filename"]
-    onedrive_bundle = "com.microsoft.skydrive"
-    # A prior iOS share extension can bounce a direct app launch back to YouTube.
-    phone.press_home()
-    phone.open_app(onedrive_bundle, wait_seconds=12)
-    time.sleep(0.5)
-    if phone.current_app().get("bundleId") != onedrive_bundle:
-        phone.open_app(onedrive_bundle, wait_seconds=12)
-    for _ in range(4):
-        if phone.current_app().get("bundleId") != onedrive_bundle:
-            raise PhoneUploadError("OneDrive lost the foreground before file selection")
-        if matches("Search Your Files"):
-            break
-        if matches("Close"):
-            tap("Close")
-        elif matches("Back"):
-            tap("Back")
-        else:
-            raise PhoneUploadError("OneDrive search is not reachable from its current screen")
-        time.sleep(0.5)
-    else:
-        raise PhoneUploadError("OneDrive search did not open")
-
-    stem = Path(filename).stem.casefold()
-    result = None
-    # Search first by exact filename, then by stem. OneDrive has displayed an
-    # extra space before `.mp4` in search results for the verified file. The
-    # share panel below still has to show the exact filename and size.
-    for query in (filename, Path(filename).stem):
-        if matches("Clear search input"):
-            tap("Clear search input")
-        tap("Search Your Files")
-        phone.type_text(query)
-        # OneDrive keeps showing the previous results until Search is submitted.
-        keyboard_search = [row for row in matches("search") if layout().relative_band(row, top=0.75)]
-        if len(keyboard_search) != 1:
-            raise PhoneUploadError("OneDrive keyboard Search key is missing or ambiguous")
-        phone.tap(keyboard_search[0]["x"], keyboard_search[0]["y"])
-        deadline = time.monotonic() + 20
-        while time.monotonic() < deadline:
-            candidates = [row for row in screen() if stem in row["text"].casefold() and ".mp4" in row["text"].casefold()]
-            if len(candidates) == 1:
-                result = candidates[0]
-                break
-            if len(candidates) > 1:
-                raise PhoneUploadError(f"Multiple OneDrive results matched {filename!r}")
-            time.sleep(0.5)
-        if result is not None:
-            break
-    if result is None:
-        raise PhoneUploadError(f"OneDrive could not find {filename!r}")
-    phone.tap(result["x"], result["y"])
-    assert_visible(stem, exact=False)
-    tap("Share")
-    assert_visible(filename)
-    deadline = time.monotonic() + 8
-    while not size_shown(data["sizeBytes"], [row["text"] for row in screen()]):
-        if time.monotonic() >= deadline:
-            raise PhoneUploadError("OneDrive share panel shows a different file size")
-        time.sleep(0.5)
-    tap("More")
-    assert_share_sheet(data)
-    stage("ios_share_sheet")
-
-
 _SOURCE_DB: Path | None = None
 
 
@@ -336,19 +269,12 @@ def source_db() -> Path:
 
 
 def open_source_file(data: dict, *, db: Path | None = None, clouds: list | None = None) -> None:
-    """Open the release's exact file on the iPhone and leave the iOS share sheet up.
-
-    OneDrive sources take the proven OneDrive-app path unless Settings send them through Files;
-    Google Drive, Dropbox and iCloud Drive sources always open through Apple's Files app.
-    """
+    """Open the release's exact file through Apple's Files app and leave the iOS share sheet up."""
     try:
         route = source_route.release_route(db or source_db(), data,
                                            setup_check.detected_cloud_folders() if clouds is None else clouds)
     except source_route.SourceRouteError as exc:
         raise PhoneUploadError(str(exc)) from exc
-    if route.kind == source_route.ONEDRIVE_APP:
-        open_onedrive_file(data)
-        return
     stage("files_route")
     try:
         FilesApp(phone, stage=stage).open_file(route.files, data["sizeBytes"])

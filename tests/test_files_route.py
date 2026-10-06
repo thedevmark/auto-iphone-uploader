@@ -22,7 +22,7 @@ from video_drop.core import PHONE_CHECK_DEFAULTS, Store
 from video_drop.files_app import FILES_BUNDLE, FilesApp, FilesError, download_bound, folder_title
 from video_drop.screens.labels import Labels
 from video_drop.screens.snapshot import Snapshot
-from video_drop.source_route import FILES_APP, ONEDRIVE_APP, FilesPath, SourceRouteError, choose_route, files_path
+from video_drop.source_route import FilesPath, SourceRouteError, choose_route, files_path
 
 W = PureWindowsPath
 MB = 271_200_000  # shown as "271.2 MB"
@@ -73,26 +73,17 @@ CLOUDS = [("OneDrive", ONEDRIVE), ("Dropbox", DROPBOX), ("Google Drive", GDRIVE)
 
 
 class RouteSelectionTests(unittest.TestCase):
-    def test_onedrive_keeps_the_onedrive_app_unless_the_setting_forces_files(self):
-        source = ONEDRIVE / "_Clips" / "example-video.mp4"
-        self.assertEqual(choose_route(source, CLOUDS, force_files=False),
-                         source_route.Route(ONEDRIVE_APP, "OneDrive"))
-        forced = choose_route(source, CLOUDS, force_files=True)
-        self.assertEqual((forced.kind, forced.files.folders), (FILES_APP, ("Files", "_Clips")))
-
-    def test_every_other_provider_goes_through_files(self):
-        for source, provider in ((GDRIVE / "_Clips" / "a.mp4", "Google Drive"), (DROPBOX / "a.mp4", "Dropbox")):
-            for force in (False, True):
-                with self.subTest(provider=provider, force=force):
-                    route = choose_route(source, CLOUDS, force_files=force)
-                    self.assertEqual((route.kind, route.provider), (FILES_APP, provider))
+    def test_every_provider_goes_through_files(self):
+        for source, provider, folders in ((ONEDRIVE / "_Clips" / "a.mp4", "OneDrive", ("Files", "_Clips")),
+                                          (GDRIVE / "_Clips" / "a.mp4", "Google Drive", ("My Drive", "_Clips")),
+                                          (DROPBOX / "a.mp4", "Dropbox", ())):
+            with self.subTest(provider=provider):
+                route = choose_route(source, CLOUDS)
+                self.assertEqual((route.provider, route.files.folders), (provider, folders))
 
     def test_a_source_outside_every_cloud_is_refused(self):
         with self.assertRaisesRegex(SourceRouteError, "not inside"):
-            choose_route(Path("C:/Exports/a.mp4"), CLOUDS, force_files=False)
-
-    def test_the_setting_is_a_phone_check_with_a_switch(self):
-        self.assertIs(PHONE_CHECK_DEFAULTS[source_route.FILES_SETTING], False)
+            choose_route(Path("C:/Exports/a.mp4"), CLOUDS)
 
 
 class ReleaseRouteTests(unittest.TestCase):
@@ -117,15 +108,11 @@ class ReleaseRouteTests(unittest.TestCase):
         return {"releaseId": self.ids[provider], "filename": f"example-{provider}.mp4",
                 "sizeBytes": self.sizes[provider]}
 
-    def test_route_follows_the_release_source_and_the_setting(self):
-        self.assertEqual(source_route.release_route(self.db, self.data("OneDrive"), self.clouds).kind, ONEDRIVE_APP)
+    def test_route_follows_the_release_source(self):
+        onedrive = source_route.release_route(self.db, self.data("OneDrive"), self.clouds)
+        self.assertEqual(onedrive.files.folders, ("Files", "_Clips"))
         dropbox = source_route.release_route(self.db, self.data("Dropbox"), self.clouds)
-        self.assertEqual((dropbox.kind, dropbox.files.locations, dropbox.files.folders),
-                         (FILES_APP, ("Dropbox",), ("_Clips",)))
-        with Store(self.db) as store:
-            store.set_phone_checks({source_route.FILES_SETTING: True})
-        forced = source_route.release_route(self.db, self.data("OneDrive"), self.clouds)
-        self.assertEqual((forced.kind, forced.files.folders), (FILES_APP, ("Files", "_Clips")))
+        self.assertEqual((dropbox.files.locations, dropbox.files.folders), (("Dropbox",), ("_Clips",)))
 
     def test_a_different_file_than_the_flow_verified_is_refused(self):
         for change in ({"filename": "other.mp4"}, {"sizeBytes": 1}):
@@ -139,16 +126,12 @@ class ReleaseRouteTests(unittest.TestCase):
         source_route.release_route(self.db, self.data("Dropbox"), self.clouds)
         self.assertEqual(self.db.stat().st_mtime_ns, before)
 
-    def test_open_source_file_dispatches_by_route(self):
-        with patch.object(phone_youtube, "open_onedrive_file") as onedrive, \
-                patch.object(phone_youtube, "FilesApp") as files, patch.object(phone_youtube, "stage"):
-            phone_youtube.open_source_file(self.data("OneDrive"), db=self.db, clouds=self.clouds)
-            onedrive.assert_called_once()
-            files.assert_not_called()
-            phone_youtube.open_source_file(self.data("Dropbox"), db=self.db, clouds=self.clouds)
-            onedrive.assert_called_once()
-            target, size = files.return_value.open_file.call_args.args
-            self.assertEqual((target.provider, target.folders, size), ("Dropbox", ("_Clips",), self.sizes["Dropbox"]))
+    def test_open_source_file_always_opens_through_files(self):
+        with patch.object(phone_youtube, "FilesApp") as files, patch.object(phone_youtube, "stage"):
+            for provider, folders in (("OneDrive", ("Files", "_Clips")), ("Dropbox", ("_Clips",))):
+                phone_youtube.open_source_file(self.data(provider), db=self.db, clouds=self.clouds)
+                target, size = files.return_value.open_file.call_args.args
+                self.assertEqual((target.provider, target.folders, size), (provider, folders, self.sizes[provider]))
 
     def test_open_source_file_reports_route_and_files_problems_as_upload_errors(self):
         with patch.object(phone_youtube, "stage"), \

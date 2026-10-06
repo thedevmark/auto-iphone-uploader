@@ -634,6 +634,10 @@ def read_status(state: Path | None = None) -> dict:
     except (OSError, ValueError):
         return {"state": "unknown", "message": "Phone link supervisor has not reported yet", "alive": False}
     data["alive"] = supervisor_alive(state)
+    if not data["alive"]:
+        # What a stopped supervisor last wrote is history, not the link: a "ready" left from a
+        # previous session was read as ready on 2026-10-05 and 10-06 while nothing ran.
+        data.update(state="stopped", message="The phone link is not running; open the app to start it")
     return data
 
 
@@ -1328,6 +1332,8 @@ class Runner:
         (self.state / self.pid_file).write_text(str(os.getpid()), encoding="utf-8")
         self._event({"event": "observer started" if self.observe_only else "supervisor started",
                      "pid": os.getpid(), "ios": self.ios})
+        if not self.observe_only:
+            write_status(self.state, Decision(STARTING, "Phone link starting"), since=_now_iso())
         while True:
             try:
                 self.tick()

@@ -282,7 +282,8 @@ class FilesTests(unittest.TestCase):
             state = Path(tmp)
             write_status(state, Decision(NEEDS_REPLUG, "Unplug and replug the phone"), since="now")
             status = read_status(state)
-            self.assertEqual(status["state"], NEEDS_REPLUG)
+            # Nothing runs in this test: the written state is history, reported as stopped.
+            self.assertEqual(status["state"], "stopped")
             self.assertFalse(status["alive"])
             self.assertEqual(json.loads((state / "link-status.json").read_text())["message"],
                              "Unplug and replug the phone")
@@ -628,3 +629,21 @@ class OneSupervisorTests(unittest.TestCase):
                 break
             time.sleep(0.1)
         self.assertFalse(supervisor_alive(self.state))
+
+
+from video_drop import link_supervisor  # noqa: E402
+
+
+class StaleStatus(unittest.TestCase):
+    """A "ready" left by a stopped supervisor was read as ready (2026-10-05, 10-06)."""
+
+    def test_a_status_left_by_a_stopped_supervisor_reads_as_stopped(self):
+        import tempfile
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as folder:
+            state = Path(folder)
+            (state / link_supervisor.STATUS_FILE).write_text(json.dumps({"state": "ready", "message": "Phone link ready"}))
+            with mock.patch.object(link_supervisor, "supervisor_alive", return_value=False):
+                self.assertEqual(link_supervisor.read_status(state)["state"], "stopped")
+            with mock.patch.object(link_supervisor, "supervisor_alive", return_value=True):
+                self.assertEqual(link_supervisor.read_status(state)["state"], "ready")
