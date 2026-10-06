@@ -12,6 +12,7 @@ node_modules/
 *.webm
 *.m4v
 *.png
+!.github/apps/*.png
 *.jpg
 *.jpeg
 *.log
