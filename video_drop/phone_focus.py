@@ -364,7 +364,10 @@ def prepare_phone(phone, enabled: bool):
     try:
         stack.enter_context(stay_awake(phone))
         stack.enter_context(control_center_guard(phone))
-    except BaseException:
+    except BaseException as exc:
+        # Capture the failing screen now: closing the stack puts Settings away and goes Home.
+        from .failure_capture import snap
+        snap(exc)
         stack.close()
         raise
     return stack

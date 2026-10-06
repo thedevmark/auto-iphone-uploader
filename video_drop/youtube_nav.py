@@ -118,6 +118,12 @@ def reveal_tab_bar(phone, rows: list[dict]) -> bool:
 
 
 def open_tabs(phone) -> None:
+    # YouTube reopens on whatever was last watched, full screen and landscape-only (2026-10-06,
+    # captured): no navigation reads that and WDA cannot turn it upright. Quitting first (about
+    # 1 s) opens it on Home. Never while one of this app's uploads may still be running.
+    from .phone_link import upload_pending
+    if not upload_pending(YOUTUBE):
+        phone.close_app(YOUTUBE)
     phone.press_home()
     try:
         # Confirms the launch with activeAppInfo, unless YouTube is already playing a feed

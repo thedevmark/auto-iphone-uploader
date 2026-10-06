@@ -363,3 +363,19 @@ class ExactNext(unittest.TestCase):
                 patch.object(phone_youtube, "layout", lambda **k: PhoneLayout(440, 956)):
             row = phone_youtube.bottom_next([{"text": "Next", "x": 326, "y": 894}])
         self.assertEqual(row["y"], 894)
+
+
+class YoutubeOpensFresh(unittest.TestCase):
+    def test_youtube_is_quit_first_so_it_opens_on_home(self):
+        phone = MagicMock()
+        with patch("video_drop.youtube_nav.visible_rows", return_value=[{"text": "Home"}, {"text": "You"}]), \
+                patch("video_drop.phone_link.upload_pending", return_value=False):
+            youtube_nav.open_tabs(phone)
+        phone.close_app.assert_called_once_with(youtube_nav.YOUTUBE)
+
+    def test_youtube_is_never_quit_while_an_upload_may_still_run(self):
+        phone = MagicMock()
+        with patch("video_drop.youtube_nav.visible_rows", return_value=[{"text": "Home"}, {"text": "You"}]), \
+                patch("video_drop.phone_link.upload_pending", return_value=True):
+            youtube_nav.open_tabs(phone)
+        phone.close_app.assert_not_called()

@@ -332,3 +332,25 @@ class OneControlCenterVisit(unittest.TestCase):
             self.assertEqual((phone.focus, phone.rotation), ("Do Not Disturb", "1"))
         self.assertEqual((phone.focus, phone.rotation), ("", "0"))
         self.assertEqual(phone.swipes, 4)
+
+
+class PreparationFailureCapture(unittest.TestCase):
+    def test_a_failed_preparation_is_captured_before_its_cleanup(self):
+        from contextlib import contextmanager
+        order = []
+
+        @contextmanager
+        def awake(phone):
+            yield
+            order.append("cleanup")
+
+        @contextmanager
+        def broken(phone):
+            raise phone_focus.FocusError("Settings has no row")
+            yield
+        with mock.patch("video_drop.phone_awake.stay_awake", awake), \
+                mock.patch.object(phone_focus, "control_center_guard", broken), \
+                mock.patch("video_drop.failure_capture.snap", lambda exc: order.append("capture")):
+            with self.assertRaises(phone_focus.FocusError):
+                phone_focus.prepare_phone(object(), True)
+        self.assertEqual(order, ["capture", "cleanup"])
