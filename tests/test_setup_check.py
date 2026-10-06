@@ -38,6 +38,7 @@ def probes(**changes) -> SetupProbes:
         "phone_space": lambda: None,
         "usb_power": lambda: {"selectiveSuspend": False, "hubsAllowedOff": 0},
         "wda_signature": lambda: {"expires": SIGNED_UNTIL, "source": "phone", "error": ""},
+        "now": lambda: NOW,
         "passcode": lambda: {"set": True, "source": "dotenv", "envPath": "C:/App/.env"},
         "apple_service": lambda: {"installed": True, "running": True},
         "usb_helper": lambda: {"supported": True, "installed": True, "script": True, "task": True, "version": 1,

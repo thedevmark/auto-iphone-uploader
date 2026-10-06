@@ -86,6 +86,8 @@ class SetupProbes:
     battery: Callable[[], dict | None] = lambda: None
     # ocr.probe(): {"available": bool, "language": str, "error": str}; None = unreadable.
     screen_text: Callable[[], dict | None] = lambda: None
+    # The clock the signature countdown reads.
+    now: Callable[[], datetime] = lambda: datetime.now(timezone.utc)
     vision_model: str = VISION_MODEL
     text_model: str = TEXT_MODEL
 
@@ -716,7 +718,7 @@ def checklist(probes: SetupProbes) -> dict:
              usb_path_item(probes.usb_path() if phone_ok else None, phone_ok),
              charging_item(probes.battery() if phone_ok else None, phone_ok),
              usb_helper_item(probes.usb_helper()),
-             signature_item(probes.wda_signature() if installed else None, phone_ok, installed),
+             signature_item(probes.wda_signature() if installed else None, phone_ok, installed, now=probes.now()),
              link,
              passcode_item(probes.passcode()),
              screen_text_item(probes.screen_text()),
