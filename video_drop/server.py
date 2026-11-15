@@ -1173,6 +1173,7 @@ class Handler(BaseHTTPRequestHandler):
                                  "timeZoneSetting": store.time_zone_setting(),
                                  "pcTimeZone": timezones.pc_zone_name() or "", "nextSlots": upcoming,
                                  "phoneChecks": store.phone_checks(),
+                                 "platformHashtags": store.platform_hashtags(),
                                  "setupCompletedAt": store.setup_completed_at(),
                                  "unattendedStreak": store.unattended_streak(),
                                  "youtubeQuality": phone_inspection().get("youtube", {}).get("uploadQuality", {})})
@@ -1242,7 +1243,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(400, {"error": str(exc)})
             return
         if path in {"/api/watch/toggle", "/api/settings/slots", "/api/settings/phone-checks", "/api/settings/time-zone",
-                    "/api/settings/local-models"}:
+                    "/api/settings/local-models", "/api/settings/platform-hashtags"}:
             try:
                 data = self._body()
                 if path == "/api/watch/toggle":
@@ -1252,6 +1253,9 @@ class Handler(BaseHTTPRequestHandler):
                 elif path == "/api/settings/phone-checks":
                     with self._store() as store:
                         self._json(200, {"phoneChecks": store.set_phone_checks(data.get("phoneChecks"))})
+                elif path == "/api/settings/platform-hashtags":
+                    with self._store() as store:
+                        self._json(200, {"platformHashtags": store.set_platform_hashtags(data.get("platformHashtags"))})
                 elif path == "/api/settings/local-models":
                     with self._store() as store:
                         self._json(200, {"chosen": store.set_local_models(data.get("models"))})

@@ -42,7 +42,17 @@ PHONE_CHECK_DEFAULTS = {
     "readReceipts": True,
 }
 DELIVERY_MODES = ("schedule", "post_now")
+# Each platform's own hashtags, added after the shared ones. These are the defaults; Settings
+# changes them (Store.platform_hashtags).
 PLATFORM_HASHTAGS = {"youtube": "#shorts", "instagram": "#reels", "facebook": "#reels", "threads": "", "tiktok": "#fyp"}
+
+
+def platform_hashtag_names(hashtags: dict | None = None) -> set[str]:
+    """Every platform's own hashtag, lowercased without #: never part of the shared set."""
+    names = {"shorts", "reels", "fyp"}
+    for value in (hashtags or PLATFORM_HASHTAGS).values():
+        names |= {token[1:].casefold() for token in value.split()}
+    return names
 # Apps this app posts itself at a Schedule slot (only inside SLOT_GRACE after it; a later
 # start is a missed slot). Empty: Schedule happens only on the platforms' own schedulers, so
 # nothing depends on this PC being on at the slot. TikTok's phone app has no scheduler, so in
@@ -116,7 +126,7 @@ def caption_with_title(caption: str, title: str) -> str:
     return title + separator + caption[hashtag.start():]
 
 
-def shared_hashtags(value: str) -> list[str]:
+def shared_hashtags(value: str, platform_names: set[str] | None = None) -> list[str]:
     """Normalize reviewed shared hashtags; platform suffixes are generated separately."""
     if not isinstance(value, str):
         raise ValueError("Hashtags must be text")
@@ -131,17 +141,18 @@ def shared_hashtags(value: str) -> list[str]:
         if not safe_tag(name):
             raise ValueError("A hashtag has a blocked sensitive topic")
         key = name.casefold()
-        if key not in seen and key not in {"shorts", "reels", "fyp"}:
+        if key not in seen and key not in (platform_names or platform_hashtag_names()):
             result.append(token)
             seen.add(key)
     return result
 
 
-def caption_for_platform(caption: str, platform: str) -> str:
+def caption_for_platform(caption: str, platform: str, hashtags: dict | None = None) -> str:
+    hashtags = hashtags or PLATFORM_HASHTAGS
     prose = re.sub(r"(?<!\w)#[\w]+", "", caption)
     prose = re.sub(r"[ \t]{2,}", " ", prose).strip()
-    common = shared_hashtags(" ".join(re.findall(r"(?<!\w)#[\w]+", caption)))
-    suffix = PLATFORM_HASHTAGS[platform]
+    common = shared_hashtags(" ".join(re.findall(r"(?<!\w)#[\w]+", caption)), platform_hashtag_names(hashtags))
+    suffix = hashtags.get(platform, "")
     return " ".join(part for part in (prose, *common, suffix) if part)
 
 
@@ -397,6 +408,34 @@ class Store:
                             (json.dumps(checks),))
         return checks
 
+    def platform_hashtags(self) -> dict:
+        """Each platform's own hashtags: Settings' values over the defaults."""
+        row = self.db.execute("SELECT value FROM setting WHERE key='platform_hashtags'").fetchone()
+        saved = json.loads(row[0]) if row else {}
+        return {platform: saved.get(platform, default) for platform, default in PLATFORM_HASHTAGS.items()}
+
+    def set_platform_hashtags(self, changes: dict) -> dict:
+        if not isinstance(changes, dict) or not changes or set(changes) - set(PLATFORM_HASHTAGS):
+            raise ValueError("Choose hashtags for YouTube, Instagram, Facebook, Threads or TikTok")
+        cleaned = {}
+        for platform, value in changes.items():
+            if not isinstance(value, str):
+                raise ValueError("Hashtags must be text")
+            tokens = value.replace(",", " ").split()
+            if len(tokens) > 5:
+                raise ValueError("Use five hashtags or fewer for each platform")
+            for token in tokens:
+                if not re.fullmatch(r"#\w{1,60}", token):
+                    raise ValueError("Enter hashtags with #, separated by spaces")
+                if not safe_tag(token[1:]):
+                    raise ValueError("A hashtag has a blocked sensitive topic")
+            cleaned[platform] = " ".join(dict.fromkeys(tokens))
+        hashtags = {**self.platform_hashtags(), **cleaned}
+        with self.db:
+            self.db.execute("INSERT INTO setting(key,value) VALUES('platform_hashtags',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                            (json.dumps(hashtags),))
+        return hashtags
+
     def local_models(self) -> dict:
         """The Ollama models analysis uses: {"vision": ..., "text": ...}."""
         from .analyze import TEXT_MODEL, VISION_MODEL
@@ -488,7 +527,8 @@ class Store:
             raise ValueError("Destination text cannot change after platform work starts")
         if platform in {"facebook", "threads"}:
             instagram = next(d for d in release["destinations"] if d["platform"] == "instagram")
-            title, description, tags = instagram["title"], caption_for_platform(instagram["description"], platform), instagram["tags"]
+            title, description, tags = (instagram["title"], caption_for_platform(instagram["description"], platform,
+                                                                                  self.platform_hashtags()), instagram["tags"])
         if platform == "instagram" and any(
             d["status"] != "pending" for d in release["destinations"] if d["platform"] in {"facebook", "threads"}
         ):
@@ -498,7 +538,7 @@ class Store:
                 WHERE release_id=? AND platform=?""", (account.strip(), title, description, tags, visibility, utc_now().isoformat(), release_id, platform))
             if platform == "instagram":
                 for follower in ("facebook", "threads"):
-                    follower_description = caption_for_platform(description, follower)
+                    follower_description = caption_for_platform(description, follower, self.platform_hashtags())
                     self.db.execute("""UPDATE destination SET title=?,description=?,tags=?,revision_hash='',updated_at=?
                         WHERE release_id=? AND platform=?""", (title, follower_description, tags, utc_now().isoformat(), release_id, follower))
             self._event(release_id, platform, "text_saved", {"title": title, "description": description, "tags": tags})
@@ -526,6 +566,7 @@ class Store:
             youtube = by_platform["youtube"]
             instagram = by_platform["instagram"]
             tiktok = by_platform["tiktok"]
+            hashtags = self.platform_hashtags()
             youtube_description = youtube["description"] or suggestions.get("youtube_description") or ""
             youtube_tags = youtube["tags"] or ", ".join(suggestions.get("youtube_tags") or [])
             instagram_caption = caption_with_title(instagram["description"] or suggestions.get("instagram_caption") or "", title)
@@ -538,8 +579,8 @@ class Store:
             changes = {
                 "youtube": (title, youtube_description, youtube_tags),
                 "instagram": (instagram["title"], instagram_caption, instagram["tags"]),
-                "facebook": (by_platform["facebook"]["title"], caption_for_platform(instagram_caption, "facebook"), by_platform["facebook"]["tags"]),
-                "threads": (by_platform["threads"]["title"], caption_for_platform(instagram_caption, "threads"), by_platform["threads"]["tags"]),
+                "facebook": (by_platform["facebook"]["title"], caption_for_platform(instagram_caption, "facebook", hashtags), by_platform["facebook"]["tags"]),
+                "threads": (by_platform["threads"]["title"], caption_for_platform(instagram_caption, "threads", hashtags), by_platform["threads"]["tags"]),
                 "tiktok": (tiktok["title"], tiktok_caption, tiktok["tags"]),
             }
             changed = []
@@ -567,7 +608,8 @@ class Store:
             raise ValueError("YouTube titles must be 100 characters or fewer")
         if re.search(r"(?<!\w)#[\w]+", title):
             raise ValueError("Put hashtags in the hashtag box")
-        common = shared_hashtags(hashtags)
+        own = self.platform_hashtags()
+        common = shared_hashtags(hashtags, platform_hashtag_names(own))
         self.db.execute("BEGIN IMMEDIATE")
         try:
             release = self.release(release_id)
@@ -585,7 +627,7 @@ class Store:
                 raise ValueError("A YouTube tag has a blocked sensitive topic")
             changed = []
             for platform, current in by_platform.items():
-                platform_hashtags = common + ([PLATFORM_HASHTAGS[platform]] if PLATFORM_HASHTAGS[platform] else [])
+                platform_hashtags = common + own[platform].split()
                 hashtag_text = " ".join(platform_hashtags)
                 # YouTube leads with its hashtags, then one plain line about the clip.
                 description = ("\n".join(part for part in (hashtag_text, prose) if part) if platform == "youtube"

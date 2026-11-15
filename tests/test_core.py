@@ -487,6 +487,27 @@ class VideoDropTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "blocked sensitive topic"):
             self.store.apply_shared_copy(release_id, "Valheim kick", "#elections")
 
+    def test_platform_hashtags_default_to_the_built_in_ones_and_follow_settings(self):
+        self.assertEqual(self.store.platform_hashtags(), {"youtube": "#shorts", "instagram": "#reels",
+                                                          "facebook": "#reels", "threads": "", "tiktok": "#fyp"})
+        saved = self.store.set_platform_hashtags({"tiktok": "#fyp, #gaming", "threads": "#gta6"})
+        self.assertEqual((saved["tiktok"], saved["threads"], saved["youtube"]), ("#fyp #gaming", "#gta6", "#shorts"))
+        release_id = self.store.import_file(self.video)["id"]
+        self.store.save_analysis(release_id, {"status": "complete", "suggestions": {}})
+        # #gaming is TikTok's own now, so it never lands in the shared set.
+        updated = self.store.apply_shared_copy(release_id, "Airport KFC", "#timdillon #gaming")
+        destinations = {d["platform"]: d["description"] for d in updated["destinations"]}
+        self.assertEqual(destinations["tiktok"], "Airport KFC #timdillon #fyp #gaming")
+        self.assertEqual(destinations["threads"], "Airport KFC #timdillon #gta6")
+        self.assertEqual(destinations["youtube"], "#timdillon #shorts")
+        # Saving the Instagram caption rebuilds the crossposts with their own hashtags.
+        self.store.save_text(release_id, "instagram", "@examplechannel", "Airport KFC", "Airport KFC #timdillon #reels", "")
+        threads = next(d for d in self.store.release(release_id)["destinations"] if d["platform"] == "threads")
+        self.assertEqual(threads["description"], "Airport KFC #timdillon #gta6")
+        for bad in ({}, {"x": "#a"}, {"tiktok": "fyp"}, {"tiktok": "#a #b #c #d #e #f"}, {"tiktok": "#elections"}):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                self.store.set_platform_hashtags(bad)
+
     def test_shared_title_requires_analysis_and_cannot_touch_started_release(self):
         release_id = self.store.import_file(self.video)["id"]
         with self.assertRaisesRegex(ValueError, "Wait for local analysis"):
