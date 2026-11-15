@@ -553,6 +553,14 @@ class LegacyFlowGeometryTests(unittest.TestCase):
                 left, top, width, height = reflow(items[0], device)
                 self.assertEqual(taps, [(left + width / 2, top + height / 2)] * 2)
 
+    def test_text_editor_exit_without_a_back_in_the_tree_taps_the_measured_chevron(self):
+        items = [Item("Other", "Add description", (48, 71, 152, 27))]
+        for device in DEVICES:
+            taps = []
+            with self.subTest(device=device.name),                     patch.object(phone_youtube, "phone", self.fake_tree_phone(items, device, taps)),                     patch.object(phone_youtube, "layout", return_value=device.layout),                     patch.object(phone_youtube, "matches", side_effect=[[{"text": "Add details"}]]):
+                phone_youtube.leave_text_editor("Add details")
+                self.assertEqual(taps, [device.layout.reference_point(20.0, 86.0)])
+
     def test_share_rail_scrolls_on_the_apps_own_row(self):
         for device in DEVICES:
             rail_y = 330.5 - REF_TOP + device.top

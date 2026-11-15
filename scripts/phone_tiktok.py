@@ -216,6 +216,15 @@ def screen_image() -> Image.Image:
     return Image.open(BytesIO(share.screen_pixels()))
 
 
+POST_SCREEN_WORDS = ("add description", "can view this post", "drafts")
+
+
+def post_screen_by_pixels() -> bool:
+    """Two of the post screen's words in a go-ios screenshot; the editor shows none of them."""
+    texts = [row["text"].casefold() for row in share.pixel_rows()]
+    return sum(any(word in text for text in texts) for word in POST_SCREEN_WORDS) >= 2
+
+
 def wait_for_post_screen(timeout: float = 30) -> Snapshot:
     """Read the post screen once the editor's full-screen clip is gone; never read the editor.
 
@@ -225,7 +234,9 @@ def wait_for_post_screen(timeout: float = 30) -> Snapshot:
     """
     deadline = time.monotonic() + timeout
     while True:
-        playing = phone.video_in_front()
+        # Two still-looking frames are not enough: on 2026-10-07 the editor passed that test and
+        # the tree read hung the USB link. The post screen's own words, read from pixels, come first.
+        playing = phone.video_in_front() or not post_screen_by_pixels()
         if not playing:
             try:
                 snapshot = live()

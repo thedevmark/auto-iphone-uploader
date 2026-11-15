@@ -29,6 +29,9 @@ MAPS = Path(__file__).resolve().parent.parent / "maps"
 SIDEBAR_ITEM = "DOC.sidebar.item."
 NAV_BAR = "FullDocumentManagerViewControllerNavigationBar"
 TAB_BAR = "DOC.browsingModeTabBar"
+PREVIEW = "QLPreviewControllerView"  # a file opened full screen (Quick Look)
+SHARE_CAPTION_WAIT = 30.0  # seconds for the share sheet to replace its placeholder header
+MENU_WAIT = 20.0  # seconds for a held row's menu; a large cloud file's menu took over 8 s on 2026-10-07
 
 
 class FilesError(RuntimeError):
@@ -197,6 +200,16 @@ class FilesApp:
                 taps += 1
                 self.sleep(self.poll)
                 continue
+            if name is None and any(e.name == PREVIEW for e in snapshot.elements):
+                # Files restores a file preview it was left on, full screen with its controls
+                # hidden; swiping down closes it back to the folder without opening anything.
+                info = self.phone.screen_info()
+                width, height = info["width"], info["height"]
+                self.phone.swipe(width / 2, height * 0.3, width / 2, height * 0.85, 0.3)
+                taps += 1
+                self.wait_until(lambda s, snap: not any(e.name == PREVIEW for e in snap.elements), 5.0, quiet=True)
+                deadline = self.clock() + self.load_timeout
+                continue
             if name in ("context_menu", "share_sheet"):
                 raise FilesError("Files reopened with a menu still showing. Close Files on the iPhone, then post "
                                  "again. Nothing was posted")
@@ -319,7 +332,7 @@ class FilesApp:
         cell = self.download(cell, snapshot, target, size_bytes)
         verify_row(cell, target.filename, size_bytes, where, provider)
         self.phone.long_press(cell.x, cell.y, 1.0)
-        found = self.wait_until(lambda s, snap: s is not None and s.screen == "context_menu", 8.0, quiet=True)
+        found = self.wait_until(lambda s, snap: s is not None and s.screen == "context_menu", MENU_WAIT, quiet=True)
         if found is None:
             raise FilesError(f"Holding {target.filename} did not open its menu in Files. Nothing was posted")
         _, snapshot = found
@@ -335,4 +348,12 @@ class FilesApp:
             screen = runner.act("open_share_sheet")
         except MatchError as exc:
             raise FilesError(f"Share in Files did not open the iOS share sheet: {exc}") from exc
-        verify_share_sheet(runner.snapshot, screen, self.labels, target.filename, size_bytes)
+        snapshot = runner.snapshot
+        # A large file's sheet first shows a placeholder header with no caption; wait for the caption.
+        captions = (screen.elements["file_name"].id, screen.elements["file_details"].id)
+        if not all(any(e.name == id_ for e in snapshot.elements) for id_ in captions):
+            found = self.wait_until(lambda _, snap: all(any(e.name == id_ for e in snap.elements) for id_ in captions),
+                                    SHARE_CAPTION_WAIT, quiet=True)
+            if found is not None:
+                snapshot = found[1]
+        verify_share_sheet(snapshot, screen, self.labels, target.filename, size_bytes)

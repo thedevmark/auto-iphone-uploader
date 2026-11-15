@@ -100,6 +100,27 @@ def _share_cell(rows: list[dict], name: str, layout: PhoneLayout) -> dict | None
     return found[0] if found else None
 
 
+SHARE_CONTAINER = "ShareSheet.RemoteContainerView"
+
+
+def share_sheet_offset(raw: list[dict]) -> tuple[float, float]:
+    """What to add to a share-sheet row's x and y to get the point on the screen.
+
+    The share sheet is a remote view: WDA reports its rows relative to the sheet's
+    container, not the screen. A full-height sheet hides that; the Files sheet sits
+    about 263 pt down, so a tap on its rail landed on the sheet's header. ``raw`` is
+    the unreduced read in tree order, which keeps the container's rect.
+    """
+    at = next((i for i, r in enumerate(raw) if r.get("text") == SHARE_CONTAINER and r.get("rect")), None)
+    if at is None:
+        return 0.0, 0.0
+    left, top = float(raw[at]["rect"]["x"]), float(raw[at]["rect"]["y"])
+    # Rows already in screen coordinates never sit above the sheet's own top edge.
+    if top <= 0 or not any(r.get("y", top) < top for r in raw[at + 1:]):
+        return 0.0, 0.0
+    return left, top
+
+
 def share_rail_labels(rows: list[dict], layout: PhoneLayout) -> tuple:
     """What the app rail shows now, to tell a scroll that moved it from one at its end."""
     return tuple(sorted((row.get("text", ""), round(row.get("x", 0))) for row in rows if row.get("type") == "Cell"

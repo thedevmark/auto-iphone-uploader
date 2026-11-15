@@ -17,7 +17,7 @@ from scripts import phone_instagram_preflight as preflight
 from scripts import phone_youtube
 from video_drop import ocr, youtube_nav
 from video_drop.phone.helpers import VideoSurfaceError
-from video_drop.phone_ui import PhoneLayout
+from video_drop.phone_ui import PhoneLayout, share_sheet_offset
 
 LAYOUT = PhoneLayout(440, 956)
 
@@ -119,7 +119,7 @@ class YouTubePlayingScreens(unittest.TestCase):
 
     def test_share_to_youtube_arms_the_guard_before_the_tap_and_never_asks_activeappinfo(self):
         rows = [{"text": "shareSheet.activity.contentView", "x": 220, "y": 500}]
-        with patch.object(phone_youtube, "screen", lambda: rows), \
+        with patch.object(phone_youtube, "share_read", lambda: (rows, (0.0, 0.0))), \
                 patch.object(phone_youtube, "share_app_position", lambda *a: ("tap", {"x": 100, "y": 392})), \
                 patch.object(phone_youtube, "share_rail_y", lambda *a: 392):
             phone_youtube.choose_share_app("YouTube", expected_bundle="com.google.ios.youtube")
@@ -146,9 +146,36 @@ class YouTubePlayingScreens(unittest.TestCase):
         phone = MagicMock()
         phone.swipe.side_effect = swipe
         phone.tap.side_effect = lambda x, y: taps.append(x)
-        with patch.object(phone_youtube, "phone", phone), patch.object(phone_youtube, "screen", screen),                 patch.object(phone_youtube, "layout", lambda **k: PhoneLayout(440, 956)),                 patch.object(phone_youtube.time, "sleep"):
+        with patch.object(phone_youtube, "phone", phone), patch.object(phone_youtube, "share_read", lambda: (screen(), (0.0, 0.0))),                 patch.object(phone_youtube, "layout", lambda **k: PhoneLayout(440, 956)),                 patch.object(phone_youtube.time, "sleep"):
             phone_youtube.choose_share_app("TikTok")
         self.assertEqual(taps, [60])
+
+    def test_a_lowered_share_sheet_is_tapped_and_scrolled_on_the_screen_not_its_own_coordinates(self):
+        # The Files sheet reports its rows relative to its container, 263 pt down the screen.
+        local = [{"text": "AirDrop", "type": "Cell", "x": 66.0, "y": 318.0},
+                 {"text": "Edits", "type": "Cell", "x": 358.0, "y": 318.0},
+                 {"text": "TikTok", "type": "Cell", "x": 454.0, "y": 318.0},
+                 {"text": "Copy", "type": "Cell", "x": 66.0, "y": 456.0}]
+        raw = [{"text": "Files", "type": "Application", "x": 220.0, "y": 478.0,
+                "rect": {"x": 0, "y": 0, "width": 440, "height": 956}},
+               {"text": "ShareSheet.RemoteContainerView", "type": "Other", "x": 220.0, "y": 656.5,
+                "rect": {"x": 9, "y": 263, "width": 422, "height": 787}},
+               {"text": "UIActivityContentView", "type": "NavigationBar", "x": 211.0, "y": 54.0},
+               {"text": "shareSheet.activity.contentView", "type": "Other", "x": 211.0, "y": 264.0}, *local]
+        self.assertEqual(share_sheet_offset(raw), (9.0, 263.0))
+        self.assertEqual(share_sheet_offset(raw[:2] + [{**r, "y": r["y"] + 263} for r in raw[2:]]), (0.0, 0.0))
+        self.assertEqual(share_sheet_offset(raw[2:]), (0.0, 0.0))
+        phone = MagicMock()
+        phone.ocr.return_value = raw
+        phone.compact.side_effect = lambda rows: [r for r in rows if r.get("type") != "Application"]
+        with patch.object(phone_youtube, "phone", phone),                 patch.object(phone_youtube, "layout", lambda **k: PhoneLayout(440, 956)),                 patch.object(phone_youtube.time, "sleep"):
+            phone_youtube.choose_share_app("Edits")
+            phone.tap.assert_called_once_with(367.0, 581.0)
+            phone.ocr.return_value = [r for r in raw if r.get("text") != "Edits"]
+            with self.assertRaises(phone_youtube.PhoneUploadError):
+                phone_youtube.choose_share_app("YouTube")
+        for call in phone.swipe.call_args_list:
+            self.assertEqual(call.args[1], 581.0)
 
     def test_a_still_share_destination_is_still_confirmed_by_bundle(self):
         phone = MagicMock()
@@ -301,12 +328,20 @@ class DescriptionReadBack(unittest.TestCase):
             {"type": "XCUIElementTypeTextView", "name": "", "label": "", "value": v, "isVisible": "1",
              "rect": {"x": 10, "y": 100, "width": 400, "height": 80}} for v in values]}
 
-    def test_an_empty_read_is_read_again(self):
+    def test_a_field_the_tree_leaves_out_is_read_by_exact_lookup(self):
+        # 2026-10-07: four tree reads over 7 s listed no field while it showed the exact text.
         phone = MagicMock()
-        phone.ui_tree.side_effect = [self.tree(), self.tree("one line")]
+        phone.ui_tree.return_value = self.tree()
+        phone.first_value.return_value = "one line"
         with patch.object(phone_youtube, "phone", phone), patch.object(phone_youtube.time, "sleep"):
             phone_youtube.type_description("one line")
-        self.assertEqual(phone.ui_tree.call_count, 2)
+        phone.first_value.assert_called_once_with("**/XCUIElementTypeTextView")
+        phone.first_value.return_value = "one lin"
+        with patch.object(phone_youtube, "phone", phone), patch.object(phone_youtube.time, "sleep"),                 self.assertRaisesRegex(phone_youtube.PhoneUploadError, "does not match"):
+            phone_youtube.type_description("one line")
+        phone.first_value.return_value = None
+        with patch.object(phone_youtube, "phone", phone), patch.object(phone_youtube.time, "sleep"),                 self.assertRaisesRegex(phone_youtube.PhoneUploadError, "does not match"):
+            phone_youtube.type_description("one line")
 
     def test_a_field_with_other_text_still_stops_at_once(self):
         phone = MagicMock()

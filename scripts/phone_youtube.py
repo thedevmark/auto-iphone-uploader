@@ -23,13 +23,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from video_drop import phone_lock  # noqa: E402
 from video_drop.phone import capture as phone_capture  # noqa: E402
 from video_drop.phone_ui import (PhoneLayout, filled_radio, first_frame_point, share_app_position, share_rail_labels, share_rail_y,
+                                 share_sheet_offset,
                                   size_shown, youtube_identity, youtube_page_account)
 from video_drop.screens.labels import Labels
 from video_drop.screens.matcher import MatchError, find
 from video_drop.screens.model import Locator
 from video_drop.screens.snapshot import Element, Snapshot, elements_from_tree
 from video_drop import ocr
-from video_drop.youtube_nav import open_tabs
+from video_drop.youtube_nav import TRIM_X_POINT, open_tabs
 from video_drop.phone_focus import FocusError, optional_focus, run_guards, upright
 from video_drop.core import Store
 from video_drop.phone_manifest import verify_youtube_manifest, youtube_input
@@ -310,6 +311,12 @@ def _share_missing(rows: list[dict], name: str) -> bool:
     return not any(row.get("type") == "Cell" and row.get("text", "").casefold() == name.casefold() for row in rows)
 
 
+def share_read() -> tuple[list[dict], tuple[float, float]]:
+    """The share sheet's rows in its own coordinates, and the offset that puts them on the screen."""
+    raw = phone.ocr()
+    return phone.compact(raw), share_sheet_offset(raw)
+
+
 def choose_share_app(name: str, *, expected_bundle: str | None = None) -> None:
     bundle = expected_bundle or SHARE_BUNDLES.get(name)
     # An app iOS does not list is searched for in one direction until the rail stops moving,
@@ -317,7 +324,7 @@ def choose_share_app(name: str, *, expected_bundle: str | None = None) -> None:
     # left edge, and always scrolling toward the right end never finds it.
     sweep, last_rail = "left", None
     for _ in range(14):
-        rows = screen()
+        rows, (dx, dy) = share_read()
         if not any(row["text"] == "shareSheet.activity.contentView" for row in rows):
             raise PhoneUploadError("iOS share sheet disappeared before app selection")
         direction, target = share_app_position(rows, name, layout())
@@ -328,26 +335,29 @@ def choose_share_app(name: str, *, expected_bundle: str | None = None) -> None:
             last_rail, direction = rail, sweep
         # Scroll on the requested app's own row when iOS exposes it; the
         # measured 440 x 956 row is only a fallback while it is off-screen.
-        rail_y = share_rail_y(rows, name, layout(), layout().reference_point(0, 392)[1])
+        # Below the app rail sits the actions row (Copy, Save Video), so the top row wins.
+        rail = [row["y"] for row in rows if row.get("type") == "Cell"
+                and 0.3 * layout().height <= row.get("y", -1) <= 0.55 * layout().height]
+        rail_y = share_rail_y(rows, name, layout(), min(rail) if rail else layout().reference_point(0, 392)[1])
         if direction == "tap":
             # The share rail keeps scrolling after WDA's swipe returns. Require
             # a second position reading before touching a destination.
             time.sleep(0.9)
-            stable_direction, stable = share_app_position(screen(), name, layout())
+            stable_direction, stable = share_app_position(share_read()[0], name, layout())
             if stable_direction != "tap" or stable is None or abs(stable["x"] - target["x"]) > 5:
                 continue
             # Armed before the tap: the destination may open straight onto a playing clip, and
             # the very next read (activeAppInfo or a tree) must not be the one that stalls USB.
             if bundle:
                 phone.note_front_app(bundle)
-            phone.tap(stable["x"], stable["y"])
+            phone.tap(stable["x"] + dx, stable["y"] + dy)
             if expected_bundle:
                 share_landed(name, expected_bundle)
             return
         if direction == "right":
-            phone.swipe(layout().width * 0.27, rail_y, layout().width * 0.52, rail_y, 0.5)
+            phone.swipe(layout().width * 0.27, rail_y + dy, layout().width * 0.52, rail_y + dy, 0.5)
         else:
-            phone.swipe(layout().width * 0.88, rail_y, layout().width * 0.18, rail_y, 0.45)
+            phone.swipe(layout().width * 0.88, rail_y + dy, layout().width * 0.18, rail_y + dy, 0.45)
         time.sleep(1.2)
     raise PhoneUploadError(f"{name} was not safely visible in the iOS share sheet")
 
@@ -429,14 +439,13 @@ def type_description(description: str) -> None:
             time.sleep(0.6)
         phone.type_text(line)
         time.sleep(1.0)
-    # The read right after typing can list no text view at all while the field shows the exact
-    # approved text. An empty read is read again; a field
-    # that shows other text still stops at once.
-    for attempt in range(4):
-        values = [e.value for e in elements_from_tree(phone.ui_tree()) if e.type == "TextView"]
-        if description in values or values or attempt == 3:
-            break
-        time.sleep(2.2)  # past the 2 s tree cache, so the next read is a fresh one
+    # After typing, the full tree can leave the text view out while the field shows the exact
+    # approved text; the field's own value is then read by an exact lookup. A field that shows
+    # other text still stops at once.
+    values = [e.value for e in elements_from_tree(phone.ui_tree()) if e.type == "TextView"]
+    if not values:
+        exact = phone.first_value("**/XCUIElementTypeTextView")
+        values = [] if exact is None else [exact]
     if description not in values:
         raise PhoneUploadError(f"YouTube description does not match the approved text: {values!r}")
 
@@ -444,8 +453,13 @@ def type_description(description: str) -> None:
 def leave_text_editor(expected: str) -> None:
     # First tap may only dismiss the iOS keyboard; second leaves the editor.
     for _ in range(2):
-        back = live_element("Back", "Button")
-        phone.tap(back.x, back.y)
+        try:
+            back = live_element("Back", "Button")
+            phone.tap(back.x, back.y)
+        except PhoneUploadError:
+            # After typing, the tree can leave out the editor's Back (2026-10-07) as it does the
+            # field; the chevron sits at its measured place, and the next screen proves the tap.
+            phone.tap(*layout().reference_point(*TRIM_X_POINT))
         if matches(expected):
             return
     assert_visible(expected)

@@ -31,3 +31,11 @@ def phone_link_ready(monkeypatch):
 
     monkeypatch.setattr(server, "wait_for_link",
                         lambda on_wait=None, timeout=0.0: {"state": "ready", "message": "Phone link ready"})
+
+
+@pytest.fixture(autouse=True)
+def timings_off_the_real_state(monkeypatch, tmp_path):
+    """Flow tests mark steps; those marks belong in a temp file, never in .state/run-timings.jsonl."""
+    from scripts import phone_youtube
+
+    monkeypatch.setattr(phone_youtube, "TIMINGS", tmp_path / "run-timings.jsonl")

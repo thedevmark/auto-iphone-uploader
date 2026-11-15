@@ -379,6 +379,18 @@ class FilesFlowTests(unittest.TestCase):
         self.assertEqual((phone.state, phone.taps()[0]), ("sheet", "Cancel"))
         self.assertNotIn("Turn On", phone.taps())
 
+    def test_a_restored_full_screen_preview_is_swiped_closed_and_never_tapped(self):
+        # Files reopens on a video preview it was left on, controls hidden: nothing to tap.
+        preview = [Item("Other", "", (0, 0, 440, 956), "stretch", "stretch", name="QLPreviewControllerView"),
+                   Item("Other", "Video", (0, 86, 440, 783), "stretch", name="Video")]
+        phone = FakeFiles(dropbox_screens(file_row("example-video", 176), preview=preview),
+                          {**HAPPY, ("preview", "SWIPE"): "restored"}, start="preview")
+        app(phone).open_file(target(), MB)
+        self.assertEqual(phone.state, "sheet")
+        kinds = [kind for kind, _ in phone.log if kind in ("tap", "hold", "swipe")]
+        self.assertEqual(kinds[0], "swipe")
+        self.assertNotIn("Video", phone.taps())
+
     def test_loading_then_content_unavailable_is_retried_within_a_bound(self):
         screens = dropbox_screens(file_row("example-video", 176), loading=loading("Browse", "Dropbox"),
                                   broken=unavailable("Browse", "Dropbox"))

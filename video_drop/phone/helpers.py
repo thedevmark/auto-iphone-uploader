@@ -268,6 +268,16 @@ def elements_by_ids(identifiers) -> list[dict]:
     return [found for identifier in identifiers for found in client().elements_by_id(identifier)]
 
 
+def first_value(class_chain: str) -> str | None:
+    """The typed value of the first element an iOS class chain matches, or None when none does.
+
+    A bounded lookup for a field the full tree leaves out (YouTube's description editor
+    drops its TextView from /source after typing while the field shows the text)."""
+    c = client()
+    found = c.find_first(class_chain)
+    return None if found is None else c.element_value(found)
+
+
 def ui_tree() -> dict:
     """Raw UI element tree (nested dicts). The precise view of the screen.
 

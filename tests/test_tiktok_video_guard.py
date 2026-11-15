@@ -52,10 +52,11 @@ class FakePhone:
 
 
 class WaitForPostScreenTests(unittest.TestCase):
-    def run_wait(self, phone, reads, timeout=30):
+    def run_wait(self, phone, reads, timeout=30, words=lambda: True):
         clock = Clock()
         live = mock.Mock(side_effect=reads)
         with mock.patch.object(tiktok, "phone", phone), mock.patch.object(tiktok, "live", live), \
+                mock.patch.object(tiktok, "post_screen_by_pixels", words), \
                 mock.patch.object(tiktok.time, "monotonic", clock.monotonic), \
                 mock.patch.object(tiktok.time, "sleep", clock.sleep):
             return tiktok.wait_for_post_screen(timeout), live
@@ -65,6 +66,23 @@ class WaitForPostScreenTests(unittest.TestCase):
         snapshot, live = self.run_wait(phone, [POST_SCREEN])
         self.assertIs(snapshot, POST_SCREEN)
         self.assertEqual(live.call_count, 1)  # only after the frames stopped moving
+
+    def test_still_frames_without_the_post_screen_words_are_never_read(self):
+        # 2026-10-07: the editor looked still for two frames and its tree read hung the USB link.
+        words = mock.Mock(side_effect=[False, False, True])
+        snapshot, live = self.run_wait(FakePhone([False] * 10), [POST_SCREEN], words=words)
+        self.assertIs(snapshot, POST_SCREEN)
+        self.assertEqual((words.call_count, live.call_count), (3, 1))
+
+    def test_post_screen_words_need_two_of_three(self):
+        def rows(*texts):
+            return [{"text": text} for text in texts]
+        for texts, expected in ((("Add description...", "Everyone can view this post", "Post"), True),
+                                (("a Drafts", "Add description..."), True),
+                                (("Next", "Add description..."), False),
+                                (("Your Story", "Next"), False)):
+            with self.subTest(texts=texts), mock.patch.object(share, "pixel_rows", lambda: rows(*texts)):
+                self.assertIs(tiktok.post_screen_by_pixels(), expected)
 
     def test_a_still_post_screen_is_read_at_once(self):
         snapshot, live = self.run_wait(FakePhone([False]), [POST_SCREEN])
