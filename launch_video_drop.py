@@ -6,6 +6,7 @@ import subprocess
 import sys
 import time
 import json
+import os
 import urllib.error
 import urllib.request
 import webbrowser
@@ -40,6 +41,32 @@ def assert_current_server(identity: dict) -> None:
         raise RuntimeError("Port 4748 belongs to another app checkout. Close its server before opening this one.")
     if identity.get("sourceFingerprint") != source_fingerprint(ROOT):
         raise RuntimeError("The app server is running older code. Restart that server to load this update.")
+
+
+def app_window_browsers() -> list[Path]:
+    """Edge ships with Windows; Chrome is the fallback. Either can show one page as an app window."""
+    places = [os.environ.get(name, "") for name in ("ProgramFiles(x86)", "ProgramFiles", "LOCALAPPDATA")]
+    return [Path(base) / tail for tail in (r"Microsoft\Edge\Application\msedge.exe", r"Google\Chrome\Application\chrome.exe")
+            for base in places if base]
+
+
+def open_window() -> None:
+    """Open the editor in its own window, with its own taskbar entry; a browser tab if that fails.
+
+    The window keeps a profile under .state, apart from the person's browser, so it opens
+    without their tabs or extensions and remembers its own size.
+    """
+    for browser in app_window_browsers():
+        if browser.is_file():
+            try:
+                subprocess.Popen([str(browser), f"--app={URL}", f"--user-data-dir={ROOT / '.state' / 'app-window'}",
+                                  "--no-first-run", "--no-default-browser-check"],
+                                 cwd=ROOT, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                 close_fds=True)
+                return
+            except OSError:
+                continue
+    webbrowser.open(URL)
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -86,7 +113,7 @@ def main(argv: list[str] | None = None) -> None:
 
     link_supervisor.ensure_running()
     if open_browser:
-        webbrowser.open(URL)
+        open_window()
 
 
 if __name__ == "__main__":

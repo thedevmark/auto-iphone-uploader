@@ -411,6 +411,15 @@ if ($StartupDir -eq '') { $StartupDir = [Environment]::GetFolderPath('Startup') 
 $desktopShortcut = Join-Path $DesktopDir 'Auto iPhone Uploader.lnk'
 $startupShortcut = Join-Path $StartupDir 'Auto iPhone Uploader (background).lnk'
 $launchScript = '"' + (Join-Path $projectRoot 'launch_video_drop.py') + '"'
+# The app's own exe finds its Python beside it (installer) or on PATH (checkout); when it would
+# find this same Python, the shortcuts open the exe so the app has its own name and icon.
+$appExe = Join-Path $projectRoot 'Auto iPhone Uploader.exe'
+$bundledPythonw = Join-Path $projectRoot 'python\pythonw.exe'
+$exeFindsPython = (Test-Path -LiteralPath $bundledPythonw) -or ((Get-Command pythonw -ErrorAction SilentlyContinue).Source -eq $pythonw)
+if (-not $CheckOnly -and $exeFindsPython -and -not (Test-Path -LiteralPath $appExe)) {
+    try { & (Join-Path $projectRoot 'scripts\build_launcher.ps1') | Out-Null } catch { Todo "app exe not built ($($_.Exception.Message)); the shortcut opens Python directly" }
+}
+if ($exeFindsPython -and (Test-Path -LiteralPath $appExe)) { $launcher = $appExe; $launchScript = '' }
 if ($CheckOnly) {
     if (Test-Path -LiteralPath $desktopShortcut) { Ok "Desktop shortcut: $desktopShortcut" } elseif (-not $NoDesktopShortcut) { Todo 'Desktop shortcut not created yet' }
     if (Test-Path -LiteralPath $startupShortcut) { Ok "starts at sign-in: $startupShortcut" } elseif (-not $NoStartup) { Todo 'start-at-sign-in entry not created yet' }
@@ -419,7 +428,7 @@ if ($CheckOnly) {
     if (-not $NoDesktopShortcut) { New-Shortcut $desktopShortcut $launcher $launchScript 'Open Auto iPhone Uploader' }
     if (-not $NoStartup) {
         if (-not $StartupDir -or -not (Test-Path -LiteralPath $StartupDir)) { throw 'Windows could not find your Startup folder. Pass -StartupDir <folder> or -NoStartup and run this command again.' }
-        New-Shortcut $startupShortcut $launcher "$launchScript --no-browser" 'Start Auto iPhone Uploader and its iPhone connection at sign-in'
+        New-Shortcut $startupShortcut $launcher ("$launchScript --no-browser".Trim()) 'Start Auto iPhone Uploader and its iPhone connection at sign-in'
     }
 }
 
@@ -462,7 +471,7 @@ if (-not $CheckOnly -and -not $NoLaunch) {
     Say ''
     Say 'Opening Auto iPhone Uploader. Its first-run screens take you through connecting the iPhone and the'
     Say 'one-time signing with your Apple ID (Sideloadly), the one step Apple does not let a script do.'
-    Start-Process -FilePath $launcher -ArgumentList $launchScript -WorkingDirectory $projectRoot | Out-Null
+    if ($launchScript) { Start-Process -FilePath $launcher -ArgumentList $launchScript -WorkingDirectory $projectRoot | Out-Null } else { Start-Process -FilePath $launcher -WorkingDirectory $projectRoot | Out-Null }
 }
 # A report with steps still to do is not a failure: real errors throw above. Without this the
 # script would return the exit code of its last probe (e.g. the re-sign tool check), which

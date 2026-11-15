@@ -146,7 +146,9 @@ and run it. It needs no Python and no administrator rights: it installs into
 `%LOCALAPPDATA%\Programs\Auto iPhone Uploader` with its own copy of Python,
 downloads the iPhone connector and the phone control app (each checked
 against a pinned SHA-256), adds Start menu and Desktop shortcuts and a
-start-at-sign-in entry, and offers to open the app. Then continue at step 3
+start-at-sign-in entry, and offers to open the app. The shortcuts open
+`Auto iPhone Uploader.exe`, which starts the app in its own window (Edge or
+Chrome app mode, with a profile apart from your browser). Then continue at step 3
 below. The Start menu entry **Auto iPhone Uploader setup (passcode, USB
 helper)** saves your iPhone passcode at a hidden prompt and installs the USB
 recovery helper. Uninstalling (Settings → Apps) removes the app and keeps your
@@ -205,7 +207,8 @@ iPhone's port, see [docs/usb-recovery-helper.md](docs/usb-recovery-helper.md)),
 local AI captions with Ollama, and advice on USB ports and charging.
 
 Prefer not to run the script? `python -m pip install -r requirements.txt`,
-then `python launch_video_drop.py`; fetch go-ios and the WebDriverAgent runner
+then `python launch_video_drop.py` (or build the exe with
+`scriptsuild_launcher.ps1`, which uses the C# compiler built into Windows); fetch go-ios and the WebDriverAgent runner
 yourself and set `GO_IOS_PATH` and `WDA_IPA` in `.env` (`.env.example` lists
 every key).
 

@@ -192,6 +192,8 @@ try {
 foreach ($pycache in Get-ChildItem -LiteralPath $stage -Recurse -Directory -Filter '__pycache__' -Force) {
     Remove-Item -LiteralPath $pycache.FullName -Recurse -Force -ErrorAction SilentlyContinue
 }
+& (Join-Path $root 'scripts\build_launcher.ps1') -OutDir $stage | Out-Null
+if (-not (Test-Path -LiteralPath (Join-Path $stage 'Auto iPhone Uploader.exe'))) { throw 'The launcher exe was not built into the stage.' }
 $staged = (Get-ChildItem -LiteralPath $stage -Recurse -File | Measure-Object -Property Length -Sum).Sum
 Say ("staged payload {0:N0} MB at {1}" -f ($staged / 1MB), $stage)
 if ($StageOnly) { return }

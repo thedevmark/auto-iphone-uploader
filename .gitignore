@@ -34,3 +34,6 @@ dist/
 
 # Local-only notes, tools and history from the old private repo; never published
 .private/
+
+# Built by scripts/build_launcher.ps1
+/Auto iPhone Uploader.exe
