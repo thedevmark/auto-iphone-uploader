@@ -51,7 +51,7 @@ class VideoDropTests(unittest.TestCase):
             self.store.reserve_slot(other, now, at=tomorrow_ten)
 
     def test_phone_checks_default_on_and_persist(self):
-        self.assertEqual(self.store.phone_checks(), {"preparePhone": True, "youtubeQualityEveryUpload": False,
+        self.assertEqual(self.store.phone_checks(), {"preparePhone": True, "youtubeQualityEveryUpload": False, "autoAnalyze": False,
                                                      "inspectPhoneOnOpen": True, "removeAfterPost": True,
                                                      "crosspostFacebook": True, "crosspostThreads": True,
                                                      "threadsSeparatePost": False, "postNowInOrder": True,
@@ -522,6 +522,33 @@ class VideoDropTests(unittest.TestCase):
         self.assertEqual(result["suggestions"]["instagram_caption"], "A kick #Valheim")
         self.store.save_analysis(release["id"], result)
         self.assertFalse(any(d["revision_hash"] for d in self.store.release(release["id"])["destinations"]))
+
+    def test_redo_with_notes_reuses_the_transcript_and_frames_and_calls_only_the_text_model(self):
+        previous = {"transcript": "the airport KFC", "visual_summary": "A night drive", "game": "GTA V",
+                    "on_screen_title": "Day 12", "models": {"vision": "qwen2.5vl:7b", "text": "qwen3:14b"}}
+        with patch("video_drop.analyze.probe", return_value={"duration_seconds": 12, "width": 1080,
+                                                         "height": 1920, "fps": "60/1", "has_audio": True}),              patch("video_drop.analyze.transcribe") as transcribe, patch("video_drop.analyze.frame") as frame,              patch("video_drop.analyze.generate", return_value={"youtube_title": "Airport KFC"}) as model:
+            result = analyze(self.video, text_model="gemma4:latest", notes="Day 12 of the series",
+                             previous=previous)
+        transcribe.assert_not_called()
+        frame.assert_not_called()
+        self.assertEqual([call.args[0] for call in model.call_args_list], ["gemma4:latest"])
+        self.assertIn('"creator_notes": "Day 12 of the series"', model.call_args_list[0].args[1])
+        self.assertEqual((result["evidence"]["notes"], result["evidence"]["models"]["text"]),
+                         ("Day 12 of the series", "gemma4:latest"))
+        # Another vision model reads the frames again.
+        with patch("video_drop.analyze.probe", return_value={"duration_seconds": 12, "width": 1080,
+                                                         "height": 1920, "fps": "60/1", "has_audio": True}),              patch("video_drop.analyze.frame", return_value=b"jpeg") as frame,              patch("video_drop.analyze.generate", side_effect=[{"summary": "x"}, {}]) as model:
+            analyze(self.video, vision_model="gemma4:latest", previous=previous)
+        self.assertEqual(model.call_args_list[0].args[0], "gemma4:latest")
+
+    def test_local_model_choice_persists_and_rejects_odd_names(self):
+        self.assertEqual(self.store.local_models(), {"vision": "qwen2.5vl:7b", "text": "qwen3:14b"})
+        self.store.set_local_models({"text": "gemma4:latest"})
+        self.assertEqual(self.store.local_models()["text"], "gemma4:latest")
+        for bad in ({}, {"audio": "x"}, {"text": ""}, {"text": "a b"}, {"text": 3}):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                self.store.set_local_models(bad)
 
     def test_vision_pass_unloads_before_stronger_text_model(self):
         response = io.BytesIO(json.dumps({"response": "{}"}).encode())

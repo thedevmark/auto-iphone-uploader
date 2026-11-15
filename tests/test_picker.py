@@ -50,10 +50,13 @@ class PickerRouteTests(unittest.TestCase):
 
     def test_model_recovery_waits_for_both_local_models_and_retries_partial_draft(self):
         models = {"models": [{"name": server.VISION_MODEL}, {"name": server.TEXT_MODEL}]}
-        with patch.object(server, "urlopen", return_value=io.BytesIO(json.dumps(models).encode())):
+        chosen = {"vision": server.VISION_MODEL, "text": server.TEXT_MODEL}
+        with patch.object(server, "urlopen", return_value=io.BytesIO(json.dumps(models).encode())), \
+             patch.object(server, "chosen_models", return_value=chosen):
             self.assertTrue(server.local_models_ready())
         models["models"].pop()
-        with patch.object(server, "urlopen", return_value=io.BytesIO(json.dumps(models).encode())):
+        with patch.object(server, "urlopen", return_value=io.BytesIO(json.dumps(models).encode())), \
+             patch.object(server, "chosen_models", return_value=chosen):
             self.assertFalse(server.local_models_ready())
 
         with tempfile.TemporaryDirectory() as directory:
@@ -88,12 +91,27 @@ class PickerRouteTests(unittest.TestCase):
             def wait(self, _):
                 self.checks += 1
 
-        with patch.object(server, "local_models_ready", side_effect=[False, True, True]), \
+        with patch.object(server, "auto_analysis_on", return_value=True), \
+             patch.object(server, "local_models_ready", side_effect=[False, True, True]), \
              patch.object(server, "retry_waiting_draft") as retry:
             server.model_recovery_loop(ThreeChecks())
             self.assertEqual(retry.call_count, 2)
             retry.assert_any_call(force=True)
             retry.assert_any_call(force=False)
+        # Auto-run off (the default): the loop never starts a run, and never asks Ollama either.
+        with patch.object(server, "auto_analysis_on", return_value=False), \
+             patch.object(server, "local_models_ready") as ready, \
+             patch.object(server, "retry_waiting_draft") as retry:
+            server.model_recovery_loop(ThreeChecks())
+            ready.assert_not_called()
+            retry.assert_not_called()
+
+    def test_a_new_video_is_analyzed_only_when_auto_run_is_on(self):
+        for on in (False, True):
+            with self.subTest(on=on), patch.object(server, "auto_analysis_on", return_value=on), \
+                    patch.object(server, "queue_analysis") as queue:
+                server.auto_analysis(7)
+                self.assertEqual(queue.call_count, int(on))
 
     def test_video_streams_exact_original_with_seek_ranges_and_rejects_changed_source(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -101,39 +101,52 @@ def bounded_text(value: object, limit: int) -> str:
     return value.strip()[:limit] if isinstance(value, str) else ""
 
 
-def analyze(path: Path) -> dict:
+def analyze(path: Path, *, vision_model: str = VISION_MODEL, text_model: str = TEXT_MODEL,
+            notes: str = "", previous: dict | None = None) -> dict:
+    """Read the clip on this PC and suggest text for the owner to review.
+
+    ``previous`` is the evidence of an earlier run on the same file: its transcript, and its
+    frame reading when the same vision model made it, are reused, so a redo with new notes or
+    another text model costs one text-model call. ``notes`` is the owner's own context.
+    """
+    previous = previous if isinstance(previous, dict) else {}
+    notes = bounded_text(notes, 1000)
     metadata = probe(path)
     warnings: list[str] = []
     seconds = metadata["duration_seconds"]
-    images = []
-    for fraction in (0.08, 0.45, 0.82):
-        try:
-            images.append(frame(path, seconds * fraction if seconds else 0))
-        except (OSError, ValueError, subprocess.SubprocessError) as exc:
-            warnings.append(f"frame extraction: {exc}")
-            break
-    transcript = ""
-    if metadata["has_audio"]:
+    transcript = previous.get("transcript") if isinstance(previous.get("transcript"), str) else ""
+    if not transcript and metadata["has_audio"]:
         try:
             transcript = transcribe(path)
         except (ImportError, OSError, ValueError, subprocess.SubprocessError) as exc:
             warnings.append(f"transcription: {exc}")
     visual = {}
-    if images:
-        try:
-            visual = generate(VISION_MODEL,
-                "Describe only what the supplied video frames visibly show. Read the exact large, persistent "
-                "on-screen series title if present, separately from dialogue subtitles. Identify the game from "
-                "gameplay imagery only; a game mentioned in text does not establish which game is shown. "
-                "If a specific version is uncertain, use the franchise or an empty string. Do not infer events "
-                "between frames. Return JSON with keys summary, game, on_screen_title.", images, 180)
-        except (OSError, ValueError, KeyError, URLError) as exc:
-            warnings.append(f"local vision model: {exc}")
+    if previous.get("visual_summary") and (previous.get("models") or {}).get("vision") == vision_model:
+        visual = {"summary": previous["visual_summary"], "game": previous.get("game", ""),
+                  "on_screen_title": previous.get("on_screen_title", "")}
+    else:
+        images = []
+        for fraction in (0.08, 0.45, 0.82):
+            try:
+                images.append(frame(path, seconds * fraction if seconds else 0))
+            except (OSError, ValueError, subprocess.SubprocessError) as exc:
+                warnings.append(f"frame extraction: {exc}")
+                break
+        if images:
+            try:
+                visual = generate(vision_model,
+                    "Describe only what the supplied video frames visibly show. Read the exact large, persistent "
+                    "on-screen series title if present, separately from dialogue subtitles. Identify the game from "
+                    "gameplay imagery only; a game mentioned in text does not establish which game is shown. "
+                    "If a specific version is uncertain, use the franchise or an empty string. Do not infer events "
+                    "between frames. Return JSON with keys summary, game, on_screen_title.", images, 180)
+            except (OSError, ValueError, KeyError, URLError) as exc:
+                warnings.append(f"local vision model: {exc}")
     evidence = {"metadata": metadata, "transcript": transcript,
                 "visual_summary": bounded_text(visual.get("summary"), 2000),
                 "on_screen_title": bounded_text(visual.get("on_screen_title"), 500),
                 "game": bounded_text(visual.get("game"), 100), "warnings": warnings,
-                "models": {"vision": VISION_MODEL, "text": TEXT_MODEL}}
+                "models": {"vision": vision_model, "text": text_model}, "notes": notes}
     prompt = (
         "Suggest editable release metadata for this clip using only the evidence JSON below. "
         "Do not invent a person, game, event, outcome, or quote. Do not use political, election, "
@@ -146,13 +159,14 @@ def analyze(path: Path) -> dict:
         "creator voice, without hashtags; hashtags are added separately. "
         "Return JSON keys youtube_title, youtube_description, youtube_tags (array), "
         "instagram_caption, tiktok_caption, game. "
+        "creator_notes, when present, come from the clip's creator: treat them as true and follow them. "
         "These are suggestions for human review, not publication.\nEVIDENCE:\n" +
-        json.dumps({"filename": path.name, "transcript": transcript[:12000],
+        json.dumps({"filename": path.name, "creator_notes": notes, "transcript": transcript[:12000],
                     "visual_summary": evidence["visual_summary"], "on_screen_title": evidence["on_screen_title"],
                     "game": evidence["game"]}, ensure_ascii=False)
     )
     try:
-        draft = generate(TEXT_MODEL, prompt, timeout=240)
+        draft = generate(text_model, prompt, timeout=240)
     except (OSError, ValueError, KeyError, URLError) as exc:
         warnings.append(f"local text model: {exc}")
         draft = {}

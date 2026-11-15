@@ -855,6 +855,33 @@ def wda_signature() -> dict:
             source = "cache"
         except OSError:
             return result
+    best = _latest_wda_expiry(profiles)
+    if best is not None:
+        result.update(expires=best.isoformat(), source=source, error="")
+    return result
+
+
+def saved_wda_signature() -> dict:
+    """The expiry in the app's own copy of the profile, which every re-sign rewrites.
+
+    One file read and no phone session, so the header can show a fresh re-sign at once
+    while the phone is busy; ``wda_signature()`` stays the source of truth.
+    """
+    result = {"expires": None, "source": "cache", "error": ""}
+    try:
+        from .phone import signing
+        best = _latest_wda_expiry([signing.PROFILE_PATH.read_bytes()])
+    except Exception as exc:  # no copy yet, or the driver package cannot load
+        result["error"] = str(exc)
+        return result
+    if best is not None:
+        result["expires"] = best.isoformat()
+    return result
+
+
+def _latest_wda_expiry(profiles: list[bytes]) -> datetime | None:
+    from .phone import signing
+
     best: datetime | None = None
     for data in profiles:
         try:
@@ -866,9 +893,7 @@ def wda_signature() -> dict:
         expires = _parse_expiry(info.get("expires"))
         if expires and (best is None or expires > best):
             best = expires
-    if best is not None:
-        result.update(expires=best.isoformat(), source=source, error="")
-    return result
+    return best
 
 
 def passcode_probe() -> dict:

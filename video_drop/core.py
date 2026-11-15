@@ -22,6 +22,9 @@ PHONE_CHECK_DEFAULTS = {
     # back afterwards only if the run changed it. video_drop/phone_focus.prepare_phone.
     "preparePhone": True,
     "youtubeQualityEveryUpload": False,
+    # Run the local models on each new video by themselves. Off: nothing runs until the owner
+    # clicks Run analysis, so a new export never ties up this PC's CPU and GPU unasked.
+    "autoAnalyze": False,
     "inspectPhoneOnOpen": True,
     # Once Instagram has its native receipt, move the Edits project its 4K export left behind
     # to Edits' Trash (recoverable there). Posts save nothing to Photos.
@@ -393,6 +396,26 @@ class Store:
             self.db.execute("INSERT INTO setting(key,value) VALUES('phone_checks',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
                             (json.dumps(checks),))
         return checks
+
+    def local_models(self) -> dict:
+        """The Ollama models analysis uses: {"vision": ..., "text": ...}."""
+        from .analyze import TEXT_MODEL, VISION_MODEL
+
+        row = self.db.execute("SELECT value FROM setting WHERE key='local_models'").fetchone()
+        saved = json.loads(row[0]) if row else {}
+        return {"vision": saved.get("vision") or VISION_MODEL, "text": saved.get("text") or TEXT_MODEL}
+
+    def set_local_models(self, changes: dict) -> dict:
+        if not isinstance(changes, dict) or not changes or set(changes) - {"vision", "text"}:
+            raise ValueError("Choose a vision or text model")
+        for value in changes.values():
+            if not isinstance(value, str) or not re.fullmatch(r"[\w.:/-]{1,100}", value):
+                raise ValueError("Model names look like qwen3:14b")
+        models = {**self.local_models(), **changes}
+        with self.db:
+            self.db.execute("INSERT INTO setting(key,value) VALUES('local_models',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                            (json.dumps(models),))
+        return models
 
     def setup_completed_at(self) -> str:
         row = self.db.execute("SELECT value FROM setting WHERE key='setup_completed_at'").fetchone()

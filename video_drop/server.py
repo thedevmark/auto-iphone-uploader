@@ -53,7 +53,8 @@ SIDETAP_STATUS_LOCK = threading.Lock()
 SIDETAP_STATUS_CACHE: tuple[float, dict] | None = None
 # The last WebDriverAgent signature read (setup_check.wda_signature) and when it was taken.
 SIGNING_LOCK = threading.Lock()
-SIGNING_CACHE: tuple[float, dict | None] | None = None
+# (monotonic read time, wall-clock read time, signature)
+SIGNING_CACHE: tuple[float, float, dict | None] | None = None
 SIGNING_TTL = 30 * 60
 MODEL_RECOVERY_INTERVAL = 30
 MODEL_RETRY_DELAY_SECONDS = 120
@@ -62,7 +63,7 @@ SLOT_POST_INTERVAL = 20
 # How long one phone step waits for the link supervisor to report ready before it stops.
 LINK_WAIT_SECONDS = 180.0
 PLATFORM_NAMES = {"youtube": "YouTube", "tiktok": "TikTok"}
-WATCHER = WatchFolder(STATE, lambda release_id: queue_analysis(release_id))
+WATCHER = WatchFolder(STATE, lambda release_id: auto_analysis(release_id))
 
 VIDEO_TYPES = {".mp4": "video/mp4", ".m4v": "video/mp4", ".mov": "video/quicktime", ".webm": "video/webm"}
 
@@ -144,7 +145,7 @@ def sidetap_status() -> dict:
 def remember_signature(signature: dict | None) -> dict | None:
     global SIGNING_CACHE
     with SIGNING_LOCK:
-        SIGNING_CACHE = (time.monotonic(), signature)
+        SIGNING_CACHE = (time.monotonic(), time.time(), signature)
     return signature
 
 
@@ -152,16 +153,30 @@ def signing_status(now: datetime | None = None) -> dict | None:
     """The header's phone-driver countdown: the checklist's own signature read, reused for SIGNING_TTL.
 
     The read opens a session on the phone, so while anything holds the phone the last reading stands.
+    A re-sign rewrites the app's copy of the profile; a copy newer than the last reading makes it
+    stale at once, and while the phone is busy that copy (one file read) stands in for the phone.
     """
     with SIGNING_LOCK:
         cached = SIGNING_CACHE
-    stale = cached is None or time.monotonic() - cached[0] >= SIGNING_TTL
+    resigned = saved_profile_time() > (cached[1] if cached else 0.0)
+    stale = cached is None or resigned or time.monotonic() - cached[0] >= SIGNING_TTL
     busy = (PHONE_RUNNING or PHONE_ACTION_RUNNING or phone_lock.holder(STATE) is not None
             or link_supervisor.read_busy(STATE) is not None)
-    signature = cached[1] if cached else None
+    signature = cached[2] if cached else None
     if stale and not busy:
         signature = remember_signature(setup_probes(STATE, WATCHER.status, phone_inspection).wda_signature())
+    elif stale and (cached is None or resigned):
+        signature = setup_check.saved_wda_signature()
     return setup_check.signing_status(signature, now)
+
+
+def saved_profile_time() -> float:
+    """When the last re-sign wrote the app's copy of the profile; 0 when there is none."""
+    try:
+        from .phone import signing
+        return signing.PROFILE_PATH.stat().st_mtime
+    except Exception:
+        return 0.0
 
 
 def setup_status(*, complete: bool = False) -> dict:
@@ -906,7 +921,30 @@ def choose_watch_folder() -> Path | None:
     return Path(selected) if selected else None
 
 
-def queue_analysis(release_id: int) -> None:
+def auto_analysis_on() -> bool:
+    """Settings' "Analyze new videos automatically" (off by default)."""
+    with Store(STATE / "video-drop.sqlite") as store:
+        return store.phone_checks()["autoAnalyze"]
+
+
+def chosen_models() -> dict:
+    with Store(STATE / "video-drop.sqlite") as store:
+        return store.local_models()
+
+
+def auto_analysis(release_id: int) -> None:
+    """Analyze a new video by itself only when auto-run is on."""
+    if auto_analysis_on():
+        queue_analysis(release_id)
+
+
+def queue_analysis(release_id: int, *, notes: str | None = None, text_model: str = "") -> None:
+    """Analyze one draft in the background.
+
+    A run started from the editor passes ``notes`` (the owner's context; None keeps the last
+    run's) and may pick a ``text_model`` for this run. An earlier run's transcript and frame
+    reading are reused, so a redo is one text-model call.
+    """
     with ANALYSIS_LOCK:
         if release_id in ANALYSIS_PENDING:
             return
@@ -921,11 +959,16 @@ def queue_analysis(release_id: int) -> None:
                     return
                 previous = json.loads(release["analysis_json"])
                 attempts = int(previous.get("attempts", 0)) + 1
-                store.save_analysis(release_id, {"status": "processing", "attempts": attempts})
+                models = store.local_models()
+                evidence = previous.get("evidence") if isinstance(previous.get("evidence"), dict) else {}
+                run_notes = evidence.get("notes", "") if notes is None else notes
+                store.save_analysis(release_id, {"status": "processing", "attempts": attempts, "evidence": evidence,
+                                                 "suggestions": previous.get("suggestions", {})})
                 path = Path(release["source_path"])
                 if digest(path) != release["sha256"]:
                     raise ValueError("Source video changed after import")
-            result = analyze(path)
+            result = analyze(path, vision_model=models["vision"], text_model=text_model or models["text"],
+                             notes=run_notes, previous=evidence)
             result["attempts"] = attempts
             with Store(STATE / "video-drop.sqlite") as store:
                 store.save_analysis(release_id, result)
@@ -943,14 +986,25 @@ def queue_analysis(release_id: int) -> None:
     ANALYSIS_POOL.submit(work)
 
 
-def local_models_ready() -> bool:
+def installed_models() -> list[dict] | None:
+    """Ollama's installed models, or None when Ollama is not answering."""
     try:
         with urlopen(f"{OLLAMA}/api/tags", timeout=2) as response:
             models = json.load(response).get("models", [])
-        names = {item.get("name") for item in models if isinstance(item, dict)}
-        return VISION_MODEL in names and TEXT_MODEL in names
     except (OSError, ValueError, KeyError):
+        return None
+    return [{"name": item["name"], "size": item.get("details", {}).get("parameter_size", ""),
+             "vision": "vision" in item.get("capabilities", [])}
+            for item in models if isinstance(item, dict) and isinstance(item.get("name"), str)]
+
+
+def local_models_ready() -> bool:
+    installed = installed_models()
+    if installed is None:
         return False
+    chosen = chosen_models()
+    names = {item["name"] for item in installed}
+    return chosen["vision"] in names and chosen["text"] in names
 
 
 def retry_waiting_draft(*, force: bool = False) -> bool:
@@ -978,7 +1032,7 @@ def retry_waiting_draft(*, force: bool = False) -> bool:
 def model_recovery_loop(stop: threading.Event) -> None:
     previously_ready = False
     while not stop.is_set():
-        ready = local_models_ready()
+        ready = auto_analysis_on() and local_models_ready()
         if ready:
             retry_waiting_draft(force=not previously_ready)
         previously_ready = ready
@@ -1098,6 +1152,11 @@ class Handler(BaseHTTPRequestHandler):
             with self._store() as store:
                 rows = store.db.execute("SELECT id FROM release WHERE status IN ('draft','reserved','scheduled','uploading','partial','needs_check') ORDER BY CASE WHEN status='draft' THEN 0 ELSE 1 END, scheduled_at, id").fetchall()
                 self._json(200, {"releases": with_slot_posts(store, [store.release(row[0]) for row in rows])})
+        elif path == "/api/local-models":
+            installed = installed_models()
+            with self._store() as store:
+                self._json(200, {"ollama": installed is not None, "installed": installed or [],
+                                 "chosen": store.local_models()})
         elif path == "/api/settings":
             with self._store() as store:
                 slots = store.posting_slots()
@@ -1147,7 +1206,7 @@ class Handler(BaseHTTPRequestHandler):
                 with self._store() as store:
                     release = import_finished_video(store, selected)
                 self._json(201, {"release": release})
-                queue_analysis(release["id"])
+                auto_analysis(release["id"])
             except (ValueError, OSError, json.JSONDecodeError, subprocess.TimeoutExpired) as exc:
                 self._json(400, {"error": str(exc)})
             return
@@ -1157,7 +1216,7 @@ class Handler(BaseHTTPRequestHandler):
                 with self._store() as store:
                     release = import_finished_video(store, selected)
                 self._json(201, {"release": release})
-                queue_analysis(release["id"])
+                auto_analysis(release["id"])
             except (ValueError, OSError, json.JSONDecodeError, subprocess.TimeoutExpired) as exc:
                 self._json(400, {"error": str(exc)})
             return
@@ -1170,7 +1229,7 @@ class Handler(BaseHTTPRequestHandler):
                 with self._store() as store:
                     release = import_finished_video(store, selected)
                 self._json(201, {"release": release})
-                queue_analysis(release["id"])
+                auto_analysis(release["id"])
             except (ValueError, OSError, subprocess.TimeoutExpired) as exc:
                 self._json(400, {"error": str(exc)})
             return
@@ -1182,7 +1241,8 @@ class Handler(BaseHTTPRequestHandler):
             except (ValueError, OSError, subprocess.TimeoutExpired, json.JSONDecodeError) as exc:
                 self._json(400, {"error": str(exc)})
             return
-        if path in {"/api/watch/toggle", "/api/settings/slots", "/api/settings/phone-checks", "/api/settings/time-zone"}:
+        if path in {"/api/watch/toggle", "/api/settings/slots", "/api/settings/phone-checks", "/api/settings/time-zone",
+                    "/api/settings/local-models"}:
             try:
                 data = self._body()
                 if path == "/api/watch/toggle":
@@ -1192,6 +1252,9 @@ class Handler(BaseHTTPRequestHandler):
                 elif path == "/api/settings/phone-checks":
                     with self._store() as store:
                         self._json(200, {"phoneChecks": store.set_phone_checks(data.get("phoneChecks"))})
+                elif path == "/api/settings/local-models":
+                    with self._store() as store:
+                        self._json(200, {"chosen": store.set_local_models(data.get("models"))})
                 elif path == "/api/settings/time-zone":
                     with self._store() as store:
                         self._json(200, {"timeZoneSetting": store.set_time_zone(data.get("timeZone")),
@@ -1286,7 +1349,9 @@ class Handler(BaseHTTPRequestHandler):
                     return
             self._json(200, {"release": result})
             if match and match[2] == "analyze":
-                queue_analysis(result["id"])
+                notes = data.get("notes")
+                queue_analysis(result["id"], notes=notes[:1000] if isinstance(notes, str) else None,
+                               text_model=data.get("textModel") if isinstance(data.get("textModel"), str) else "")
         except (ValueError, OSError, json.JSONDecodeError) as exc:
             self._json(400, {"error": str(exc)})
 
@@ -1307,7 +1372,8 @@ def main() -> None:
     with Store(STATE / "video-drop.sqlite") as store:
         for draft in store.drafts():
             status = json.loads(draft["analysis_json"]).get("status", "pending")
-            if status in {"pending", "processing"}:
+            # A run cut off by a restart finishes; an untouched draft waits for auto-run or a click.
+            if status == "processing" or status == "pending" and store.phone_checks()["autoAnalyze"]:
                 queue_analysis(draft["id"])
     recovery_thread = threading.Thread(target=model_recovery_loop, args=(recovery_stop,),
                                        name="video-drop-model-recovery", daemon=True)

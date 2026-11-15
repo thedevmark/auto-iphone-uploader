@@ -1,6 +1,7 @@
 import json
 import re
 import tempfile
+import time
 import threading
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -603,7 +604,11 @@ class SigningRouteTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.state = Path(self.temp.name)
         self.reads = 0
+        self.saved_at = 0.0  # no re-sign has written the app's copy of the profile
+        self.saved = {"expires": None, "source": "cache", "error": "no copy"}
         self.patches = [patch.object(server, "STATE", self.state), patch.object(server, "SIGNING_CACHE", None),
+                        patch.object(server, "saved_profile_time", lambda: self.saved_at),
+                        patch.object(server.setup_check, "saved_wda_signature", lambda: self.saved),
                         patch.object(server, "WATCHER", server.WatchFolder(self.state, lambda release_id: None)),
                         patch.object(server, "setup_probes", lambda state, watch, inspection: probes(
                             wda_signature=self.read))]
@@ -630,6 +635,23 @@ class SigningRouteTests(unittest.TestCase):
         self.assertIsNone(server.signing_status(NOW))
         self.assertEqual(self.reads, 0)
 
+    def test_a_resign_makes_the_next_poll_read_the_phone_again(self):
+        server.signing_status(NOW)
+        read_at = server.SIGNING_CACHE
+        server.SIGNING_CACHE = (read_at[0], read_at[1] - 60, read_at[2])  # that reading is a minute old
+        self.saved_at = time.time() - 1  # and phone_resign.py rewrote the profile copy since
+        server.signing_status(NOW)
+        self.assertEqual(self.reads, 2)
+        server.signing_status(NOW)
+        self.assertEqual(self.reads, 2)  # and then the reading stands again
+
+    def test_a_busy_phone_shows_the_fresh_resign_from_the_saved_copy(self):
+        (self.state / "phone.lock").write_text("operator session", encoding="utf-8")
+        self.saved_at = time.time()
+        self.saved = {"expires": SIGNED_UNTIL, "source": "cache", "error": ""}
+        self.assertEqual(server.signing_status(NOW)["daysLeft"], 6)
+        self.assertEqual(self.reads, 0)
+
     def test_the_setup_checklist_refreshes_the_headers_reading(self):
         server.setup_status()
         self.assertEqual(self.reads, 1)
@@ -639,8 +661,11 @@ class SigningRouteTests(unittest.TestCase):
     def test_page_shows_the_countdown_in_the_header(self):
         page = (server.ROOT / "web" / "index.html").read_text(encoding="utf-8")
         header = page[page.index('<header class="masthead">'):page.index("</header>")]
-        for needle in ('id="signing"', "Phone driver", 'id="signingSummary"', 'id="signingSetup"'):
+        # One Phone chip: the driver's state shows in its summary, the details in its panel.
+        for needle in ('id="sidetapHealth"', 'id="signing"', 'id="signingSetup"'):
             self.assertIn(needle, header)
+        self.assertNotIn('id="signingSummary"', header)
+        self.assertIn("driver expired", page)
         for needle in ("/api/signing", "s.longLived", "Taps will not work until it is renewed."):
             self.assertIn(needle, page)
 
