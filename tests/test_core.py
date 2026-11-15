@@ -138,11 +138,67 @@ class VideoDropTests(unittest.TestCase):
         with Store(self.root / "state.sqlite") as reopened:
             self.assertEqual(reopened.release(release_id)["delivery_mode"], "post_now")
         self.assertEqual(self.store.set_delivery_mode(release_id, "schedule")["delivery_mode"], "schedule")
+        held = self.store.reserve_slot(release_id)["scheduled_at"]
+        # A held time no app has seen is freed by choosing Post now.
+        freed = self.store.set_delivery_mode(release_id, "post_now")
+        self.assertEqual((freed["delivery_mode"], freed["status"], freed["scheduled_at"]), ("post_now", "draft", None))
+        events = [row[0] for row in self.store.db.execute(
+            "SELECT kind FROM event WHERE release_id=? ORDER BY id", (release_id,))]
+        self.assertEqual(events[-2:], ["slot_released", "delivery_mode_changed"])
+        self.assertIsNotNone(held)
+        self.store.set_delivery_mode(release_id, "schedule")
         self.store.reserve_slot(release_id)
+        revision = self.store.release(release_id)["destinations"][0]["revision_hash"]
+        self.store.mark_unconfirmed(release_id, "youtube", expected_revision=revision)
         with self.assertRaisesRegex(ValueError, "cannot change"):
             self.store.set_delivery_mode(release_id, "post_now")
         with self.assertRaisesRegex(ValueError, "Choose Schedule"):
             self.store.set_delivery_mode(release_id, "later")
+
+    def test_archive_takes_any_finished_or_stuck_video_out_of_the_queue(self):
+        held = self.store.import_file(self.video)["id"]
+        self.store.save_text(held, "youtube", "@examplechannel", "Title", "Description", "tag")
+        self.store.authorize(held, "youtube")
+        self.store.reserve_slot(held)
+        # Never started: it gives its time back, like discard.
+        self.assertEqual(self.store.archive(held)["scheduled_at"], None)
+        (self.root / "sent.mp4").write_bytes(b"sent video")
+        sent = self.store.import_file(self.root / "sent.mp4")["id"]
+        self.store.save_text(sent, "youtube", "@examplechannel", "Title", "Description", "tag")
+        self.store.authorize(sent, "youtube")
+        at = self.store.reserve_slot(sent)["scheduled_at"]
+        revision = self.store.release(sent)["destinations"][0]["revision_hash"]
+        self.store.mark_unconfirmed(sent, "youtube", expected_revision=revision)
+        with self.assertRaisesRegex(ValueError, "Cannot discard"):
+            self.store.discard(sent)
+        # Already went out: it keeps its time as the record of when.
+        archived = self.store.archive(sent)
+        self.assertEqual((archived["status"], archived["scheduled_at"]), ("archived", at))
+        self.assertEqual(self.store.archive(sent)["status"], "archived")  # a second click changes nothing
+        events = [row[0] for row in self.store.db.execute(
+            "SELECT kind FROM event WHERE release_id=? AND kind='archived'", (sent,))]
+        self.assertEqual(events, ["archived"])
+        self.assertEqual(self.store.slot_post_releases(), [])
+        self.store.db.execute("UPDATE release SET status='uploading' WHERE id=?", (held,))
+        with self.assertRaisesRegex(ValueError, "Wait for the phone"):
+            self.store.archive(held)
+
+    def test_choosing_a_discarded_video_again_brings_its_draft_back(self):
+        release_id = self.store.import_file(self.video)["id"]
+        self.store.save_text(release_id, "youtube", "@examplechannel", "Kept title", "Description", "tag")
+        self.store.discard(release_id)
+        with self.assertRaisesRegex(ValueError, "already in"):
+            self.store.import_file(self.video)  # the folder watcher never restores
+        restored = self.store.import_file(self.video, restore=True)
+        self.assertEqual((restored["id"], restored["status"]), (release_id, "draft"))
+        self.assertEqual(restored["destinations"][0]["title"], "Kept title")
+        self.store.authorize(release_id, "youtube")
+        self.store.reserve_slot(release_id)
+        self.store.mark_unconfirmed(release_id, "youtube",
+                                    expected_revision=self.store.release(release_id)["destinations"][0]["revision_hash"])
+        self.store.archive(release_id)
+        with self.assertRaisesRegex(ValueError, "already in"):
+            self.store.import_file(self.video, restore=True)  # one that went out stays out
 
     def test_post_now_attempt_does_not_reserve_a_time(self):
         release_id = self.store.import_file(self.video)["id"]

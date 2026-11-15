@@ -264,7 +264,13 @@ class Store:
             (release_id, platform, kind, json.dumps(payload, sort_keys=True), utc_now().isoformat()),
         )
 
-    def import_file(self, source: Path) -> dict:
+    def import_file(self, source: Path, *, restore: bool = False) -> dict:
+        """Add a finished video as a new draft.
+
+        ``restore`` is for a person choosing the file again: a video they discarded or
+        removed before any app saw it comes back as the draft it was, text included.
+        The folder watcher never restores, so a discarded file stays discarded.
+        """
         source = source.expanduser().resolve(strict=True)
         if not source.is_file() or source.suffix.lower() not in {".mp4", ".mov", ".webm", ".m4v"}:
             raise ValueError("Select one finished video file")
@@ -278,7 +284,14 @@ class Store:
             raise ValueError("Video changed during import; wait for the export to finish")
         now = utc_now().isoformat()
         with self.db:
-            if self.db.execute("SELECT 1 FROM release WHERE sha256=?", (sha,)).fetchone():
+            known = self.db.execute("SELECT id,status FROM release WHERE sha256=?", (sha,)).fetchone()
+            if known and restore and known[1] in {"discarded", "archived"} and not self.db.execute(
+                    "SELECT 1 FROM destination WHERE release_id=? AND status!='pending'", (known[0],)).fetchone():
+                self.db.execute("UPDATE release SET status='draft',scheduled_at=NULL,source_path=?,source_name=?,updated_at=? WHERE id=?",
+                                (str(source), source.name, now, known[0]))
+                self._event(known[0], None, "restored", {"from": known[1], "source": str(source)})
+                return self.release(known[0])
+            if known:
                 raise ValueError("This exact video is already in Auto iPhone Uploader")
             cursor = self.db.execute(
                 "INSERT INTO release(source_path,source_name,sha256,file_size,analysis_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?)",
@@ -398,14 +411,18 @@ class Store:
         self.db.execute("BEGIN IMMEDIATE")
         try:
             release = self.release(release_id)
-            if release["status"] != "draft" or release["scheduled_at"] or any(
+            # A held time that no app has seen yet is only a local note: changing the choice frees it.
+            held = release["status"] == "reserved" and release["scheduled_at"]
+            if release["status"] not in {"draft", "reserved"} or (release["scheduled_at"] and not held) or any(
                     destination["status"] != "pending" for destination in release["destinations"]):
                 raise ValueError("Delivery choice cannot change after phone work starts")
             if release["delivery_mode"] == mode:
                 self.db.commit()
                 return release
-            self.db.execute("UPDATE release SET delivery_mode=?,updated_at=? WHERE id=?",
+            self.db.execute("UPDATE release SET delivery_mode=?,status='draft',scheduled_at=NULL,updated_at=? WHERE id=?",
                             (mode, utc_now().isoformat(), release_id))
+            if held:
+                self._event(release_id, None, "slot_released", {"slot": release["scheduled_at"]})
             self._event(release_id, None, "delivery_mode_changed", {"mode": mode})
             self.db.commit()
         except Exception:
@@ -965,6 +982,25 @@ class Store:
             if now >= slot + RECEIPT_WINDOW or any(d["status"] == "pending" for d in included):
                 break
         return {"count": count, "goal": STREAK_GOAL}
+
+    def archive(self, release_id: int) -> dict:
+        """Take a video out of the queue for good, keeping its record and events.
+
+        Unlike discard, this works on a video that already went out (sent, partly
+        sent, or waiting for a check): nothing runs for it again and it no longer
+        asks for receipts. A video never started also gives back its held time.
+        """
+        release = self.release(release_id)
+        if release["status"] == "archived":
+            return release
+        if release["status"] == "uploading":
+            raise ValueError("Wait for the phone to finish this video before removing it")
+        started = any(d["status"] != "pending" for d in release["destinations"])
+        with self.db:
+            self.db.execute("UPDATE release SET status='archived',scheduled_at=CASE WHEN ? THEN scheduled_at END,updated_at=? WHERE id=?",
+                            (started, utc_now().isoformat(), release_id))
+            self._event(release_id, None, "archived", {"from": release["status"]})
+        return self.release(release_id)
 
     def discard(self, release_id: int) -> dict:
         release = self.release(release_id)

@@ -98,7 +98,7 @@ def byte_range(header: str | None, size: int) -> tuple[int, int] | None:
 def import_finished_video(store: Store, path: Path) -> dict:
     if not eligible(path) or not complete_video(path):
         raise ValueError("Video is still exporting or cannot be fully decoded; wait for the finished file")
-    return store.import_file(path)
+    return store.import_file(path, restore=True)
 
 
 def phone_inspection() -> dict:
@@ -1246,7 +1246,7 @@ class Handler(BaseHTTPRequestHandler):
             except (ValueError, RuntimeError, OSError, json.JSONDecodeError) as exc:
                 self._json(400, {"error": str(exc)})
             return
-        match = re.fullmatch(r"/api/releases/(\d+)/(text|shared-title|shared-copy|authorize|delivery-mode|unconfirmed|receipt|manual-receipt|discard|analyze)", path)
+        match = re.fullmatch(r"/api/releases/(\d+)/(text|shared-title|shared-copy|authorize|delivery-mode|unconfirmed|receipt|manual-receipt|discard|archive|analyze)", path)
         try:
             data = self._body()
             with self._store() as store:
@@ -1269,6 +1269,11 @@ class Handler(BaseHTTPRequestHandler):
                         raise ValueError("Provider receipt verification is not connected yet")
                     elif action == "manual-receipt":
                         result = store.record_manual_receipt(release_id, platform, str(data.get("choice", "")))
+                    elif action == "archive":
+                        running = phone_action_status()
+                        if running.get("status") == "running" and running.get("releaseId") == release_id:
+                            raise ValueError("Wait for the phone to finish this video before removing it")
+                        result = store.archive(release_id)
                     elif action == "analyze":
                         if store.release(release_id)["status"] != "draft":
                             raise ValueError("Only a draft can be analyzed")

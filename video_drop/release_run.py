@@ -51,6 +51,8 @@ def mode_refusal(release: dict, mode: str) -> str | None:
         return "Choose Post now or Schedule"
     if release["status"] == "discarded":
         return "This video was discarded"
+    if release["status"] == "archived":
+        return "This video was removed from the queue"
     if release["delivery_mode"] != mode:
         return ("This video is set to Schedule; switch it to Post now first. Nothing was posted."
                 if mode == "post_now" else

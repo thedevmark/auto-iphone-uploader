@@ -96,12 +96,12 @@ def receipts_due(release: dict, plans: list[SlotPost], now: datetime) -> dict[st
     - a targeted (approved) destination still pending offers them once its moment has
       passed: its slot in Schedule mode (for an app-posted one, only after the app's own
       window closed or was missed), or once phone work started on a Post now release;
-    - an untouched release before its slot, or a discarded one, never does.
+    - an untouched release before its slot, or a discarded or archived one, never does.
     """
     if now.tzinfo is None:
         raise ValueError("now must include a timezone")
     destinations = release["destinations"]
-    if release["status"] == "discarded":
+    if release["status"] in {"discarded", "archived"}:
         return {d["platform"]: False for d in destinations}
     slot = datetime.fromisoformat(release["scheduled_at"]) if release.get("scheduled_at") else None
     if slot is not None and slot.tzinfo is None:
