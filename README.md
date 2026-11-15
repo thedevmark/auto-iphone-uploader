@@ -208,7 +208,7 @@ local AI captions with Ollama, and advice on USB ports and charging.
 
 Prefer not to run the script? `python -m pip install -r requirements.txt`,
 then `python launch_video_drop.py` (or build the exe with
-`scriptsuild_launcher.ps1`, which uses the C# compiler built into Windows); fetch go-ios and the WebDriverAgent runner
+`scripts\build_launcher.ps1`, which uses the C# compiler built into Windows); fetch go-ios and the WebDriverAgent runner
 yourself and set `GO_IOS_PATH` and `WDA_IPA` in `.env` (`.env.example` lists
 every key).
 
