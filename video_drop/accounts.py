@@ -21,10 +21,15 @@ def load_targets(state_dir: Path) -> dict[str, str]:
     return {key: value.strip() for key, value in data.items() if value.strip()}
 
 
+def same_account(saved: str, target: str) -> bool:
+    """Handles match without regard to case or a leading "@" ("deutschmark" is "@DeutschMark")."""
+    return saved.strip().lstrip("@").casefold() == target.strip().lstrip("@").casefold()
+
+
 def require_target(targets: dict[str, str], platform: str, saved_account: str) -> str:
     target = targets.get(platform, "").strip()
     if not target:
         raise ValueError(f"Set the {platform} target in local accounts.json before phone preparation")
-    if saved_account.strip().casefold() != target.casefold():
+    if not same_account(saved_account, target):
         raise ValueError(f"Saved {platform} account differs from local accounts.json; review the account and confirm again")
     return target

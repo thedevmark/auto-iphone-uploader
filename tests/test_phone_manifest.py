@@ -52,3 +52,16 @@ class YouTubeManifestTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AccountMatchTests(unittest.TestCase):
+    def test_a_handle_matches_with_or_without_its_at_sign_and_case(self):
+        from video_drop.accounts import require_target
+
+        targets = {"tiktok": "@deutschmarkonline", "facebook": "61594285786303"}
+        for saved in ("deutschmarkonline", "@DeutschMarkOnline", " @deutschmarkonline "):
+            with self.subTest(saved=saved):
+                self.assertEqual(require_target(targets, "tiktok", saved), "@deutschmarkonline")
+        for platform, saved in (("tiktok", "@other"), ("facebook", "deutschmarkonline")):
+            with self.subTest(saved=saved), self.assertRaisesRegex(ValueError, "differs from local accounts.json"):
+                require_target(targets, platform, saved)

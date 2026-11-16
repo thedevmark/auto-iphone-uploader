@@ -11,6 +11,7 @@ import sys
 import time
 from pathlib import Path
 
+from .accounts import load_targets
 from .core import Store, utc_now
 
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".m4v", ".webm"}
@@ -157,7 +158,8 @@ class WatchFolder:
             if self.configuration() != config:
                 continue
             try:
-                with Store(self.state / "video-drop.sqlite") as store:
+                # The accounts in accounts.json fill each new draft, as an import from the editor does.
+                with Store(self.state / "video-drop.sqlite", load_targets(self.state)) as store:
                     release = store.import_file(item)
                     imported.append(release["id"])
                     with store.db:
