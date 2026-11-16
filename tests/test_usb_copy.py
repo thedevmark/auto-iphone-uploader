@@ -110,3 +110,47 @@ class FlowRouteTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class StorageAndCleanupTests(unittest.TestCase):
+    def test_a_video_already_on_the_phone_needs_only_the_export_room(self):
+        from video_drop import phone_space
+        gb = phone_space.GB
+        self.assertIsNone(phone_space.room_problem(gb, int(2.5 * gb), on_phone=True))
+        self.assertIn("needs 3.0 GB", phone_space.room_problem(gb, int(2.5 * gb)))
+        self.assertIn("could not read", phone_space.room_problem(gb, None))
+        for message in ("afc error code: 18 (NoSpaceLeft)", "Not enough storage"):
+            self.assertTrue(phone_space.says_full(message))
+        self.assertFalse(phone_space.says_full("afc error code: 8 (ObjectNotFound)"))
+
+    def test_a_full_phone_stops_the_flow_instead_of_falling_back_to_the_cloud(self):
+        full = usb_copy.PhoneFull("The iPhone needs 2.8 GB free. Nothing was posted")
+        with mock.patch.object(share.source_route, "release_source", return_value=(Path("day 12.mp4"), "day 12.mp4", 5)), \
+                mock.patch.object(share.source_route, "release_sha256", return_value="abc"), \
+                mock.patch.object(share.usb_copy, "put_release_video", side_effect=full), mock.patch.object(share, "stage"):
+            with self.assertRaisesRegex(share.PhoneUploadError, "needs 2.8 GB"):
+                share.usb_files_path({"releaseId": 1, "filename": "day 12.mp4", "sizeBytes": 5}, Path("s.sqlite"))
+        refused = usb_copy.UsbCopyError("go-ios fsync push failed: afc error code: 18 (NoSpaceLeft)")
+        with mock.patch.object(share.source_route, "release_source", return_value=(Path("day 12.mp4"), "day 12.mp4", 5)), \
+                mock.patch.object(share.source_route, "release_sha256", return_value="abc"), \
+                mock.patch.object(share.usb_copy, "put_release_video", side_effect=refused), mock.patch.object(share, "stage"):
+            with self.assertRaisesRegex(share.PhoneUploadError, "storage is full"):
+                share.usb_files_path({"releaseId": 1, "filename": "day 12.mp4", "sizeBytes": 5}, Path("s.sqlite"))
+
+    def test_the_copy_is_deleted_only_when_every_targeted_platform_is_done(self):
+        with tempfile.TemporaryDirectory() as folder:
+            state = Path(folder)
+            (state / "usb-copy.json").write_text(json.dumps({"bundle": "b", "name": "day 12.mp4", "size": 5, "sha256": "abc"}))
+            ios = FakeIos(files={"day 12.mp4"})
+            release = {"destinations": [{"platform": "youtube", "revision_hash": "h", "status": "posted"},
+                                        {"platform": "tiktok", "revision_hash": "h", "status": "pending"},
+                                        {"platform": "threads", "revision_hash": "", "status": "pending"}]}
+            with mock.patch.object(usb_copy, "driver", return_value=("ios", "b")), \
+\
+                    mock.patch("video_drop.phone.device.current_udid", return_value=None):
+                self.assertIsNone(usb_copy.remove_when_done(state, lambda sha: release, run=ios))
+                self.assertEqual(ios.files, {"day 12.mp4"})
+                release["destinations"][1]["status"] = "posted"  # untargeted Threads does not hold it back
+                self.assertEqual(usb_copy.remove_when_done(state, lambda sha: release, run=ios), "day 12.mp4")
+            self.assertEqual(ios.files, set())
+            self.assertFalse((state / "usb-copy.json").exists())

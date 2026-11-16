@@ -445,7 +445,7 @@ def queue_phone_post(release_id: int, platform: str, *, slot: SlotPost | None = 
                                  f"{' and '.join(map(platform_name, earlier))} first. Nothing was posted.")
             if sync_refusal := source_refusal(release):
                 raise ValueError(sync_refusal)
-            ensure_room(release["file_size"], measured_phone_space())
+            ensure_room(release["file_size"], measured_phone_space(), on_phone=copied_over_usb(release))
             check_inputs(store, release_id, platform, "post_now")
             if slot is not None and not store.mark_slot_post(release_id, platform, slot.slot, "slot_post_queued"):
                 raise ValueError("This slot was already attempted; check the account before any retry")
@@ -539,7 +539,7 @@ def queue_release_run(release_id: int, mode: str) -> dict:
                 # The phone gets the video over USB or from the cloud: refuse on the PC, not on the phone.
                 if sync_refusal := source_refusal(release):
                     raise ValueError(sync_refusal)
-                ensure_room(release["file_size"], measured_phone_space())
+                ensure_room(release["file_size"], measured_phone_space(), on_phone=copied_over_usb(release))
                 for platform in platforms:
                     check_inputs(store, release_id, platform, mode)
         steps = [{"platform": row["platform"], "state": row["state"], "message": row["note"],
@@ -774,6 +774,24 @@ def cleanup_due() -> list[int]:
     return due
 
 
+def usb_cleanup_tick() -> str | None:
+    """Once a video is posted everywhere it was going, delete its USB copy from the phone
+    (Settings' "Remove the video from the iPhone after it posts"; one go-ios call, no taps)."""
+    if TEST_MODE or not (STATE / "usb-copy.json").is_file():
+        return None
+    with Store(STATE / "video-drop.sqlite", load_targets(STATE)) as store:
+        if not store.phone_checks()["removeAfterPost"]:
+            return None
+
+        def by_sha(sha: str) -> dict | None:
+            row = store.db.execute("SELECT id FROM release WHERE sha256=?", (sha,)).fetchone()
+            return store.release(row[0]) if row else None
+
+        if phone_lock.holder(STATE) is not None or link_supervisor.read_status(STATE).get("state") != "ready":
+            return None
+        return usb_copy.remove_when_done(STATE, by_sha)
+
+
 def cleanup_tick() -> list[int]:
     """Start due Edits cleanups on the phone worker, under the same guards as receipt reads."""
     global PHONE_ACTION_RUNNING
@@ -833,6 +851,10 @@ def slot_post_loop(stop: threading.Event) -> None:
             cleanup_tick()
         except Exception as exc:
             print(f"Edits cleanup: {exc}", file=sys.stderr, flush=True)
+        try:
+            usb_cleanup_tick()
+        except Exception as exc:
+            print(f"USB copy cleanup: {exc}", file=sys.stderr, flush=True)
         stop.wait(SLOT_POST_INTERVAL)
 
 
@@ -920,6 +942,16 @@ def choose_watch_folder() -> Path | None:
         raise ValueError("The folder picker could not open")
     selected = json.loads(completed.stdout)["path"]
     return Path(selected) if selected else None
+
+
+def copied_over_usb(release: dict) -> bool:
+    """True when the last USB copy was this exact video (the PC's record; the phone is not asked)."""
+    try:
+        record = json.loads((STATE / "usb-copy.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    return (isinstance(record, dict) and record.get("sha256") == release["sha256"]
+            and record.get("size") == release["file_size"])
 
 
 def source_refusal(release: dict) -> str | None:

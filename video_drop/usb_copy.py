@@ -32,6 +32,10 @@ class UsbCopyError(RuntimeError):
     pass
 
 
+class PhoneFull(UsbCopyError):
+    """The iPhone has no room for the video: falling back to the cloud would fill it the same way."""
+
+
 def copy_timeout(size_bytes: int) -> float:
     """Seconds for one push: a minute plus 10 MB/s (USB 2 moves about 30), at most 20 minutes."""
     return min(1200.0, 60.0 + size_bytes / 10_000_000)
@@ -114,6 +118,17 @@ class UsbCopy:
             return {}
         return value if isinstance(value, dict) else {}
 
+    def holds(self, name: str, size_bytes: int, sha256: str) -> bool:
+        """True when this exact video is already in the shared folder (listed and recorded)."""
+        wanted = {"bundle": self.bundle, "name": name, "size": size_bytes, "sha256": sha256}
+        return self._recorded() == wanted and name in self.listing()
+
+    def remove(self, name: str) -> None:
+        """Delete the copied video from the phone and forget it."""
+        if name in self.listing():
+            self._fsync("rm", f"--path={FOLDER}/{name}")
+        self.record.unlink(missing_ok=True)
+
     def put(self, source: Path, size_bytes: int, sha256: str) -> FilesPath:
         """Copy ``source`` into the shared folder unless this exact file is already there; remove the rest."""
         name = Path(source).name
@@ -163,12 +178,56 @@ def driver() -> tuple[str, str] | None:
     return ios, bundle
 
 
-def put_release_video(source: Path, size_bytes: int, sha256: str, state_dir: Path) -> FilesPath | None:
-    """Copy the video over USB when the driver shares files; None when this phone cannot take it that way."""
+def put_release_video(source: Path, size_bytes: int, sha256: str, state_dir: Path,
+                      free: Callable[[], int | None] | None = None) -> FilesPath | None:
+    """Copy the video over USB when the driver shares files; None when this phone cannot take it that way.
+
+    ``free`` reads the phone's free bytes: the copy plus an app's export must fit, or this stops
+    with the storage message instead of filling the phone.
+    """
+    found = driver()
+    if found is None:
+        return None
+    from .phone import device
+    from .phone_space import room_problem
+
+    ios, bundle = found
+    copier = UsbCopy(ios, bundle, Path(state_dir) / "usb-copy.json", udid=device.current_udid())
+    if free is not None:
+        held = copier.holds(Path(source).name, size_bytes, sha256)
+        if (problem := room_problem(size_bytes, free(), on_phone=held)) and "could not read" not in problem:
+            raise PhoneFull(problem + " Nothing was posted")
+    return copier.put(source, size_bytes, sha256)
+
+
+FINISHED = frozenset({"posted", "scheduled"})
+
+
+def release_done(release: dict) -> bool:
+    """Every destination this release targets has its receipt (posted or scheduled)."""
+    targeted = [d for d in release["destinations"] if d["revision_hash"] or d["status"] != "pending"]
+    return bool(targeted) and all(d["status"] in FINISHED for d in targeted)
+
+
+def remove_when_done(state_dir: Path, releases: Callable[[str], dict | None], *,
+                     run: Run = _default_run) -> str | None:
+    """Delete the USB copy from the phone once its release is fully posted; returns the name removed.
+
+    ``releases`` finds the release a SHA-256 belongs to. One go-ios call per check, no taps.
+    """
+    record = Path(state_dir) / "usb-copy.json"
+    try:
+        copied = json.loads(record.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    release = releases(str(copied.get("sha256", "")))
+    if release is None or not release_done(release):
+        return None
     found = driver()
     if found is None:
         return None
     from .phone import device
 
     ios, bundle = found
-    return UsbCopy(ios, bundle, Path(state_dir) / "usb-copy.json", udid=device.current_udid()).put(source, size_bytes, sha256)
+    UsbCopy(ios, bundle, record, udid=device.current_udid(), run=run).remove(str(copied["name"]))
+    return str(copied["name"])

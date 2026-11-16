@@ -20,7 +20,7 @@ from pathlib import Path
 from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from video_drop import phone_lock, usb_copy  # noqa: E402
+from video_drop import phone_lock, phone_space, usb_copy  # noqa: E402
 from video_drop.phone import capture as phone_capture  # noqa: E402
 from video_drop.phone_ui import (PhoneLayout, filled_radio, first_frame_point, share_app_position, share_rail_labels, share_rail_y,
                                  share_sheet_offset,
@@ -277,8 +277,15 @@ def usb_files_path(data: dict, db: Path):
             return None
         stage("usb_copy")
         return usb_copy.put_release_video(source, size, source_route.release_sha256(db, int(data["releaseId"])),
-                                          db.parent)
-    except (usb_copy.UsbCopyError, source_route.SourceRouteError, OSError) as exc:
+                                          db.parent, free=phone_space.free_bytes)
+    except usb_copy.PhoneFull as exc:
+        raise PhoneUploadError(str(exc)) from exc
+    except usb_copy.UsbCopyError as exc:
+        if phone_space.says_full(str(exc)):
+            raise PhoneUploadError(phone_space.FULL_MESSAGE) from exc
+        print(f"[usb_copy] {exc}; using the cloud route", flush=True)
+        return None
+    except (source_route.SourceRouteError, OSError) as exc:
         print(f"[usb_copy] {exc}; using the cloud route", flush=True)
         return None
 
@@ -297,11 +304,15 @@ def open_source_file(data: dict, *, db: Path | None = None, clouds: list | None 
                                                 setup_check.detected_cloud_folders() if clouds is None else clouds).files
         except source_route.SourceRouteError as exc:
             raise PhoneUploadError(str(exc)) from exc
+        # Files downloads the video and the app exports it: both must fit, before every platform.
+        problem = phone_space.room_problem(data["sizeBytes"], phone_space.free_bytes())
+        if problem and "could not read" not in problem:
+            raise PhoneUploadError(problem + " Nothing was posted")
     stage("files_route")
     try:
         FilesApp(phone, stage=stage).open_file(target, data["sizeBytes"])
     except FilesError as exc:
-        raise PhoneUploadError(str(exc)) from exc
+        raise PhoneUploadError(phone_space.FULL_MESSAGE if phone_space.says_full(str(exc)) else str(exc)) from exc
     stage("ios_share_sheet")
 
 
