@@ -80,7 +80,9 @@ Run = Callable[[list[str], float], subprocess.CompletedProcess]
 
 def _default_run(args: list[str], timeout: float) -> subprocess.CompletedProcess:
     flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
-    return subprocess.run(args, capture_output=True, text=True, timeout=timeout, creationflags=flags)
+    # UTF-8: app names in `ios apps` are not all in Windows' default code page.
+    return subprocess.run(args, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                          timeout=timeout, creationflags=flags)
 
 
 class UsbCopy:
