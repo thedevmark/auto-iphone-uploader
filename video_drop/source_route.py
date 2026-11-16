@@ -94,6 +94,18 @@ def release_source(db: Path, release_id: int) -> tuple[Path, str, int]:
     return Path(row[0]), str(row[1]), int(row[2])
 
 
+def release_sha256(db: Path, release_id: int) -> str:
+    """Read-only: the SHA-256 the release was imported with."""
+    connection = sqlite3.connect(f"file:{Path(db).as_posix()}?mode=ro", uri=True, timeout=15)
+    try:
+        row = connection.execute("SELECT sha256 FROM release WHERE id=?", (release_id,)).fetchone()
+    finally:
+        connection.close()
+    if row is None:
+        raise SourceRouteError(f"Release {release_id} is not in {db}")
+    return str(row[0])
+
+
 def release_route(db: Path, data: dict, clouds: list[tuple[str, PurePath]]) -> Route:
     """The route for the exact file a flow already verified (``data`` carries its name and size)."""
     source, name, size = release_source(db, int(data["releaseId"]))

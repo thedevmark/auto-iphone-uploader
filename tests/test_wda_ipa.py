@@ -1,4 +1,5 @@
 import io
+import plistlib
 import tempfile
 import unittest
 import zipfile
@@ -14,7 +15,9 @@ def runner_zip(path: Path, *, names=("Info.plist", "WebDriverAgentRunner-Runner"
         for name in names:
             info = zipfile.ZipInfo(wda_ipa.APP_DIR + name, date_time=(2026, 9, 19, 15, 0, 0))
             info.external_attr = (0o755 if name.endswith("-Runner") else 0o644) << 16
-            z.writestr(info, name.encode())
+            body = (plistlib.dumps({"CFBundleIdentifier": "com.facebook.WebDriverAgentRunner.xctrunner"})
+                    if name == "Info.plist" else name.encode())
+            z.writestr(info, body)
 
 
 class RepackTests(unittest.TestCase):
@@ -32,6 +35,13 @@ class RepackTests(unittest.TestCase):
                 binary = z.getinfo("Payload/WebDriverAgentRunner-Runner.app/WebDriverAgentRunner-Runner")
                 self.assertEqual(binary.external_attr >> 16, 0o755)
                 self.assertEqual(z.read(binary), b"WebDriverAgentRunner-Runner")
+                # Files can open what the PC copies into the driver's Documents (video_drop/usb_copy.py).
+                info = plistlib.loads(z.read("Payload/WebDriverAgentRunner-Runner.app/Info.plist"))
+                self.assertEqual((info["UIFileSharingEnabled"], info["LSSupportsOpeningDocumentsInPlace"],
+                                  info["CFBundleDisplayName"], info["CFBundleIdentifier"]),
+                                 (True, True, "Auto iPhone Uploader", "com.facebook.WebDriverAgentRunner.xctrunner"))
+                nested = z.read("Payload/WebDriverAgentRunner-Runner.app/PlugIns/WebDriverAgentRunner.xctest/Info.plist")
+                self.assertEqual(nested, b"PlugIns/WebDriverAgentRunner.xctest/Info.plist")  # untouched
             self.assertEqual(wda_ipa.main([str(src), str(dst)]), 0)
 
     def test_refuses_the_wrong_zip(self):

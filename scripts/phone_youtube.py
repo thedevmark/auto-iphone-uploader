@@ -20,7 +20,7 @@ from pathlib import Path
 from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from video_drop import phone_lock  # noqa: E402
+from video_drop import phone_lock, usb_copy  # noqa: E402
 from video_drop.phone import capture as phone_capture  # noqa: E402
 from video_drop.phone_ui import (PhoneLayout, filled_radio, first_frame_point, share_app_position, share_rail_labels, share_rail_y,
                                  share_sheet_offset,
@@ -269,16 +269,37 @@ def source_db() -> Path:
     return Path(os.environ.get("VIDEO_DROP_STATE", Path(__file__).resolve().parent.parent / ".state")) / "video-drop.sqlite"
 
 
-def open_source_file(data: dict, *, db: Path | None = None, clouds: list | None = None) -> None:
-    """Open the release's exact file through Apple's Files app and leave the iOS share sheet up."""
+def usb_files_path(data: dict, db: Path):
+    """Copy the release's exact file to the iPhone over USB; None (cloud route) when that is not possible."""
     try:
-        route = source_route.release_route(db or source_db(), data,
-                                           setup_check.detected_cloud_folders() if clouds is None else clouds)
-    except source_route.SourceRouteError as exc:
-        raise PhoneUploadError(str(exc)) from exc
+        source, name, size = source_route.release_source(db, int(data["releaseId"]))
+        if name != data["filename"] or size != data["sizeBytes"] or source.name != name:
+            return None
+        stage("usb_copy")
+        return usb_copy.put_release_video(source, size, source_route.release_sha256(db, int(data["releaseId"])),
+                                          db.parent)
+    except (usb_copy.UsbCopyError, source_route.SourceRouteError, OSError) as exc:
+        print(f"[usb_copy] {exc}; using the cloud route", flush=True)
+        return None
+
+
+def open_source_file(data: dict, *, db: Path | None = None, clouds: list | None = None, usb: bool = True) -> None:
+    """Open the release's exact file through Apple's Files app and leave the iOS share sheet up.
+
+    The file goes over USB into On My iPhone when the phone driver shares its files; else
+    Files opens it from the cloud folder this PC syncs it to.
+    """
+    db = db or source_db()
+    target = usb_files_path(data, db) if usb else None
+    if target is None:
+        try:
+            target = source_route.release_route(db, data,
+                                                setup_check.detected_cloud_folders() if clouds is None else clouds).files
+        except source_route.SourceRouteError as exc:
+            raise PhoneUploadError(str(exc)) from exc
     stage("files_route")
     try:
-        FilesApp(phone, stage=stage).open_file(route.files, data["sizeBytes"])
+        FilesApp(phone, stage=stage).open_file(target, data["sizeBytes"])
     except FilesError as exc:
         raise PhoneUploadError(str(exc)) from exc
     stage("ios_share_sheet")

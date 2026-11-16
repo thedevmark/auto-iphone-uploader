@@ -5,16 +5,33 @@ An .ipa is the same bundle under ``Payload/``, which is what Sideloadly and
 ``ios sign app`` expect. Entry names keep forward slashes and the original
 permissions; ``__MACOSX`` resource forks are dropped. Nothing is signed here.
 
+The host app's Info.plist turns on file sharing, so the PC can copy a video over USB
+into the app's Documents and the Files app shows it under On My iPhone › Auto iPhone
+Uploader (video_drop/usb_copy.py). Nothing else in the bundle changes.
+
     python -m video_drop.wda_ipa WebDriverAgentRunner-Runner.zip WebDriverAgent.ipa
 """
 
 from __future__ import annotations
 
+import plistlib
 import sys
 import zipfile
 from pathlib import Path
 
 APP_DIR = "WebDriverAgentRunner-Runner.app/"
+INFO_PLIST = APP_DIR + "Info.plist"
+# The folder name Files shows under On My iPhone, and the name under the icon.
+APP_FOLDER = "Auto iPhone Uploader"
+
+
+def share_files(data: bytes) -> bytes:
+    """The host app's Info.plist with Files access to its Documents turned on."""
+    info = plistlib.loads(data)
+    info["UIFileSharingEnabled"] = True
+    info["LSSupportsOpeningDocumentsInPlace"] = True
+    info["CFBundleDisplayName"] = APP_FOLDER
+    return plistlib.dumps(info, fmt=plistlib.FMT_BINARY)
 
 
 def repack(source: Path, dest: Path) -> int:
@@ -32,7 +49,8 @@ def repack(source: Path, dest: Path) -> int:
                 target = zipfile.ZipInfo("Payload/" + info.filename, date_time=info.date_time)
                 target.external_attr = info.external_attr
                 target.compress_type = zipfile.ZIP_DEFLATED
-                zout.writestr(target, zin.read(info.filename))
+                data = zin.read(info.filename)
+                zout.writestr(target, share_files(data) if info.filename == INFO_PLIST else data)
     return len(entries)
 
 

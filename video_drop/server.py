@@ -25,6 +25,7 @@ from .accounts import load_targets
 from .watch import WatchFolder, complete_video, eligible
 from .runtime_identity import source_fingerprint
 from .phone_space import ensure_room, free_bytes
+from . import usb_copy
 from . import cloud_sync, edits_cleanup, link_supervisor, phone_link, phone_lock, receipt_sweep, release_run, setup_check, timezones
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -442,7 +443,7 @@ def queue_phone_post(release_id: int, platform: str, *, slot: SlotPost | None = 
                     and (earlier := post_now_blockers(release, platform))):
                 raise ValueError(f"Post now goes YouTube, then Instagram, then TikTok; post "
                                  f"{' and '.join(map(platform_name, earlier))} first. Nothing was posted.")
-            if sync_refusal := cloud_sync.refusal(Path(release["source_path"])):
+            if sync_refusal := source_refusal(release):
                 raise ValueError(sync_refusal)
             ensure_room(release["file_size"], measured_phone_space())
             check_inputs(store, release_id, platform, "post_now")
@@ -535,8 +536,8 @@ def queue_release_run(release_id: int, mode: str) -> dict:
             rows = release_run.plan(release, mode)
             platforms = release_run.runnable(rows)
             if platforms:
-                # The phone picks the video from OneDrive: refuse on the PC, not on the phone.
-                if sync_refusal := cloud_sync.refusal(Path(release["source_path"])):
+                # The phone gets the video over USB or from the cloud: refuse on the PC, not on the phone.
+                if sync_refusal := source_refusal(release):
                     raise ValueError(sync_refusal)
                 ensure_room(release["file_size"], measured_phone_space())
                 for platform in platforms:
@@ -919,6 +920,17 @@ def choose_watch_folder() -> Path | None:
         raise ValueError("The folder picker could not open")
     selected = json.loads(completed.stdout)["path"]
     return Path(selected) if selected else None
+
+
+def source_refusal(release: dict) -> str | None:
+    """Why the phone cannot get this video yet, or None.
+
+    A phone driver that shares its files takes the video over USB, so the cloud's state
+    does not matter; otherwise the phone opens it from the cloud folder, which must be synced.
+    """
+    if usb_copy.driver() is not None:
+        return None
+    return cloud_sync.refusal(Path(release["source_path"]))
 
 
 def auto_analysis_on() -> bool:

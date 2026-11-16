@@ -39,3 +39,14 @@ def timings_off_the_real_state(monkeypatch, tmp_path):
     from scripts import phone_youtube
 
     monkeypatch.setattr(phone_youtube, "TIMINGS", tmp_path / "run-timings.jsonl")
+
+
+@pytest.fixture(autouse=True)
+def no_usb_copy(monkeypatch):
+    """No test asks the real phone whether its driver shares files: the cloud route is used.
+
+    tests/test_usb_copy.py drives the USB copy itself with a fake go-ios.
+    """
+    from video_drop import usb_copy
+
+    monkeypatch.setattr(usb_copy, "driver", lambda: None)
