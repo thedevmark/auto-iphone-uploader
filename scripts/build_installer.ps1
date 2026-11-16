@@ -192,8 +192,18 @@ try {
 foreach ($pycache in Get-ChildItem -LiteralPath $stage -Recurse -Directory -Filter '__pycache__' -Force) {
     Remove-Item -LiteralPath $pycache.FullName -Recurse -Force -ErrorAction SilentlyContinue
 }
-& (Join-Path $root 'scripts\build_launcher.ps1') -OutDir $stage | Out-Null
-if (-not (Test-Path -LiteralPath (Join-Path $stage 'Auto iPhone Uploader.exe'))) { throw 'The launcher exe was not built into the stage.' }
+# The app's own window (desktop\, Electron): built here, staged as {app}\desktop.
+Push-Location (Join-Path $root 'desktop')
+try {
+    npm ci --no-audit --no-fund
+    Test-Native 'npm ci in desktop'
+    npm run package
+    Test-Native 'npm run package in desktop'
+} finally { Pop-Location }
+$windowApp = Join-Path $root 'desktop\dist\Auto iPhone Uploader-win32-x64'
+New-Item -ItemType Directory -Force (Join-Path $stage 'desktop') | Out-Null
+Copy-Item -Path (Join-Path $windowApp '*') -Destination (Join-Path $stage 'desktop') -Recurse -Force
+if (-not (Test-Path -LiteralPath (Join-Path $stage 'desktop\Auto iPhone Uploader.exe'))) { throw 'The app window was not built into the stage.' }
 $staged = (Get-ChildItem -LiteralPath $stage -Recurse -File | Measure-Object -Property Length -Sum).Sum
 Say ("staged payload {0:N0} MB at {1}" -f ($staged / 1MB), $stage)
 if ($StageOnly) { return }

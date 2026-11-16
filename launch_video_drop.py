@@ -6,7 +6,6 @@ import subprocess
 import sys
 import time
 import json
-import os
 import urllib.error
 import urllib.request
 import webbrowser
@@ -43,29 +42,25 @@ def assert_current_server(identity: dict) -> None:
         raise RuntimeError("The app server is running older code. Restart that server to load this update.")
 
 
-def app_window_browsers() -> list[Path]:
-    """Edge ships with Windows; Chrome is the fallback. Either can show one page as an app window."""
-    places = [os.environ.get(name, "") for name in ("ProgramFiles(x86)", "ProgramFiles", "LOCALAPPDATA")]
-    return [Path(base) / tail for tail in (r"Microsoft\Edge\Application\msedge.exe", r"Google\Chrome\Application\chrome.exe")
-            for base in places if base]
+def desktop_app() -> Path | None:
+    """The app's own window program (desktop/, built with Electron), installed or built here."""
+    for candidate in (ROOT / "desktop" / "Auto iPhone Uploader.exe",
+                      ROOT / "desktop" / "dist" / "Auto iPhone Uploader-win32-x64" / "Auto iPhone Uploader.exe"):
+        if candidate.is_file():
+            return candidate
+    return None
 
 
 def open_window() -> None:
-    """Open the editor in its own window, with its own taskbar entry; a browser tab if that fails.
-
-    The window keeps a profile under .state, apart from the person's browser, so it opens
-    without their tabs or extensions and remembers its own size.
-    """
-    for browser in app_window_browsers():
-        if browser.is_file():
-            try:
-                subprocess.Popen([str(browser), f"--app={URL}", f"--user-data-dir={ROOT / '.state' / 'app-window'}",
-                                  "--no-first-run", "--no-default-browser-check"],
-                                 cwd=ROOT, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                 close_fds=True)
-                return
-            except OSError:
-                continue
+    """Open the editor in the app's own window; the default browser when that is not built."""
+    app_exe = desktop_app()
+    if app_exe is not None:
+        try:
+            subprocess.Popen([str(app_exe)], cwd=app_exe.parent, stdin=subprocess.DEVNULL,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True)
+            return
+        except OSError:
+            pass
     webbrowser.open(URL)
 
 

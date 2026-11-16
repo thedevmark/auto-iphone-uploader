@@ -42,12 +42,12 @@ Name: "desktopicon"; Description: "Create a &Desktop shortcut"; GroupDescription
 Source: "{#Stage}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
 
 [Icons]
-Name: "{autoprograms}\{#AppName}"; Filename: "{app}\Auto iPhone Uploader.exe"; WorkingDir: "{app}"; IconFilename: "{app}\web\logo.ico"
+Name: "{autoprograms}\{#AppName}"; Filename: "{app}\desktop\Auto iPhone Uploader.exe"; WorkingDir: "{app}\desktop"; IconFilename: "{app}\web\logo.ico"
 Name: "{autoprograms}\{#AppName} setup (passcode, USB helper)"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "{code:SetupArgs}"; WorkingDir: "{app}"; IconFilename: "{app}\web\logo.ico"; Comment: "Re-run setup: downloads anything missing and offers to save your iPhone passcode and install the USB recovery helper"
-Name: "{autodesktop}\{#AppName}"; Filename: "{app}\Auto iPhone Uploader.exe"; WorkingDir: "{app}"; IconFilename: "{app}\web\logo.ico"; Tasks: desktopicon
+Name: "{autodesktop}\{#AppName}"; Filename: "{app}\desktop\Auto iPhone Uploader.exe"; WorkingDir: "{app}\desktop"; IconFilename: "{app}\web\logo.ico"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\Auto iPhone Uploader.exe"; WorkingDir: "{app}"; Description: "Launch {#AppName}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\desktop\Auto iPhone Uploader.exe"; WorkingDir: "{app}\desktop"; Description: "Launch {#AppName}"; Flags: nowait postinstall skipifsilent
 
 [UninstallDelete]
 ; Only what the installer or setup created. The .state folder (drafts, settings, the link's
@@ -63,6 +63,7 @@ Type: filesandordirs; Name: "{app}\scripts"
 Type: filesandordirs; Name: "{app}\lib"
 Type: filesandordirs; Name: "{app}\maps"
 Type: filesandordirs; Name: "{app}\web"
+Type: filesandordirs; Name: "{app}\desktop"
 Type: filesandordirs; Name: "{app}\docs"
 Type: filesandordirs; Name: "{app}\third_party"
 Type: filesandordirs; Name: "{app}\__pycache__"

@@ -44,8 +44,8 @@ def test_installer_is_per_user_and_leaves_state():
     assert "PrivilegesRequired=lowest" in ISS
     assert r"DefaultDirName={localappdata}\Programs\{#AppName}" in ISS
     # Every shortcut opens the app's own exe, which the build stages before compiling.
-    assert ISS.count(r'Filename: "{app}\Auto iPhone Uploader.exe"') == 3 and "launch_video_drop.py" not in ISS
-    assert BUILD.index("build_launcher.ps1") < BUILD.index("& $iscc")
+    assert ISS.count(r'Filename: "{app}\desktop\Auto iPhone Uploader.exe"') == 3 and "launch_video_drop.py" not in ISS
+    assert BUILD.index("npm run package") < BUILD.index("& $iscc")
     assert "-PackagesBundled" in ISS and "-NoPrompt" in ISS and "-NoLaunch" in ISS
     assert "postinstall" in ISS and "Launch {#AppName}" in ISS
     delete = ISS.split("[UninstallDelete]")[1].split("[Code]")[0]

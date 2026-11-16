@@ -1,0 +1,17 @@
+{
+  "name": "auto-iphone-uploader-desktop",
+  "productName": "Auto iPhone Uploader",
+  "version": "1.0.0",
+  "private": true,
+  "description": "The Auto iPhone Uploader window: its own program, so Windows names its sound and taskbar entry after the app.",
+  "main": "main.js",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "package": "electron-packager . \"Auto iPhone Uploader\" --platform=win32 --arch=x64 --out=dist --overwrite --asar --icon=../web/logo.ico --app-copyright=thedevmark --win32metadata.FileDescription=\"Auto iPhone Uploader\" --win32metadata.ProductName=\"Auto iPhone Uploader\" --ignore=^/dist"
+  },
+  "devDependencies": {
+    "@electron/packager": "20.3.0",
+    "electron": "44.9.3"
+  }
+}
