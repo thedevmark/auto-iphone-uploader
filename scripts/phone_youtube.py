@@ -30,7 +30,7 @@ from video_drop.screens.matcher import MatchError, find
 from video_drop.screens.model import Locator
 from video_drop.screens.snapshot import Element, Snapshot, elements_from_tree
 from video_drop import ocr
-from video_drop.youtube_nav import TRIM_X_POINT, open_tabs
+from video_drop.youtube_nav import TRIM_X_POINT, YOU_TAB_ID, YOU_TAB_POINT, home_feed, open_tabs
 from video_drop.phone_focus import FocusError, optional_focus, run_guards, upright
 from video_drop.core import Store
 from video_drop.phone_manifest import verify_youtube_manifest, youtube_input
@@ -186,15 +186,37 @@ def youtube_header_account(timeout: float = 10) -> str:
 
 
 def tap_you_tab() -> None:
-    """The one "You" on the tab bar: on a playing feed OCR also reads video titles."""
+    """The one "You" on the tab bar: on a playing feed OCR also reads video titles.
+
+    A tab bar of icons only has no "You" to read: on the Home feed (known by its chips) the
+    profile tab is tapped at its measured place. Callers prove the You page by "Accounts"."""
+    # The tab's own accessibility id is exact and needs no screen read: a by-name lookup answers
+    # on a playing feed and with an icon-only tab bar (measured 2026-11-15).
+    lookup = getattr(phone, "elements_by_ids", None)
+    if lookup is not None:
+        try:
+            tabs = [item for item in lookup((YOU_TAB_ID,)) if item.get("name") == YOU_TAB_ID]
+        except WDAError:
+            tabs = []
+        if len(tabs) == 1:
+            rect = tabs[0]["rect"]
+            phone.tap(float(rect["x"]) + float(rect["width"]) / 2, float(rect["y"]) + float(rect["height"]) / 2)
+            return
     deadline = time.monotonic() + 8
+    reads = 0
     while True:
-        found = [row for row in matches("You") if layout().relative_band(row, top=0.85)]
+        rows = screen()
+        reads += 1
+        found = [row for row in rows if row.get("text") == "You" and layout().relative_band(row, top=0.85)]
         if len(found) == 1:
             phone.tap(found[0]["x"], found[0]["y"])
             return
+        if not found and reads >= 2 and home_feed([row["text"] for row in rows if row.get("text")]):
+            phone.tap(*layout().bottom_right_point(*YOU_TAB_POINT))
+            return
         if time.monotonic() >= deadline:
-            raise PhoneUploadError(f"Expected one YouTube You tab, found {len(found)}")
+            shown = [row["text"] for row in rows if row.get("text")][:14]
+            raise PhoneUploadError(f"Expected one YouTube You tab, found {len(found)}; the screen shows {shown}")
         time.sleep(0.5)
 
 
@@ -211,7 +233,15 @@ def ensure_youtube_channel(expected: str) -> None:
     if len(options) != 1:
         raise PhoneUploadError(f"YouTube account {expected} is missing or ambiguous")
     phone.tap(options[0]["x"], options[0]["y"])
-    wait("You", timeout=30)
+    # The switch lands on the Home feed: its "You" tab, or its chips when the tabs are icons.
+    deadline = time.monotonic() + 30
+    while True:
+        labels = [row["text"] for row in screen() if row.get("text")]
+        if "You" in labels or home_feed(labels):
+            break
+        if time.monotonic() >= deadline:
+            raise PhoneUploadError("YouTube did not return to its Home feed after the account switch")
+        time.sleep(0.5)
     tap_you_tab()
     assert_visible("Accounts")
     if youtube_header_account() != expected.casefold():
@@ -297,22 +327,43 @@ def open_source_file(data: dict, *, db: Path | None = None, clouds: list | None 
     Files opens it from the cloud folder this PC syncs it to.
     """
     db = db or source_db()
-    target = usb_files_path(data, db) if usb else None
-    if target is None:
+
+    def cloud_target():
         try:
-            target = source_route.release_route(db, data,
-                                                setup_check.detected_cloud_folders() if clouds is None else clouds).files
+            found = source_route.release_route(db, data,
+                                               setup_check.detected_cloud_folders() if clouds is None else clouds).files
         except source_route.SourceRouteError as exc:
             raise PhoneUploadError(str(exc)) from exc
         # Files downloads the video and the app exports it: both must fit, before every platform.
         problem = phone_space.room_problem(data["sizeBytes"], phone_space.free_bytes())
         if problem and "could not read" not in problem:
             raise PhoneUploadError(problem + " Nothing was posted")
+        return found
+
+    target = usb_files_path(data, db) if usb else None
+    over_usb = target is not None
+    if target is None:
+        target = cloud_target()
     stage("files_route")
     try:
         FilesApp(phone, stage=stage).open_file(target, data["sizeBytes"])
     except FilesError as exc:
-        raise PhoneUploadError(phone_space.FULL_MESSAGE if phone_space.says_full(str(exc)) else str(exc)) from exc
+        if phone_space.says_full(str(exc)):
+            raise PhoneUploadError(phone_space.FULL_MESSAGE) from exc
+        if not over_usb:
+            raise PhoneUploadError(str(exc)) from exc
+        # Files could not show the USB copy (On My iPhone hidden, or the folder not listed yet):
+        # the cloud folder is the second way to the same exact file.
+        print(f"[files_route] USB copy not opened ({exc}); trying the cloud folder", flush=True)
+        try:
+            fallback = cloud_target()
+        except PhoneUploadError:
+            raise PhoneUploadError(str(exc)) from exc  # no cloud route either: report the first problem
+        stage("files_route_cloud")
+        try:
+            FilesApp(phone, stage=stage).open_file(fallback, data["sizeBytes"])
+        except FilesError as second:
+            raise PhoneUploadError(str(second)) from second
     stage("ios_share_sheet")
 
 

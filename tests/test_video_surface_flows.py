@@ -196,6 +196,30 @@ class YouTubePlayingScreens(unittest.TestCase):
             phone_youtube.tap_you_tab()
         self.assertEqual(self.phone.taps, [(396.0, 905.0)])
 
+    def test_an_icon_only_tab_bar_is_tapped_at_the_profile_tab_on_the_home_feed(self):
+        # 2026-11-15: YouTube's tab bar became icons only; a playing Home feed read by OCR shows
+        # its chips ("Home Subs", "Live") and no "You" anywhere.
+        feed = [{"text": "Premium", "x": 48.0, "y": 76.0}, {"text": "Home Subs", "x": 53.0, "y": 124.0},
+                {"text": "Live", "x": 361.0, "y": 123.0}, {"text": "The Michael Scott Guide", "x": 57.0, "y": 416.0}]
+        with patch.object(phone_youtube, "screen", lambda: feed):
+            phone_youtube.tap_you_tab()
+        self.assertEqual(self.phone.taps, [(377, 905.0)])
+        # Any other screen without a "You" is still refused, not tapped blind.
+        self.phone.taps.clear()
+        clock = iter(range(0, 100, 3))
+        with patch.object(phone_youtube, "screen", lambda: [{"text": "Add details", "x": 200.0, "y": 80.0}]),                 patch("scripts.phone_youtube.time.monotonic", lambda: next(clock)),                 patch("scripts.phone_youtube.time.sleep"):
+            with self.assertRaisesRegex(phone_youtube.PhoneUploadError, "You tab"):
+                phone_youtube.tap_you_tab()
+        self.assertEqual(self.phone.taps, [])
+
+    def test_the_you_tab_is_tapped_by_its_accessibility_id_without_reading_the_screen(self):
+        tab = {"type": "XCUIElementTypeButton", "name": "id.ui.pivotbar.FElibrary.button", "label": "You",
+               "value": "", "rect": {"x": 325, "y": 867, "width": 104, "height": 76}}
+        self.phone.elements_by_ids = lambda ids: [tab]
+        with patch.object(phone_youtube, "screen", side_effect=AssertionError("no screen read is needed")):
+            phone_youtube.tap_you_tab()
+        self.assertEqual(self.phone.taps, [(377.0, 905.0)])
+
     def test_still_tree_waits_out_a_preview_then_reads(self):
         phone = MagicMock()
         phone.ui_tree.side_effect = [VideoSurfaceError("playing"), {"type": "XCUIElementTypeApplication"}]

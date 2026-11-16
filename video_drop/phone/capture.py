@@ -23,8 +23,8 @@ from . import device
 from .wda_client import WDAClient, WDAError
 
 
-class CaptureError(RuntimeError):
-    pass
+class CaptureError(WDAError):
+    """No screenshot could be taken: the phone link is down or the driver is not answering."""
 
 
 _last_png: bytes | None = None

@@ -455,3 +455,61 @@ class PageTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FlakyPhone(FakePhone):
+    """A flow that stops on the phone link before its final tap, the listed number of times."""
+
+    def __init__(self, drops: dict):
+        self.drops = drops  # flow -> [exception, ...] raised before any tap, one per call
+        super().__init__()
+
+    def flow(self, name: str, platform: str):
+        inner = super().flow(name, platform)
+
+        def run(release, db, **kwargs):
+            errors = self.drops.get(name)
+            if errors:
+                self.calls.append((name, int(release), kwargs))
+                raise errors.pop(0)
+            return inner(release, db, **kwargs)
+        return run
+
+
+class LinkRetryTests(RunRouteTests):
+    def test_a_link_drop_before_the_final_tap_starts_that_platform_again(self):
+        from video_drop.phone.capture import CaptureError
+        from video_drop.phone.wda_client import WDAError
+        release_id = make_release(self.state, mode="post_now")
+        drops = {"youtube_post": [WDAError("GET /source: WebDriverAgent did not answer within 45s"),
+                                  CaptureError("No screenshot: go-ios's screenshot service and WebDriverAgent both failed")]}
+        with FlakyPhone(drops) as phone:
+            self.start(release_id, "post_now")
+            self.finished()
+        self.assertEqual(phone.order()[:4], ["youtube_post", "youtube_post", "youtube_post", "instagram"])
+        self.assertEqual(statuses(self.state, release_id)["youtube"], "unconfirmed")
+
+    def test_a_possible_final_tap_is_never_started_again(self):
+        from video_drop.phone.wda_client import WDAError
+        release_id = make_release(self.state, mode="post_now")
+        with FakePhone({"youtube_post": (True, WDAError("WebDriverAgent did not answer within 45s"))}) as phone:
+            self.start(release_id, "post_now")
+            action = self.finished()
+        self.assertEqual(phone.order(), ["youtube_post"])
+        self.assertEqual(action["status"], "needs_check")
+
+    def test_the_link_staying_down_stops_after_the_last_attempt(self):
+        from video_drop.phone.wda_client import WDAError
+        release_id = make_release(self.state, mode="post_now")
+        drops = {"youtube_post": [WDAError("Cannot reach WebDriverAgent") for _ in range(server.FLOW_ATTEMPTS)]}
+        with FlakyPhone(drops) as phone:
+            self.start(release_id, "post_now")
+            action = self.finished()
+        self.assertEqual(phone.order(), ["youtube_post"] * server.FLOW_ATTEMPTS)
+        self.assertEqual(action["status"], "failed")
+        self.assertEqual(statuses(self.state, release_id)["youtube"], "pending")
+
+
+# LinkRetryTests reuses RunRouteTests' server setup, not its tests.
+for _name in [n for n in dir(RunRouteTests) if n.startswith("test_")]:
+    setattr(LinkRetryTests, _name, None)

@@ -35,6 +35,8 @@ class FilesPath:
     locations: tuple[str, ...]
     folders: tuple[str, ...]
     filename: str
+    # shareddocuments:// URL of the last folder, when known: Files opens there directly.
+    deeplink: str = ""
 
     @property
     def shown(self) -> str:

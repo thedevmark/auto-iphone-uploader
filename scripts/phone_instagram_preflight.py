@@ -218,7 +218,7 @@ def main() -> None:
         with Store(args.db, load_targets(args.db.parent)) as store:
             release = store.release(args.release_id)
             instagram = next(d for d in release["destinations"] if d["platform"] == "instagram")
-            require_target(store.account_targets, "instagram", instagram["account"])
+            target = require_target(store.account_targets, "instagram", instagram["account"])
             revision = store._revision_hash("instagram", instagram["account"], instagram["title"],
                                             instagram["description"], instagram["tags"], instagram["visibility"])
         if instagram["status"] != "pending":
@@ -228,7 +228,7 @@ def main() -> None:
         if instagram["revision_hash"] != revision:
             raise ValueError("Instagram text changed after confirmation")
         source = Path(release["source_path"])
-        account = instagram["account"]
+        account = target
         if args.account and args.account.casefold() != account.casefold():
             raise ValueError("Requested account differs from the saved Instagram target")
         if not source.is_file() or source.stat().st_size != release["file_size"] or digest(source) != release["sha256"]:

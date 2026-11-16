@@ -50,3 +50,11 @@ def no_usb_copy(monkeypatch):
     from video_drop import usb_copy
 
     monkeypatch.setattr(usb_copy, "driver", lambda: None)
+
+
+@pytest.fixture(autouse=True)
+def no_pause_between_space_reads(monkeypatch):
+    """A test that makes the free-space read fail does not sit through the real retries' pauses."""
+    from video_drop import server
+
+    monkeypatch.setattr(server, "SPACE_READ_PAUSE", 0.0)

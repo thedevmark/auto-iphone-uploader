@@ -15,7 +15,7 @@ def youtube_input(store: Store, release_id: int) -> dict:
         raise ValueError("YouTube was already attempted; check the channel before any retry")
     if not destination["revision_hash"]:
         raise ValueError("Confirm YouTube details in Auto iPhone Uploader before phone preparation")
-    require_target(store.account_targets, "youtube", destination["account"])
+    account = require_target(store.account_targets, "youtube", destination["account"])
     revision = store._revision_hash("youtube", destination["account"], destination["title"],
                                     destination["description"], destination["tags"], destination["visibility"])
     if revision != destination["revision_hash"]:
@@ -31,7 +31,7 @@ def youtube_input(store: Store, release_id: int) -> dict:
     if not tags:
         raise ValueError("YouTube tags are required")
     return {"releaseId": release_id, "filename": source.name, "sizeBytes": release["file_size"],
-            "expectedAccount": destination["account"], "title": destination["title"],
+            "expectedAccount": account, "title": destination["title"],
             "description": destination["description"], "tags": tags,
             "visibility": destination["visibility"], "revisionHash": revision,
             "sourceSha256": release["sha256"], "deliveryMode": release["delivery_mode"],

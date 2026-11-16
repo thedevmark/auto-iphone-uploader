@@ -27,6 +27,24 @@ import requests
 from . import config
 
 
+def _log_op(method: str, path: str, started: float, outcome: str) -> None:
+    """One line per request to the phone, in .state/driver-ops.jsonl: when a USB drop happens,
+    the lines just before it name the operations that preceded it. Session ids are cut out so
+    the same request reads the same; the file is trimmed at 4 MB. Never raises."""
+    try:
+        from . import config
+
+        log = config.STATE_DIR / "driver-ops.jsonl"
+        if log.exists() and log.stat().st_size > 4_000_000:
+            log.write_bytes(log.read_bytes()[-1_000_000:])
+        line = {"t": round(time.time(), 2), "op": f"{method} {re.sub(r'/session/[^/]+', '', path) or '/'}",
+                "ms": int((time.monotonic() - started) * 1000), "r": outcome}
+        with log.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(line) + "\n")
+    except Exception:
+        pass
+
+
 class WDAError(RuntimeError):
     """A WebDriverAgent call failed. The message says what and why."""
 
@@ -269,9 +287,12 @@ class WDAClient:
                 "allow actions again."
             )
         url = self.base_url + path
+        started = time.monotonic()
         try:
             resp = self._http.request(method, url, json=payload, timeout=self.timeout)
+            _log_op(method, path, started, "ok")
         except requests.Timeout as exc:
+            _log_op(method, path, started, "timeout")
             raise WDATimeout(
                 f"{method} {path}: WebDriverAgent did not answer within "
                 f"{self.timeout:g}s. If the phone is LOCKED with notifications "
@@ -287,6 +308,7 @@ class WDAClient:
                 "releases WDA; scripts ask it via phone_link.recover()."
             ) from exc
         except requests.RequestException as exc:
+            _log_op(method, path, started, "unreachable")
             raise WDAError(
                 f"Cannot reach WebDriverAgent at {self.base_url}. "
                 "The phone link supervisor restarts it; check the app's Phone "
@@ -863,6 +885,10 @@ class WDAClient:
         grace period can make this time out while the screen still turns off —
         treat that error as cosmetic, not a failure to lock."""
         self._request("POST", "/wda/lock")
+
+    def open_url(self, url: str) -> None:
+        """Open a URL as the system would (a deep link opens its app at that place)."""
+        self._session_request("POST", "/url", {"url": url})
 
     def app_launch(self, bundle_id: str) -> None:  # noqa: vulture  (called by helpers.py)
         self._session_request("POST", "/wda/apps/launch", {"bundleId": bundle_id})

@@ -1650,3 +1650,46 @@ def test_close_app_quits_over_wda_and_falls_back_to_go_ios(monkeypatch):
     monkeypatch.setattr(helpers, "client", lambda: Client(True))
     helpers.close_app("com.zhiliaoapp.musically")
     assert killed == ["com.zhiliaoapp.musically"]
+
+
+# ---- unlock(): a lit, unlocked phone is settled from pixels, with no tree read (2026-11-15) ----
+
+def _rows(*texts):
+    return [{"text": text, "x": 0.0, "y": 0.0} for text in texts]
+
+
+def test_unlock_does_nothing_and_reads_no_tree_on_a_lit_unlocked_phone(fast, monkeypatch):
+    """Measured on iOS 27.2: tree reads of the Home Screen dropped the phone off USB, and
+    unlock() read it on every run. Unlocked + lit + no pad in the pixels means: touch nothing."""
+    stub = fast(StubPhone(SAMPLE_TREE))
+    stub.is_locked = lambda: False
+    monkeypatch.setattr("video_drop.ocr.screen_rows", lambda png, width: _rows("Camera", "Photos", "Settings", "9:41"))
+    helpers.unlock()
+    assert (stub.source_calls, stub.swipes, stub.pressed, stub.typed) == (0, 0, [], [])
+
+
+@pytest.mark.parametrize("texts", [
+    ("1", "2", "3", "4", "5", "6", "7", "8", "9", "0"),  # the pad's keys, whatever its language
+    ("Enter Passcode", "Cancel"),
+    ("9:41", "Swipe up to open"),
+    (),  # OCR saw nothing: no proof either way
+])
+def test_a_pad_or_lock_prompt_in_the_pixels_is_never_called_unlocked(texts, monkeypatch):
+    stub = StubPhone(SAMPLE_TREE)
+    stub.is_locked = lambda: False  # WDA's flag can say unlocked with the pad up
+    monkeypatch.setattr("video_drop.ocr.screen_rows", lambda png, width: _rows(*texts))
+    assert helpers._unlocked_by_pixels(stub, b"png") is False
+
+
+def test_a_locked_flag_or_a_failed_read_keeps_the_full_unlock_path(monkeypatch):
+    stub = StubPhone(SAMPLE_TREE)
+    stub.is_locked = lambda: True
+    monkeypatch.setattr("video_drop.ocr.screen_rows", lambda png, width: _rows("Camera"))
+    assert helpers._unlocked_by_pixels(stub, b"png") is False
+    stub.is_locked = lambda: False
+
+    def broken(png, width):
+        raise RuntimeError("OCR is not installed")
+    monkeypatch.setattr("video_drop.ocr.screen_rows", broken)
+    assert helpers._unlocked_by_pixels(stub, b"png") is False
+    assert helpers._unlocked_by_pixels(StubPhone(SAMPLE_TREE), b"png") is False  # no lock flag at all

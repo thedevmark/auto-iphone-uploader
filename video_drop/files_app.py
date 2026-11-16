@@ -11,6 +11,7 @@ for the user; this module never turns a location on or changes a setting.
 
 from __future__ import annotations
 
+import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path, PurePath
@@ -100,6 +101,11 @@ def file_cells(snapshot: Snapshot, filename: str) -> list[Element]:
 def folder_cells(snapshot: Snapshot, folder: str, labels: Labels) -> list[Element]:
     kind = labels.text("@label:folder")
     return list(dict.fromkeys(e for e in snapshot.elements if e.type == "Cell" and e.name == f"{folder}, {kind}"))
+
+
+def app_folder_cells(snapshot: Snapshot, folder: str) -> list[Element]:
+    """An app's own folder under On My iPhone: Files names its row "<app>, Container"."""
+    return list(dict.fromkeys(e for e in snapshot.elements if e.type == "Cell" and e.name == f"{folder}, Container"))
 
 
 def location_cells(snapshot: Snapshot, names: tuple[str, ...]) -> list[Element]:
@@ -306,18 +312,71 @@ class FilesApp:
                                  f"{round(bound / 60)} min. Check the iPhone is online, open Files and let the "
                                  "download finish, then post again. Nothing was posted")
 
+    def open_direct(self, target: FilesPath, wait: float = 12.0) -> bool:
+        """Open Files straight at the target's last folder by its deep link; True once that folder shows.
+
+        The folder's own title proves it, as after a tap. False (nothing lost) when the link does
+        not land there in time: the Browse walk then runs as before.
+        """
+        open_url = getattr(self.phone, "open_url", None)
+        if open_url is None or not target.folders:
+            return False
+        self.stage("files_direct")
+        try:
+            open_url(target.deeplink)
+        except Exception:  # the driver refused the URL: the Browse walk is the other way in
+            return False
+        # Only by-name lookups until the folder itself is open: reading the whole tree of the
+        # screen the link lands on (On My iPhone, about 200 elements) dropped the USB link on
+        # iOS 27.2, while lookups by name ran clean (27 of 27, 2026-11-15).
+        lookup = getattr(self.phone, "elements_by_ids", None)
+        if lookup is None:
+            return False
+        folder = target.folders[-1]
+        stem, ext = PurePath(target.filename).stem, PurePath(target.filename).suffix.lstrip(".")
+        row_id, file_id = f"{folder}, Container", f"{stem}, {ext}"
+        deadline = self.clock() + wait
+        while True:
+            try:
+                found = lookup((row_id, file_id))
+            except Exception:
+                return False
+            if any(item.get("name") == file_id for item in found):
+                return True  # the link opened the folder itself
+            rows = [item for item in found if item.get("name") == row_id and item.get("type", "").endswith("Cell")]
+            if len(rows) == 1:
+                rect = rows[0]["rect"]
+                self.phone.tap(float(rect["x"]) + float(rect["width"]) / 2, float(rect["y"]) + float(rect["height"]) / 2)
+                break
+            if self.clock() >= deadline:
+                return False
+            self.sleep(self.poll)
+        deadline = self.clock() + wait
+        while self.clock() < deadline:
+            self.sleep(self.poll)
+            try:
+                if any(item.get("name") == file_id for item in lookup((file_id,))):
+                    return True  # inside the app's folder: its one video is listed
+            except Exception:
+                return False
+        return False
+
     def open_file(self, target: FilesPath, size_bytes: int) -> None:
         """Files > Browse > location > folders > exact file > Share; the iOS share sheet stays up."""
         provider, where = target.provider, target.shown
         self.launch()
-        self.stage("files_browse")
-        self.to_browse()
-        cell, _ = self.scan(lambda snap: location_cells(snap, target.locations),
-                            f"{provider} is not listed in the Files app. {turn_on_fix(provider)}")
-        location = cell.name[len(SIDEBAR_ITEM):]
-        self.tap(cell)
-        self.enter(location, provider, provider)
-        for depth, folder in enumerate(target.folders):
+        if target.deeplink and self.open_direct(target):
+            folders: tuple[str, ...] = ()
+        else:
+            folders = target.folders
+            self.stage("files_browse")
+            self.to_browse()
+            cell, _ = self.scan(lambda snap: location_cells(snap, target.locations),
+                                f"{provider} is not listed in the Files app. {turn_on_fix(provider)}")
+            location = cell.name[len(SIDEBAR_ITEM):]
+            self.tap(cell)
+            self.enter(location, provider, provider)
+        for depth, folder in enumerate(folders):
             place = " › ".join((provider, *target.folders[:depth + 1]))
             cell, _ = self.scan(lambda snap, folder=folder: folder_cells(snap, folder, self.labels),
                                 f"Files has no folder {folder!r} in {' › '.join((provider, *target.folders[:depth]))}. "
@@ -331,6 +390,7 @@ class FilesApp:
         verify_row(cell, target.filename, size_bytes, where, provider)
         cell = self.download(cell, snapshot, target, size_bytes)
         verify_row(cell, target.filename, size_bytes, where, provider)
+        only_row = len({e.name for e in snapshot.elements if e.type == "Cell"}) == 1
         self.phone.long_press(cell.x, cell.y, 1.0)
         found = self.wait_until(lambda s, snap: s is not None and s.screen == "context_menu", MENU_WAIT, quiet=True)
         if found is None:
@@ -338,7 +398,13 @@ class FilesApp:
         _, snapshot = found
         stem = PurePath(target.filename).stem
         previews = [e for e in snapshot.elements if e.label.startswith(stem + ", ") and size_shown(size_bytes, [e.label])]
-        if not previews:
+        # A file stored on the iPhone shows a bare "Preview" in its menu, with no name or size
+        # (captured 2026-11-15, On My iPhone). The row just held was proven by name and size, so
+        # in a folder whose only row it is the menu can be no other file's; the share sheet's
+        # caption (name and size) is still checked below.
+        named = [e for e in snapshot.elements if re.search(r", .*\d (KB|MB|GB)", e.label)]
+        bare_preview = only_row and not named and any(e.name == "Preview" for e in snapshot.elements)
+        if not previews and not bare_preview:
             raise FilesError("The Files menu opened for a different file. Nothing was posted")
         self.stage("files_share")
         runner = Runner(self.phone, self.maps, self.labels, timeout=download_bound(size_bytes), poll=self.poll,

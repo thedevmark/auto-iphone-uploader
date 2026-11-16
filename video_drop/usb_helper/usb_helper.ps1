@@ -89,6 +89,14 @@ function Set-RateStamp {
 # ---- the two repairs: fixed commands, no caller input ------------------------------
 
 function Restart-AppleService {
+    $repairs = New-Object System.Collections.Generic.List[string]
+    try { [void](Repair-DisabledIphone $repairs) } catch { $repairs.Add("repair check failed: $($_.Exception.Message)") }
+    $result = Restart-AppleServiceOnly
+    if ($repairs.Count -gt 0) { $result.detail = (($repairs -join '; ') + '; ' + $result.detail) }
+    return $result
+}
+
+function Restart-AppleServiceOnly {
     $service = Get-Service -Name $AppleServiceName -ErrorAction SilentlyContinue
     if (-not $service) { return @{ ok = $false; detail = "service '$AppleServiceName' is not installed" } }
     $steps = New-Object System.Collections.Generic.List[string]
@@ -130,34 +138,82 @@ function Restart-AppleService {
     return @{ ok = ($service.Status -eq 'Running'); detail = ($steps -join '; ') }
 }
 
-function Restart-IphoneUsbDevice {
-    $devices = @(Get-PnpDevice -PresentOnly -ErrorAction Stop | Where-Object {
+function Get-IphoneNodes {
+    @(Get-PnpDevice -PresentOnly -ErrorAction Stop | Where-Object {
         $_.InstanceId.StartsWith($IphoneInstancePrefix, [StringComparison]::OrdinalIgnoreCase) -and
         $_.InstanceId -notmatch '&MI_'
     })
+}
+
+function Enable-IphoneNode([string]$id, $steps) {
+    # Never leave the iPhone disabled (2026-11-15: a reset that disabled it and then failed to
+    # enable it cut the phone off until an administrator enabled it by hand). Enable, check, retry.
+    for ($try = 1; $try -le 5; $try++) {
+        try { Enable-PnpDevice -InstanceId $id -Confirm:$false -ErrorAction Stop } catch { }
+        Start-Sleep -Seconds 2
+        $node = Get-PnpDevice -InstanceId $id -ErrorAction SilentlyContinue
+        if ($node -and $node.Status -eq 'OK') { $steps.Add("enabled (try $try)"); return $true }
+        & "$env:SystemRoot\System32\pnputil.exe" /enable-device "$id" 2>&1 | Out-Null
+    }
+    $steps.Add('could not enable the iPhone after 5 tries')
+    return $false
+}
+
+function Repair-DisabledIphone($steps) {
+    # A node Windows reports as disabled (problem code 22) is enabled again before anything else.
+    $ok = $true
+    foreach ($device in Get-IphoneNodes) {
+        $code = (Get-PnpDeviceProperty -InstanceId $device.InstanceId -KeyName 'DEVPKEY_Device_ProblemCode' `
+                 -ErrorAction SilentlyContinue).Data
+        if ($code -eq 22) {
+            $steps.Add('the iPhone was disabled in Windows')
+            if (-not (Enable-IphoneNode $device.InstanceId $steps)) { $ok = $false }
+        }
+    }
+    return $ok
+}
+
+function Restart-IphoneUsbDevice {
+    $devices = Get-IphoneNodes
     if ($devices.Count -eq 0) { return @{ ok = $false; detail = 'no iPhone USB device node is present' } }
     $steps = New-Object System.Collections.Generic.List[string]
-    $allOk = $true
-    foreach ($device in $devices) {
-        # The instance id comes from Windows' own enumeration above, never from the request.
-        $id = $device.InstanceId
-        $serial = $id.Substring($IphoneInstancePrefix.Length)
-        $output = & "$env:SystemRoot\System32\pnputil.exe" /restart-device "$id" 2>&1 | Out-String
-        $code = $LASTEXITCODE
-        if ($code -eq 0) {
-            $steps.Add("restarted USB node for serial ending $($serial.Substring([Math]::Max(0, $serial.Length - 4)))")
-            continue
+    $allOk = Repair-DisabledIphone $steps
+    # Apple Mobile Device Service holds the iPhone open; with it running Windows answers a live
+    # restart with "reboot needed" (3010). Stop it first, reset, then start it again.
+    $service = Get-Service -Name $AppleServiceName -ErrorAction SilentlyContinue
+    if ($service -and $service.Status -ne 'Stopped') {
+        try { Stop-Service -Name $AppleServiceName -Force -ErrorAction Stop; $steps.Add('service stopped') }
+        catch { $steps.Add("service stop failed: $($_.Exception.Message)") }
+    }
+    try {
+        foreach ($device in Get-IphoneNodes) {
+            # The instance id comes from Windows' own enumeration above, never from the request.
+            $id = $device.InstanceId
+            $serial = $id.Substring($IphoneInstancePrefix.Length)
+            $output = & "$env:SystemRoot\System32\pnputil.exe" /restart-device "$id" 2>&1 | Out-String
+            $code = $LASTEXITCODE
+            if ($code -eq 0) {
+                $steps.Add("restarted USB node for serial ending $($serial.Substring([Math]::Max(0, $serial.Length - 4)))")
+                continue
+            }
+            # pnputil /restart-device needs Windows 10 2004+; disable/enable is the older equivalent.
+            $steps.Add("pnputil exit $code ($($output.Trim() -replace '\s+', ' ')); trying disable/enable")
+            try {
+                Disable-PnpDevice -InstanceId $id -Confirm:$false -ErrorAction Stop
+                Start-Sleep -Seconds 2
+            } catch {
+                $steps.Add("disable failed: $($_.Exception.Message)")
+            } finally {
+                if (-not (Enable-IphoneNode $id $steps)) { $allOk = $false }
+            }
         }
-        # pnputil /restart-device needs Windows 10 2004+; disable/enable is the older equivalent.
-        $steps.Add("pnputil exit $code ($($output.Trim() -replace '\s+', ' ')); trying disable/enable")
+    } finally {
         try {
-            Disable-PnpDevice -InstanceId $id -Confirm:$false -ErrorAction Stop
-            Start-Sleep -Seconds 2
-            Enable-PnpDevice -InstanceId $id -Confirm:$false -ErrorAction Stop
-            $steps.Add('disable/enable done')
+            Start-Service -Name $AppleServiceName -ErrorAction Stop
+            $steps.Add('service started')
         } catch {
             $allOk = $false
-            $steps.Add("disable/enable failed: $($_.Exception.Message)")
+            $steps.Add("service start failed: $($_.Exception.Message)")
         }
     }
     return @{ ok = $allOk; detail = ($steps -join '; ') }

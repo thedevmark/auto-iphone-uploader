@@ -41,9 +41,15 @@ def copy_timeout(size_bytes: int) -> float:
     return min(1200.0, 60.0 + size_bytes / 10_000_000)
 
 
-def files_path(filename: str) -> FilesPath:
-    """Where the copied video shows in Files: On My iPhone › Auto iPhone Uploader › <file>."""
-    return FilesPath(LOCATION, (LOCATION,), (APP_FOLDER,), filename)
+def files_path(filename: str, container: str = "") -> FilesPath:
+    """Where the copied video shows in Files: On My iPhone › Auto iPhone Uploader › <file>.
+
+    With the app's data container known, the path carries the deep link to that folder, so
+    Files opens on it at once and its Browse and Recents screens are never read (their large
+    trees dropped the USB link on iOS 27.2, 3 runs out of 3 on 2026-11-15).
+    """
+    link = f"shareddocuments://{container}/{FOLDER}" if container.startswith("/") else ""
+    return FilesPath(LOCATION, (LOCATION,), (APP_FOLDER,), filename, link)
 
 
 def parse_tree(output: str) -> set[str]:
@@ -90,8 +96,10 @@ def _default_run(args: list[str], timeout: float) -> subprocess.CompletedProcess
 
 
 class UsbCopy:
-    def __init__(self, ios: str, bundle: str, record: Path, *, udid: str | None = None, run: Run = _default_run):
+    def __init__(self, ios: str, bundle: str, record: Path, *, udid: str | None = None, run: Run = _default_run,
+                 container: str = ""):
         self.ios, self.bundle, self.record, self.udid, self.run_command = ios, bundle, Path(record), udid, run
+        self.container = container  # the app's data folder on the phone, for the Files deep link
 
     def _fsync(self, *args: str, timeout: float = 60.0) -> str:
         command = [self.ios, "fsync", f"--app={self.bundle}", *args]
@@ -145,15 +153,15 @@ class UsbCopy:
                 raise UsbCopyError(f"{name} is not on the iPhone after the copy")
             self.record.parent.mkdir(parents=True, exist_ok=True)
             self.record.write_text(json.dumps(wanted), encoding="utf-8")
-        return files_path(name)
+        return files_path(name, self.container)
 
 
-def shares_files(ios: str, bundle: str, *, run: Run = _default_run) -> bool:
-    """True when the installed driver's Info.plist turns on file sharing (read with ``ios apps``)."""
+def app_record(ios: str, bundle: str, *, run: Run = _default_run) -> dict:
+    """The installed driver's entry from ``ios apps`` (its Info.plist keys and its container), or {}."""
     try:
         done = run([ios, "apps"], 40.0)
     except (subprocess.TimeoutExpired, OSError):
-        return False
+        return {}
     for line in (done.stdout or "").splitlines():
         try:
             entry = json.loads(line)
@@ -161,8 +169,13 @@ def shares_files(ios: str, bundle: str, *, run: Run = _default_run) -> bool:
             continue
         for app in entry if isinstance(entry, list) else [entry]:
             if isinstance(app, dict) and app.get("CFBundleIdentifier") == bundle:
-                return app.get("UIFileSharingEnabled") is True
-    return False
+                return app
+    return {}
+
+
+def shares_files(ios: str, bundle: str, *, run: Run = _default_run) -> bool:
+    """True when the installed driver's Info.plist turns on file sharing (read with ``ios apps``)."""
+    return app_record(ios, bundle, run=run).get("UIFileSharingEnabled") is True
 
 
 def driver() -> tuple[str, str] | None:
@@ -192,7 +205,8 @@ def put_release_video(source: Path, size_bytes: int, sha256: str, state_dir: Pat
     from .phone_space import room_problem
 
     ios, bundle = found
-    copier = UsbCopy(ios, bundle, Path(state_dir) / "usb-copy.json", udid=device.current_udid())
+    container = str(app_record(ios, bundle).get("Container") or "")
+    copier = UsbCopy(ios, bundle, Path(state_dir) / "usb-copy.json", udid=device.current_udid(), container=container)
     if free is not None:
         held = copier.holds(Path(source).name, size_bytes, sha256)
         if (problem := room_problem(size_bytes, free(), on_phone=held)) and "could not read" not in problem:

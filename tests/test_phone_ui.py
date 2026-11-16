@@ -90,6 +90,28 @@ class PhoneUiTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "not on an observed"):
             exit_target(["Upload Short"])
 
+    def test_youtube_closes_a_launch_offer_by_its_corner_x(self):
+        # 2026-11-15: "Welcome to YouTube Premium" covered the tabs and stopped a post.
+        offer = [{"text": "YouTube Premium", "x": 67, "y": 69}, {"text": "Welcome to YouTube", "x": 35, "y": 189},
+                 {"text": "Let's go", "x": 188, "y": 812}, {"text": "x", "x": 386, "y": 71}]
+        self.assertEqual(exit_target([row["text"] for row in offer]), "offer X")
+        self.assertEqual(exit_target(["Try Premium", "No thanks"]), "No thanks")
+        phone = MagicMock()
+        phone.screen_info.return_value = {"width": 440, "height": 956}
+        with patch("video_drop.youtube_nav.visible_rows", side_effect=[
+            offer, [{"text": "Home"}, {"text": "You"}], [{"text": "Home"}, {"text": "You"}],
+        ]), patch("video_drop.youtube_nav.time.sleep"),                 patch("video_drop.phone_link.upload_pending", return_value=False):
+            open_tabs(phone)
+        phone.tap.assert_called_once_with(386, 71)
+        # An "x" that is not in a top corner is never tapped.
+        low = [{"text": "Offer", "x": 100, "y": 300}, {"text": "x", "x": 200, "y": 600}]
+        phone = MagicMock()
+        phone.screen_info.return_value = {"width": 440, "height": 956}
+        with patch("video_drop.youtube_nav.visible_rows", return_value=low),                 patch("video_drop.youtube_nav.pixel_rows", return_value=low),                 patch("video_drop.youtube_nav.time.sleep"),                 patch("video_drop.phone_link.upload_pending", return_value=False):
+            with self.assertRaisesRegex(ValueError, "cannot close"):
+                open_tabs(phone)
+        phone.tap.assert_not_called()
+
     def test_youtube_waits_for_tabs_after_a_transient_launch_screen(self):
         phone = MagicMock()
         phone.current_app.return_value = {"bundleId": "com.google.ios.youtube"}

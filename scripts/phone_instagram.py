@@ -110,7 +110,7 @@ def release_input(store: Store, release_id: int, now: datetime | None = None) ->
     release = store.release(release_id)
     mode = release["delivery_mode"]
     instagram = _approved(store, release, "instagram")
-    require_target(store.account_targets, "instagram", instagram["account"])
+    account = require_target(store.account_targets, "instagram", instagram["account"])
     # Post now: one Instagram upload carries the crossposts Settings leave on (release
     # "instagramCrossposts", default Facebook + Threads). Schedule: Instagram's scheduler carries
     # Facebook only; Threads is scheduled in Threads.
@@ -143,7 +143,7 @@ def release_input(store: Store, release_id: int, now: datetime | None = None) ->
     if not caption:
         raise Stop("Instagram caption is empty")
     return {"releaseId": release_id, "filename": source.name, "sizeBytes": release["file_size"],
-            "sourcePath": str(source), "account": instagram["account"], "caption": caption,
+            "sourcePath": str(source), "account": account, "caption": caption,
             "color": edits_color_mode(source), "fps": edits_frame_rate(source_frame_rate(source)),
             "revisionHash": instagram["revision_hash"], "mode": mode, "crossposts": carried, **schedule}
 

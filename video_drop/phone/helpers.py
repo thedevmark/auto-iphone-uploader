@@ -636,6 +636,12 @@ def _resolve_bundle(name: str) -> str:
     return bundle
 
 
+def open_url(url: str) -> None:
+    """Open a deep link on the phone (WDAClient.open_url)."""
+    _invalidate_tree()
+    client().open_url(url)
+
+
 def close_app(name: str) -> bool:
     """Force-quit an app: the switcher's swipe-up. Takes the same names as
     open_app(). False when it was not running."""
@@ -919,6 +925,36 @@ def _enter_passcode(c, passcode: str, pad_tree: dict) -> None:
                 # at the next fresh session, failing here would be a lie
 
 
+_PAD_WORDS = ("passcode", "swipe up to open", "swipe up to unlock", "emergency")
+
+
+def _unlocked_by_pixels(c, png: bytes) -> bool:
+    """True when a lit phone is unlocked and usable, decided with no accessibility request.
+
+    Measured 2026-11-15 (iOS 27.2): reading the Home Screen's element tree, which unlock()
+    did on every run, dropped the phone off USB twice out of two tries (after 6 full
+    reads; after 29 reads without the costly attributes), while screenshots, Home presses, app
+    launches and small trees ran clean. So the common case (phone already unlocked) is settled
+    from WDA's own lock flag plus the pixels: /wda/locked says unlocked, and OCR of the screenshot
+    shows no passcode pad (nine digit keys or its prompt) and no lock-screen prompt. /wda/locked
+    alone can say "unlocked" with the pad up; the pixel read is what rules that out.
+    Any doubt, or any failure here, returns False and unlock() goes on as before.
+    """
+    try:
+        if c.is_locked():
+            return False
+        from .. import ocr as pixel_ocr
+
+        texts = [str(row.get("text", "")).strip() for row in pixel_ocr.screen_rows(png, 440.0)]
+    except Exception:  # no lock flag, OCR missing or failed: not proof of an unlocked phone
+        return False
+    if not texts:
+        return False
+    digits = {text for text in texts if len(text) == 1 and text.isdigit()}
+    lowered = " ".join(texts).casefold()
+    return len(digits) < 6 and not any(word in lowered for word in _PAD_WORDS)
+
+
 def unlock(c: WDAClient | None = None) -> None:
     """Make the phone usable: wake it and, if the passcode pad comes up, enter
     PHONE_PASSCODE from .env (opt-in). Scrubs the passcode from any error.
@@ -947,6 +983,8 @@ def unlock(c: WDAClient | None = None) -> None:
     if len(first) >= _LIT_SCREEN_BYTES:
         if _front_bundle in config.AX_VIDEO_APPS:
             return
+        if _unlocked_by_pixels(c, first):
+            return  # lit, unlocked, no pad: nothing to do, and no tree read of the Home Screen
         time.sleep(_VIDEO_FRAME_GAP)
         if _frames_moving(first, c.screenshot()):
             return

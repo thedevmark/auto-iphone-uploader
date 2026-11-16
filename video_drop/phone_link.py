@@ -132,6 +132,19 @@ def wda_ready(timeout: float = 3.0) -> bool:
         return False
 
 
+def link_ready(timeout: float = 3.0) -> bool:
+    """WDA answers AND the supervisor calls the link ready.
+
+    After a USB drop the old driver can still answer for a few seconds while the supervisor is
+    about to restart it (2026-11-15: three flows resumed into that gap and failed again at once).
+    A flow resumes only when both agree. Without a supervisor's status file, WDA's answer decides.
+    """
+    if not wda_ready(timeout):
+        return False
+    state = link_supervisor.read_status(link_supervisor.state_dir()).get("state")
+    return state in (None, "", "unknown", "ready")
+
+
 UPLOADS_FILE = "uploads-pending.json"
 
 
@@ -224,7 +237,7 @@ def upload_linger(size_bytes: int) -> float:
     return 90.0 + size_bytes / 1_000_000 * 1.5
 
 
-def recover(admin=None, *, status=wda_ready, release=None, sleep=time.sleep, clock=time.monotonic,
+def recover(admin=None, *, status=link_ready, release=None, sleep=time.sleep, clock=time.monotonic,
             wait: float = 45.0, poll: float = 3.0, supervisor_state: Path | None = None,
             supervised=None, start=None) -> bool:
     """Return True once WDA answers. The last resort is the supervisor's job, never a restart from here.

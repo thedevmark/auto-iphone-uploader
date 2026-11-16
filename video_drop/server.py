@@ -193,9 +193,22 @@ def setup_status(*, complete: bool = False) -> dict:
     return result
 
 
+SPACE_READ_TRIES = 3
+SPACE_READ_PAUSE = 2.0
+
+
 def measured_phone_space() -> int | None:
-    """Read the iPhone's free space and keep the last reading for the setup checklist."""
+    """Read the iPhone's free space and keep the last reading for the setup checklist.
+
+    One unanswered read is retried twice: usbmux drops a single request now and then while
+    the phone stays connected, and that must not stop a post.
+    """
     free = phone_free_bytes()
+    for _ in range(SPACE_READ_TRIES - 1):
+        if free is not None:
+            break
+        time.sleep(SPACE_READ_PAUSE)
+        free = phone_free_bytes()
     if free is not None:
         STATE.mkdir(parents=True, exist_ok=True)
         (STATE / "phone-space.json").write_text(json.dumps({"freeBytes": free, "checkedAt": utc_now().isoformat()}),
@@ -363,6 +376,25 @@ def check_inputs(store: Store, release_id: int, platform: str, mode: str) -> Non
                              "choose Post now to upload it immediately")
 
 
+# A platform whose flow stops on the phone link before its final tap is started again, this many
+# times in all. A weak USB port can drop the phone several times in one upload; the link comes
+# back by itself each time (the supervisor, and the port power-cycle), so the run carries on.
+FLOW_ATTEMPTS = 6
+LINK_ERROR_WORDS = ("webdriveragent", "screenshot", "phone link", "did not answer", "cannot reach", "usbmux",
+                    "tunnel", "connection", "timed out", "timeout", "lockdown", "go-ios", "device not found",
+                    "no ios devices", "testmanagerd", "link supervisor")
+
+
+def link_failure(exc: Exception, link_state: str) -> bool:
+    """True when a flow's stop came from the phone link, not from the app's screens or the inputs.
+
+    Either the supervisor says the link is not ready right after the stop, or the error names
+    the driver, the screenshot service or the connection.
+    """
+    text = str(exc).casefold()
+    return link_state != "ready" or any(word in text for word in LINK_ERROR_WORDS)
+
+
 def run_flow(release_id: int, platform: str, mode: str, *, slot: SlotPost | None = None) -> dict:
     """Run one platform's native flow with commit=True. Each flow marks its own final tap unconfirmed."""
     db = STATE / "video-drop.sqlite"
@@ -445,7 +477,7 @@ def queue_phone_post(release_id: int, platform: str, *, slot: SlotPost | None = 
                                  f"{' and '.join(map(platform_name, earlier))} first. Nothing was posted.")
             if sync_refusal := source_refusal(release):
                 raise ValueError(sync_refusal)
-            ensure_room(release["file_size"], measured_phone_space(), on_phone=copied_over_usb(release))
+            ensure_phone_room(release)
             check_inputs(store, release_id, platform, "post_now")
             if slot is not None and not store.mark_slot_post(release_id, platform, slot.slot, "slot_post_queued"):
                 raise ValueError("This slot was already attempted; check the account before any retry")
@@ -539,7 +571,7 @@ def queue_release_run(release_id: int, mode: str) -> dict:
                 # The phone gets the video over USB or from the cloud: refuse on the PC, not on the phone.
                 if sync_refusal := source_refusal(release):
                     raise ValueError(sync_refusal)
-                ensure_room(release["file_size"], measured_phone_space(), on_phone=copied_over_usb(release))
+                ensure_phone_room(release)
                 for platform in platforms:
                     check_inputs(store, release_id, platform, mode)
         steps = [{"platform": row["platform"], "state": row["state"], "message": row["note"],
@@ -611,7 +643,27 @@ def run_release_steps(release_id: int, mode: str, platforms: list[str], steps: l
                     raise ValueError(link_refusal(link, f"Nothing was sent to {name}."))
                 step["message"] = f"Scheduling in {name}" if mode == "schedule" else f"Posting in {name}"
                 save(link=link_brief(link), message=step["message"])
-                outcome = run_flow(release_id, platform, mode)
+                for attempt in range(1, FLOW_ATTEMPTS + 1):
+                    try:
+                        outcome = run_flow(release_id, platform, mode)
+                        break
+                    except Exception as exc:
+                        # Only a platform with no final tap recorded is ever started again.
+                        if (attempt == FLOW_ATTEMPTS or destination_status(release_id, platform) != "pending"
+                                or not link_failure(exc, wait_for_link(None, 0.0).get("state", ""))):
+                            raise
+                        print(f"{name} attempt {attempt} stopped on the phone link ({str(exc)[:200]}); "
+                              "waiting for the link, then starting it again", file=sys.stderr, flush=True)
+                        step["message"] = f"The phone link dropped; reconnecting, then {name} starts again"
+                        save(message=step["message"])
+                        link = wait_for_link(lambda link_status: save(
+                            link=link_brief(link_status),
+                            message=f"Reconnecting the phone before {name} (try {attempt + 1} of {FLOW_ATTEMPTS}): "
+                                    f"{link_status.get('message', '')}"))
+                        if link.get("state") != "ready":
+                            raise ValueError(link_refusal(link, f"Nothing was sent to {name}.")) from exc
+                        step["message"] = f"Posting in {name} (try {attempt + 1})"
+                        save(link=link_brief(link), message=step["message"])
                 if settle(platform, str(outcome.get("message", ""))) == "pending":
                     raise ValueError(f"{name} finished without its final tap")
             except Exception as exc:
@@ -954,6 +1006,17 @@ def copied_over_usb(release: dict) -> bool:
             and record.get("size") == release["file_size"])
 
 
+def ensure_phone_room(release: dict) -> None:
+    """The storage pre-check. When the phone does not answer, say what the phone link is doing
+    (the supervisor's own words: recovering, unlock, replug) instead of a blanket "reconnect"."""
+    free = measured_phone_space()
+    if free is None:
+        status = link_supervisor.read_status(STATE)
+        if status.get("state") != "ready":
+            raise ValueError(link_refusal(status, "Nothing was posted."))
+    ensure_room(release["file_size"], free, on_phone=copied_over_usb(release))
+
+
 def source_refusal(release: dict) -> str | None:
     """Why the phone cannot get this video yet, or None.
 
@@ -1095,6 +1158,10 @@ class Handler(BaseHTTPRequestHandler):
 
     def _json(self, status: int, data: object) -> None:
         body = json.dumps(data, ensure_ascii=False).encode()
+        if status >= 400 and isinstance(data, dict) and data.get("error"):
+            # Every refusal is written to the log with its reason, so "why did that click do
+            # nothing" always has an answer.
+            print(f"Refused {self.command} {urlsplit(self.path).path}: {data['error']}", file=sys.stderr, flush=True)
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))

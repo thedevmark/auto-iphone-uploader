@@ -53,9 +53,21 @@ def _layout(phone) -> PhoneLayout:
 
 
 def settings_root(phone) -> None:
-    """Settings on its first page: it reopens where it was left, so walk back first."""
+    """Settings on its first page, started fresh.
+
+    Settings reopens where it was left: on a sub-page, or with text in its search field, where
+    none of its rows exist (2026-11-15: a search left open stopped a post with "no battery row").
+    Quitting it first clears the search; the walk back below covers a restored sub-page.
+    """
     phone.press_home()
     time.sleep(0.8)
+    quit_app = getattr(phone, "close_app", None)
+    if quit_app is not None:
+        try:
+            quit_app(SETTINGS)
+            time.sleep(0.6)
+        except Exception:  # not running, or the driver could not quit it: the walk back still runs
+            pass
     phone.open_app(SETTINGS, wait_seconds=1)
     for _ in range(6):
         back = [e for e in _elements(phone, ("BackButton",)) if e.type == "Button" and e.name == "BackButton"]
